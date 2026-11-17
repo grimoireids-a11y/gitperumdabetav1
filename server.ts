@@ -214,7 +214,7 @@ Prinsip utama:
         );
 
         const geminiPromise = ai.models.generateContent({
-          model: 'gemini-3.8-flash',
+          model: 'gemini-4-hydrogen',
           contents: prompt,
           config: { systemInstruction },
         });
@@ -222,7 +222,7 @@ Prinsip utama:
         const response: any = await Promise.race([geminiPromise, timeoutPromise]);
         const text = response?.text || '';
         if (text.trim().length > 0) {
-          return res.json({ text, source: 'gemini-3.8-flash' });
+          return res.json({ text, source: 'gemini-4-hydrogen' });
         }
       } catch (geminiError) {
         console.warn('Gemini API call timed out or returned error, falling back to expert generator:', geminiError);

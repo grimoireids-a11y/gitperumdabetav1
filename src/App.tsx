@@ -11,6 +11,8 @@ import { Navbar } from './components/layout/Navbar';
 import { DashboardOverview } from './components/dashboard/DashboardOverview';
 import { RiskUniverseModule } from './components/risk/RiskUniverseModule';
 import { RiskRegisterModule } from './components/risk/RiskRegisterModule';
+import { RiskProfileModule } from './components/risk/RiskProfileModule';
+import { RiskAnnualReportModule } from './components/risk/RiskAnnualReportModule';
 import { RCSAModule } from './components/risk/RCSAModule';
 import { SelfAssessmentBPKPModule } from './components/assessment/SelfAssessmentBPKPModule';
 import { RKAModule } from './components/pkpt/RKAModule';
@@ -20,6 +22,7 @@ import { AuditAssignmentModule } from './components/audit/AuditAssignmentModule'
 import { AuditProgramModule } from './components/audit/AuditProgramModule';
 import { WorkPaperModule } from './components/audit/WorkPaperModule';
 import { AuditReportModule } from './components/audit/AuditReportModule';
+import { SPIPeriodicReportModule } from './components/audit/SPIPeriodicReportModule';
 import { FindingsModule } from './components/findings/FindingsModule';
 import { FollowUpModule } from './components/findings/FollowUpModule';
 import { InvestigationModule } from './components/investigation/InvestigationModule';
@@ -145,6 +148,19 @@ const AppContent: React.FC = () => {
             }
           />
         );
+      case 'risk_profile':
+        return (
+          <RiskProfileModule
+            onNavigateToAnnualReport={() => setActiveTab('risk_annual_report')}
+            onNavigateToRiskRegister={() => setActiveTab('risk_register')}
+          />
+        );
+      case 'risk_annual_report':
+        return (
+          <RiskAnnualReportModule
+            onNavigateToRiskProfile={() => setActiveTab('risk_profile')}
+          />
+        );
       case 'rcsa':
         return <RCSAModule />;
       case 'bpkp_assessment':
@@ -214,6 +230,8 @@ const AppContent: React.FC = () => {
             onNavigateToFindings={() => setActiveTab('findings')}
           />
         );
+      case 'spi_periodic_reports':
+        return <SPIPeriodicReportModule />;
       case 'findings':
         return (
           <FindingsModule

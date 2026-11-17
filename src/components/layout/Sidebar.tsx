@@ -19,6 +19,8 @@ import {
   Wallet,
   Download,
   Upload,
+  ShieldAlert,
+  FileBarChart2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppBranding } from '../../context/AppBrandingContext';
@@ -28,6 +30,8 @@ export type ActiveTab =
   | 'dashboard'
   | 'risk_universe'
   | 'risk_register'
+  | 'risk_profile'
+  | 'risk_annual_report'
   | 'rcsa'
   | 'bpkp_assessment'
   | 'rka'
@@ -37,6 +41,7 @@ export type ActiveTab =
   | 'audit_program'
   | 'work_papers'
   | 'audit_reports'
+  | 'spi_periodic_reports'
   | 'findings'
   | 'follow_ups'
   | 'investigations'
@@ -113,6 +118,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           items: [
             { id: 'risk_universe', label: 'Pemilik Risiko', icon: Building2 },
             { id: 'risk_register', label: 'Register Risiko 5x5', icon: AlertTriangle },
+            {
+              id: 'risk_profile',
+              label: 'Profil Risiko Korporat',
+              icon: ShieldAlert,
+              roles: ['KEPALA_SPI', 'ADMIN_SISTEM'],
+            },
+            {
+              id: 'risk_annual_report',
+              label: 'Laporan Tahunan Risiko',
+              icon: FileBarChart2,
+              roles: ['KEPALA_SPI', 'ADMIN_SISTEM'],
+            },
             { id: 'rcsa', label: 'Penilaian RCSA Unit', icon: ClipboardList },
             { id: 'bpkp_assessment', label: 'Self Assessment SPIP', icon: Award },
             { id: 'rka', label: 'Input RKA Manual', icon: Wallet },
@@ -127,6 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'audit_program', label: 'Program Audit (PKA)', icon: ClipboardList },
             { id: 'work_papers', label: 'Kertas Kerja Audit (KKA)', icon: BookOpen, hideFor: ['AUDITEE'] },
             { id: 'audit_reports', label: 'Laporan Hasil Audit (LHA)', icon: FileText },
+            { id: 'spi_periodic_reports', label: 'Laporan SPI (Bulanan/Tahunan)', icon: FileBarChart2 },
           ],
         },
         {

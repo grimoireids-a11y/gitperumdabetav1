@@ -47,6 +47,10 @@ export const Navbar: React.FC<NavbarProps> = ({
         return 'Pemilik Risiko & Struktur Proses BUMD';
       case 'risk_register':
         return 'Register Risiko Korporat (Matriks 5x5)';
+      case 'risk_profile':
+        return 'Profil Risiko Korporat & Selera Risiko (Khusus Kepala SPI / Super User)';
+      case 'risk_annual_report':
+        return 'Laporan Tahunan Manajemen Risiko (Khusus Kepala SPI / Super User)';
       case 'rcsa':
         return 'Penilaian Sendiri Risiko Unit (RCSA)';
       case 'bpkp_assessment':
@@ -65,6 +69,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         return 'Kertas Kerja Audit (KKA) & Pengujian Substantif';
       case 'audit_reports':
         return 'Laporan Hasil Audit (LHA) & Pengawasan SPI (Asistensi AI)';
+      case 'spi_periodic_reports':
+        return 'Laporan Pengawasan SPI (Bulanan & Tahunan)';
       case 'findings':
         return 'Matriks Temuan Audit 5C & Potensi Kerugian';
       case 'follow_ups':

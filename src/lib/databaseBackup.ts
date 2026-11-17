@@ -30,6 +30,16 @@ export const BACKUP_COLLECTIONS: BackupCollectionMeta[] = [
     description: 'Identifikasi risiko, analisis akar masalah, skor inheren/residual & mitigasi',
   },
   {
+    key: 'risk_profiles',
+    label: 'Profil Risiko Korporat & Selera Risiko',
+    description: 'Penetapan selera risiko, batas toleransi, dan evaluasi profil risiko Kepala SPI',
+  },
+  {
+    key: 'risk_annual_reports',
+    label: 'Laporan Tahunan Manajemen Risiko',
+    description: 'Naskah laporan tahunan manajemen risiko 7 bab beserta pengesahan Kepala SPI',
+  },
+  {
     key: 'rcsa_assessments',
     label: 'Penilaian Risiko & Kontrol (RCSA)',
     description: 'Lembar penilaian mandiri unit kerja dan reviu efektivitas kontrol SPI',
@@ -78,6 +88,11 @@ export const BACKUP_COLLECTIONS: BackupCollectionMeta[] = [
     key: 'audit_reports',
     label: 'Laporan Hasil Audit (LHA)',
     description: 'Naskah LHA, ringkasan eksekutif, kesimpulan, dan status pengesahan',
+  },
+  {
+    key: 'spi_periodic_reports',
+    label: 'Laporan SPI Bulanan & Tahunan',
+    description: 'Laporan berkala bulanan dan tahunan pelaksanaan pengawasan SPI',
   },
   {
     key: 'findings',

@@ -480,4 +480,96 @@ export interface BPKPSelfAssessment {
   updatedAt: string;
 }
 
+export type RiskProfileStatus = 'Draft' | 'Ditetapkan Kepala SPI' | 'Disetujui Direksi';
+
+export interface RiskProfileConfig {
+  id: string;
+  year: number;
+  appetiteThreshold: number;
+  extremeToleranceCount: number;
+  targetControlEffectivenessPct: number;
+  targetMitigationCompletionPct: number;
+  appetiteStatement: string;
+  priorityFocusNote: string;
+  kepalaSpiConclusion: string;
+  strategicDirection: string;
+  priorityRiskIds: string[];
+  status: RiskProfileStatus;
+  snapshotMetrics?: {
+    totalRisks: number;
+    avgInherent: number;
+    avgResidual: number;
+    reductionPct: number;
+    aboveAppetiteCount: number;
+    effectiveControlPct: number;
+    spipRiskMaturity: number;
+    snapshotAt: string;
+  };
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export type RiskAnnualReportStatus =
+  | 'Draft'
+  | 'Final / Disahkan Kepala SPI'
+  | 'Disampaikan ke Direksi & Dewas';
+
+export interface RiskAnnualReport {
+  id: string;
+  year: number;
+  reportNumber: string;
+  reportTitle: string;
+  reportDate: string;
+  preparedBy: string;
+  recipient: string;
+  appetiteThreshold: number;
+  executiveSummaryNarrative: string;
+  contextAndGovernanceNarrative: string;
+  categoryAndHeatmapAnalysis: string;
+  unitExposureAnalysis: string;
+  mitigationAndControlEvaluation: string;
+  spipPkptIntegrationAnalysis: string;
+  conclusionAndChallenges: string;
+  nextYearRoadmapNarrative: string;
+  status: RiskAnnualReportStatus;
+  approvedBy?: string;
+  approvedAt?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type SPIPeriodicType = 'BULANAN' | 'TAHUNAN';
+
+export type SPIPeriodicReportStatus =
+  | 'Draft'
+  | 'Review Kepala SPI'
+  | 'Disahkan & Disampaikan ke Direksi';
+
+export interface SPIPeriodicReport {
+  id: string;
+  periodType: SPIPeriodicType;
+  year: number;
+  month?: number; // 1-12 for BULANAN
+  reportNumber: string;
+  reportTitle: string;
+  reportDate: string;
+  preparedBy: string;
+  recipient: string;
+  executiveSummary: string;
+  pkptAndProgramRealization: string;
+  auditExecutionSummary: string;
+  findingsAndFollowUpSummary: string;
+  investigationAndComplianceSummary: string;
+  constraintsAndRecommendations: string;
+  nextPeriodPlan: string;
+  status: SPIPeriodicReportStatus;
+  approvedBy?: string;
+  approvedAt?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+
 

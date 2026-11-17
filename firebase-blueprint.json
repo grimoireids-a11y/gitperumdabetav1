@@ -264,6 +264,87 @@
         "status": { "type": "string", "enum": ["Berlaku", "Dalam Review", "Dicabut"] }
       },
       "required": ["id", "title", "regNumber", "category", "status"]
+    },
+    "RiskProfileConfig": {
+      "title": "RiskProfileConfig",
+      "description": "Corporate risk profile configuration, risk appetite thresholds, and Kepala SPI sign-off per fiscal year",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "appetiteThreshold": { "type": "number" },
+        "extremeToleranceCount": { "type": "number" },
+        "targetControlEffectivenessPct": { "type": "number" },
+        "targetMitigationCompletionPct": { "type": "number" },
+        "appetiteStatement": { "type": "string", "maxLength": 3000 },
+        "priorityFocusNote": { "type": "string", "maxLength": 3000 },
+        "kepalaSpiConclusion": { "type": "string", "maxLength": 3000 },
+        "strategicDirection": { "type": "string", "maxLength": 3000 },
+        "status": { "type": "string", "enum": ["Draft", "Ditetapkan Kepala SPI", "Disetujui Direksi"] },
+        "updatedBy": { "type": "string", "maxLength": 128 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "year", "appetiteThreshold", "status"]
+    },
+    "RiskAnnualReport": {
+      "title": "RiskAnnualReport",
+      "description": "Structured 7-chapter annual risk management report restricted to Kepala SPI and Super User",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "reportNumber": { "type": "string", "maxLength": 128 },
+        "reportTitle": { "type": "string", "maxLength": 256 },
+        "reportDate": { "type": "string", "maxLength": 32 },
+        "preparedBy": { "type": "string", "maxLength": 128 },
+        "recipient": { "type": "string", "maxLength": 256 },
+        "appetiteThreshold": { "type": "number" },
+        "executiveSummaryNarrative": { "type": "string", "maxLength": 8000 },
+        "contextAndGovernanceNarrative": { "type": "string", "maxLength": 8000 },
+        "categoryAndHeatmapAnalysis": { "type": "string", "maxLength": 8000 },
+        "unitExposureAnalysis": { "type": "string", "maxLength": 8000 },
+        "mitigationAndControlEvaluation": { "type": "string", "maxLength": 8000 },
+        "spipPkptIntegrationAnalysis": { "type": "string", "maxLength": 8000 },
+        "conclusionAndChallenges": { "type": "string", "maxLength": 8000 },
+        "nextYearRoadmapNarrative": { "type": "string", "maxLength": 8000 },
+        "status": { "type": "string", "enum": ["Draft", "Final / Disahkan Kepala SPI", "Disampaikan ke Direksi & Dewas"] },
+        "approvedBy": { "type": "string", "maxLength": 128 },
+        "approvedAt": { "type": "string", "maxLength": 64 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "year", "reportNumber", "reportTitle", "status"]
+    },
+    "SPIPeriodicReport": {
+      "title": "SPIPeriodicReport",
+      "description": "Monthly and annual SPI internal audit supervision activity reports",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "periodType": { "type": "string", "enum": ["BULANAN", "TAHUNAN"] },
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "reportNumber": { "type": "string", "maxLength": 128 },
+        "reportTitle": { "type": "string", "maxLength": 256 },
+        "reportDate": { "type": "string", "maxLength": 32 },
+        "preparedBy": { "type": "string", "maxLength": 128 },
+        "recipient": { "type": "string", "maxLength": 256 },
+        "executiveSummary": { "type": "string", "maxLength": 8000 },
+        "pkptAndProgramRealization": { "type": "string", "maxLength": 8000 },
+        "auditExecutionSummary": { "type": "string", "maxLength": 8000 },
+        "findingsAndFollowUpSummary": { "type": "string", "maxLength": 8000 },
+        "investigationAndComplianceSummary": { "type": "string", "maxLength": 8000 },
+        "constraintsAndRecommendations": { "type": "string", "maxLength": 8000 },
+        "nextPeriodPlan": { "type": "string", "maxLength": 8000 },
+        "status": { "type": "string", "enum": ["Draft", "Review Kepala SPI", "Disahkan & Disampaikan ke Direksi"] },
+        "approvedBy": { "type": "string", "maxLength": 128 },
+        "approvedAt": { "type": "string", "maxLength": 64 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "periodType", "year", "reportNumber", "reportTitle", "status"]
     }
   },
   "firestore": {
@@ -278,6 +359,18 @@
     "/risk_registers/{riskId}": {
       "schema": "RiskRegister",
       "description": "Corporate 5x5 risk register and mitigations"
+    },
+    "/risk_profiles/{profileId}": {
+      "schema": "RiskProfileConfig",
+      "description": "Corporate risk profile configuration and risk appetite thresholds per year"
+    },
+    "/risk_annual_reports/{reportId}": {
+      "schema": "RiskAnnualReport",
+      "description": "Structured annual risk management reports for Kepala SPI and Super User"
+    },
+    "/spi_periodic_reports/{reportId}": {
+      "schema": "SPIPeriodicReport",
+      "description": "Monthly and annual SPI internal audit supervision reports"
     },
     "/pkpt/{pkptId}": {
       "schema": "PKPT",

@@ -81,6 +81,18 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /risk_profiles/{profileId} {
+      allow read, write: if true;
+    }
+
+    match /risk_annual_reports/{reportId} {
+      allow read, write: if true;
+    }
+
+    match /spi_periodic_reports/{reportId} {
+      allow read, write: if true;
+    }
+
     // Catch-all
     match /{document=**} {
       allow read, write: if true;
