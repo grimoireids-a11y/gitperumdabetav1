@@ -59,15 +59,23 @@ const AppContent: React.FC = () => {
   const [databaseBackupTab, setDatabaseBackupTab] = useState<'export' | 'import'>('export');
 
   const isFullAccess = userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
+  const isViewer = userProfile?.role === 'VIEWER';
 
-  // Guard routes: restrict non-Kepala SPI and non-Admin users to dashboard, risk_register, and follow_ups (unit kerja)
+  const canAccessTab = React.useCallback(
+    (tab: ActiveTab) => {
+      if (isFullAccess) return true;
+      if (isViewer) return tab !== 'user_management' && tab !== 'app_branding';
+      return tab === 'dashboard' || tab === 'risk_register' || tab === 'follow_ups';
+    },
+    [isFullAccess, isViewer]
+  );
+
+  // Guard routes: VIEWER can access all data modules except user_management & app_branding; other roles are restricted to dashboard, risk_register, follow_ups
   React.useEffect(() => {
-    if (!loading && userProfile && !isFullAccess) {
-      if (activeTab !== 'dashboard' && activeTab !== 'risk_register' && activeTab !== 'follow_ups') {
-        setActiveTab('dashboard');
-      }
+    if (!loading && userProfile && !canAccessTab(activeTab)) {
+      setActiveTab('dashboard');
     }
-  }, [loading, userProfile, isFullAccess, activeTab]);
+  }, [loading, userProfile, canAccessTab, activeTab]);
 
   if (loading) {
     return (
@@ -101,12 +109,11 @@ const AppContent: React.FC = () => {
   };
 
   const renderActiveTab = () => {
-    // If not full access, allow only dashboard, risk_register, and follow_ups
-    if (!isFullAccess && activeTab !== 'dashboard' && activeTab !== 'risk_register' && activeTab !== 'follow_ups') {
+    if (!canAccessTab(activeTab)) {
       return (
         <DashboardOverview
           onNavigateTo={(tab) => {
-            if (tab === 'dashboard' || tab === 'risk_register' || tab === 'follow_ups') {
+            if (canAccessTab(tab)) {
               setActiveTab(tab);
             }
           }}
@@ -119,7 +126,7 @@ const AppContent: React.FC = () => {
         return (
           <DashboardOverview
             onNavigateTo={(tab) => {
-              if (isFullAccess || tab === 'dashboard' || tab === 'risk_register') {
+              if (canAccessTab(tab)) {
                 setActiveTab(tab);
               }
             }}
@@ -215,17 +222,21 @@ const AppContent: React.FC = () => {
         return (
           <WorkPaperModule
             initialAssignmentId={selectedAssignmentForKka}
-            onOpenAiAssistantWithContext={handleOpenAiWithContext}
-            onNavigateToFindings={(prefill) => {
-              setPrefillForFindings(prefill);
-              setActiveTab('findings');
-            }}
+            onOpenAiAssistantWithContext={isFullAccess ? handleOpenAiWithContext : undefined}
+            onNavigateToFindings={
+              isViewer
+                ? undefined
+                : (prefill) => {
+                    setPrefillForFindings(prefill);
+                    setActiveTab('findings');
+                  }
+            }
           />
         );
       case 'audit_reports':
         return (
           <AuditReportModule
-            onOpenAiAssistantWithContext={handleOpenAiWithContext}
+            onOpenAiAssistantWithContext={isFullAccess ? handleOpenAiWithContext : undefined}
             initialAssignmentId={selectedAssignmentForLha}
             onNavigateToFindings={() => setActiveTab('findings')}
           />
@@ -237,7 +248,7 @@ const AppContent: React.FC = () => {
           <FindingsModule
             initialAssignmentId={selectedAssignmentForFindings}
             initialPrefillFromKka={prefillForFindings}
-            onOpenAiAssistantWithContext={handleOpenAiWithContext}
+            onOpenAiAssistantWithContext={isFullAccess ? handleOpenAiWithContext : undefined}
             onNavigateToLha={(assignmentId) => {
               setSelectedAssignmentForLha(assignmentId);
               setActiveTab('audit_reports');
@@ -253,7 +264,7 @@ const AppContent: React.FC = () => {
       case 'investigations':
         return (
           <InvestigationModule
-            onOpenAiAssistantWithContext={handleOpenAiWithContext}
+            onOpenAiAssistantWithContext={isFullAccess ? handleOpenAiWithContext : undefined}
           />
         );
       case 'regulations':
@@ -269,11 +280,17 @@ const AppContent: React.FC = () => {
       default:
         return (
           <DashboardOverview
-            onNavigateTo={(tab) => setActiveTab(tab)}
-            onOpenAiAssistant={() => {
-              setAiModalContext(null);
-              setIsAiModalOpen(true);
+            onNavigateTo={(tab) => {
+              if (canAccessTab(tab)) setActiveTab(tab);
             }}
+            onOpenAiAssistant={
+              isFullAccess
+                ? () => {
+                    setAiModalContext(null);
+                    setIsAiModalOpen(true);
+                  }
+                : undefined
+            }
           />
         );
     }
@@ -314,7 +331,7 @@ const AppContent: React.FC = () => {
               : undefined
           }
           onNavigateToTab={(tab) => {
-            if (isFullAccess || tab === 'dashboard' || tab === 'risk_register' || tab === 'follow_ups') {
+            if (canAccessTab(tab)) {
               setActiveTab(tab);
             }
           }}

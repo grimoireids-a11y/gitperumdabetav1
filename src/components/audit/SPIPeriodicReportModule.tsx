@@ -63,6 +63,8 @@ export const SPIPeriodicReportModule: React.FC = () => {
   const { branding } = useAppBranding();
 
   const canApprove = hasRole(['KEPALA_SPI', 'ADMIN_SISTEM']);
+  const isViewer = userProfile?.role === 'VIEWER';
+  const canEdit = !isViewer;
 
   const [periodType, setPeriodType] = useState<SPIPeriodicType>('BULANAN');
   const [selectedYear, setSelectedYear] = useState<number>(activeYear);
@@ -363,6 +365,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
   };
 
   const handleSaveReport = async (overrideStatus?: SPIPeriodicReportStatus) => {
+    if (!canEdit) return;
     setIsSaving(true);
     setNotice(null);
     const payload = buildReportPayload(overrideStatus);
@@ -381,6 +384,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
   };
 
   const handleSyncNarratives = () => {
+    if (!canEdit) return;
     applyGeneratedNarratives();
     setNotice(`Narasi laporan ${analytics.periodLabel} disinkronkan dari data operasional SPI terbaru.`);
     setTimeout(() => setNotice(null), 5000);
@@ -588,24 +592,28 @@ export const SPIPeriodicReportModule: React.FC = () => {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={handleSyncNarratives}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <RefreshCw className="w-3.5 h-3.5 text-emerald-700" />
-              <span>Sinkronkan Narasi</span>
-            </button>
+            {canEdit && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleSyncNarratives}
+                  className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Sinkronkan Narasi</span>
+                </button>
 
-            <button
-              type="button"
-              onClick={() => handleSaveReport()}
-              disabled={isSaving}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              <Save className="w-3.5 h-3.5" />
-              <span>{isSaving ? 'Menyimpan...' : 'Simpan Laporan'}</span>
-            </button>
+                <button
+                  type="button"
+                  onClick={() => handleSaveReport()}
+                  disabled={isSaving}
+                  className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
+                >
+                  <Save className="w-3.5 h-3.5" />
+                  <span>{isSaving ? 'Menyimpan...' : 'Simpan Laporan'}</span>
+                </button>
+              </>
+            )}
 
             <button
               type="button"
@@ -830,6 +838,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                   <label className="block font-semibold text-slate-700 mb-1">Judul Laporan</label>
                   <input
                     type="text"
+                    readOnly={!canEdit}
                     value={reportTitle}
                     onChange={(e) => setReportTitle(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white font-semibold text-slate-900"
@@ -839,6 +848,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                   <label className="block font-semibold text-slate-700 mb-1">Nomor Laporan</label>
                   <input
                     type="text"
+                    readOnly={!canEdit}
                     value={reportNumber}
                     onChange={(e) => setReportNumber(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white font-mono text-slate-900"
@@ -848,6 +858,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                   <label className="block font-semibold text-slate-700 mb-1">Tanggal Laporan</label>
                   <input
                     type="text"
+                    readOnly={!canEdit}
                     value={reportDate}
                     onChange={(e) => setReportDate(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white text-slate-900"
@@ -857,6 +868,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                   <label className="block font-semibold text-slate-700 mb-1">Disusun Oleh</label>
                   <input
                     type="text"
+                    readOnly={!canEdit}
                     value={preparedBy}
                     onChange={(e) => setPreparedBy(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white text-slate-900"
@@ -866,6 +878,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                   <label className="block font-semibold text-slate-700 mb-1">Disampaikan Kepada</label>
                   <input
                     type="text"
+                    readOnly={!canEdit}
                     value={recipient}
                     onChange={(e) => setRecipient(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white text-slate-900"
@@ -886,6 +899,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
               </div>
               <textarea
                 rows={6}
+                readOnly={!canEdit}
                 value={executiveSummary}
                 onChange={(e) => setExecutiveSummary(e.target.value)}
                 className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -905,6 +919,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
 
               <textarea
                 rows={5}
+                readOnly={!canEdit}
                 value={pkptAndProgramRealization}
                 onChange={(e) => setPkptAndProgramRealization(e.target.value)}
                 className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -961,6 +976,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
 
               <textarea
                 rows={5}
+                readOnly={!canEdit}
                 value={auditExecutionSummary}
                 onChange={(e) => setAuditExecutionSummary(e.target.value)}
                 className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1097,6 +1113,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
 
               <textarea
                 rows={5}
+                readOnly={!canEdit}
                 value={findingsAndFollowUpSummary}
                 onChange={(e) => setFindingsAndFollowUpSummary(e.target.value)}
                 className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1155,6 +1172,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
 
               <textarea
                 rows={5}
+                readOnly={!canEdit}
                 value={investigationAndComplianceSummary}
                 onChange={(e) => setInvestigationAndComplianceSummary(e.target.value)}
                 className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1210,6 +1228,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                 </label>
                 <textarea
                   rows={5}
+                  readOnly={!canEdit}
                   value={constraintsAndRecommendations}
                   onChange={(e) => setConstraintsAndRecommendations(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1222,6 +1241,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                 </label>
                 <textarea
                   rows={5}
+                  readOnly={!canEdit}
                   value={nextPeriodPlan}
                   onChange={(e) => setNextPeriodPlan(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"

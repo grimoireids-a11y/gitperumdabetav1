@@ -4,7 +4,8 @@ export type UserRole =
   | 'DIREKTUR'
   | 'DEWAN_PENGAWAS'
   | 'AUDITEE'
-  | 'ADMIN_SISTEM';
+  | 'ADMIN_SISTEM'
+  | 'VIEWER';
 
 export interface UserProfile {
   uid: string;

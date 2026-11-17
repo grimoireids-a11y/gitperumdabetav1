@@ -71,6 +71,7 @@ export const RCSAModule: React.FC = () => {
   const [reviewStatus, setReviewStatus] = useState<'Direviu SPI' | 'Disetujui'>('Disetujui');
 
   const isSpiStaff = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
+  const isViewer = userProfile?.role === 'VIEWER';
 
   useEffect(() => {
     const unsubRcsa = onSnapshot(collection(db, 'rcsa_assessments'), (snap) => {
@@ -93,6 +94,7 @@ export const RCSAModule: React.FC = () => {
   }, [availableYears, rcsaList]);
 
   const openSubmitModal = () => {
+    if (isViewer) return;
     setFormYear(selectedYear === 0 ? activeYear : selectedYear);
     setFormUnitId(userProfile?.unitId || units[0]?.id || '');
     setFormActivityTitle('');
@@ -106,6 +108,7 @@ export const RCSAModule: React.FC = () => {
 
   const handleSaveRCSA = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isViewer) return;
     const selUnit = units.find((u) => u.id === formUnitId);
     const unitName = selUnit ? selUnit.name : userProfile?.unitName || 'Unit Tirta Saiyo';
     const validYear = isNaN(formYear) ? activeYear : formYear;
@@ -183,13 +186,15 @@ export const RCSAModule: React.FC = () => {
           </p>
         </div>
 
-        <button
-          onClick={openSubmitModal}
-          className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Isi Lembar RCSA Unit</span>
-        </button>
+        {!isViewer && (
+          <button
+            onClick={openSubmitModal}
+            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            <span>Isi Lembar RCSA Unit</span>
+          </button>
+        )}
       </div>
 
       {/* Filter and Search */}

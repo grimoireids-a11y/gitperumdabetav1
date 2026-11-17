@@ -22,6 +22,7 @@ import { OfficialSignatory, DocumentSignatureConfig } from '../../types/audit';
 import { INITIAL_OFFICIALS } from '../../data/initialData';
 import { SignatoryManagerModal } from './SignatoryManagerModal';
 import { useAppBranding } from '../../context/AppBrandingContext';
+import { useAuth } from '../../context/AuthContext';
 
 interface DocumentPrintPreviewModalProps {
   isOpen: boolean;
@@ -49,6 +50,8 @@ export const DocumentPrintPreviewModal: React.FC<DocumentPrintPreviewModalProps>
   children,
 }) => {
   const { branding } = useAppBranding();
+  const { userProfile } = useAuth();
+  const isViewer = userProfile?.role === 'VIEWER';
   const [officials, setOfficials] = useState<OfficialSignatory[]>(INITIAL_OFFICIALS);
   const [isSignatoryManagerOpen, setIsSignatoryManagerOpen] = useState(false);
   const [isConfigExpanded, setIsConfigExpanded] = useState(true);
@@ -645,14 +648,16 @@ export const DocumentPrintPreviewModal: React.FC<DocumentPrintPreviewModalProps>
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => setIsSignatoryManagerOpen(true)}
-                  className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 hover:text-emerald-950 underline self-start sm:self-auto cursor-pointer"
-                >
-                  <Settings className="w-3.5 h-3.5" />
-                  <span>+ Kelola / Tambah Master Jabatan</span>
-                </button>
+                {!isViewer && (
+                  <button
+                    type="button"
+                    onClick={() => setIsSignatoryManagerOpen(true)}
+                    className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 hover:text-emerald-950 underline self-start sm:self-auto cursor-pointer"
+                  >
+                    <Settings className="w-3.5 h-3.5" />
+                    <span>+ Kelola / Tambah Master Jabatan</span>
+                  </button>
+                )}
               </div>
             </div>
 
@@ -1045,13 +1050,15 @@ export const DocumentPrintPreviewModal: React.FC<DocumentPrintPreviewModalProps>
       </div>
 
       {/* Signatory Master Manager Modal */}
-      <SignatoryManagerModal
-        isOpen={isSignatoryManagerOpen}
-        onClose={() => setIsSignatoryManagerOpen(false)}
-        onSelectSignatory={(sel) => {
-          handleSelectSig1(sel.id);
-        }}
-      />
+      {!isViewer && (
+        <SignatoryManagerModal
+          isOpen={isSignatoryManagerOpen}
+          onClose={() => setIsSignatoryManagerOpen(false)}
+          onSelectSignatory={(sel) => {
+            handleSelectSig1(sel.id);
+          }}
+        />
+      )}
     </div>
   );
 };

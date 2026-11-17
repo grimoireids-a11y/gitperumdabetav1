@@ -100,6 +100,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   }).format(new Date());
 
   const canEditBranding = userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
+  const isViewer = userProfile?.role === 'VIEWER';
 
   return (
     <>
@@ -215,31 +216,47 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           )}
 
-          {/* User Profile & Password Change Trigger */}
-          <button
-            onClick={() => setIsProfileModalOpen(true)}
-            className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-xl hover:bg-slate-100/80 transition-colors border-l border-slate-200 text-left group"
-            title="Klik untuk membuka pengaturan akun & ganti sandi"
-          >
-            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-800 to-teal-600 text-white flex items-center justify-center font-bold text-xs ring-1 ring-emerald-600/30 group-hover:ring-emerald-600 transition-all">
-              {userProfile?.displayName ? userProfile.displayName.charAt(0).toUpperCase() : 'U'}
+          {/* User Profile & Password Change Trigger (hidden interaction for VIEWER) */}
+          {isViewer ? (
+            <div className="flex items-center gap-2 pl-2 pr-1 py-1 border-l border-slate-200 text-left">
+              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-slate-700 to-slate-600 text-white flex items-center justify-center font-bold text-xs ring-1 ring-slate-400/40">
+                {userProfile?.displayName ? userProfile.displayName.charAt(0).toUpperCase() : 'V'}
+              </div>
+              <div className="hidden xl:block text-left text-xs leading-tight">
+                <p className="font-semibold text-slate-900 truncate max-w-[120px]">
+                  {userProfile?.displayName || 'Viewer'}
+                </p>
+                <p className="text-[10px] text-slate-500 truncate">VIEWER (Lihat & Cetak)</p>
+              </div>
             </div>
-            <div className="hidden xl:block text-left text-xs leading-tight">
-              <p className="font-semibold text-slate-900 truncate max-w-[120px] flex items-center gap-1">
-                <span>{userProfile?.displayName || 'Pengguna'}</span>
-                <KeyRound className="w-3 h-3 text-slate-400 group-hover:text-emerald-700 opacity-60" />
-              </p>
-              <p className="text-[10px] text-slate-500 truncate">{userProfile?.role}</p>
-            </div>
-          </button>
+          ) : (
+            <button
+              onClick={() => setIsProfileModalOpen(true)}
+              className="flex items-center gap-2 pl-2 pr-1 py-1 rounded-xl hover:bg-slate-100/80 transition-colors border-l border-slate-200 text-left group"
+              title="Klik untuk membuka pengaturan akun & ganti sandi"
+            >
+              <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-800 to-teal-600 text-white flex items-center justify-center font-bold text-xs ring-1 ring-emerald-600/30 group-hover:ring-emerald-600 transition-all">
+                {userProfile?.displayName ? userProfile.displayName.charAt(0).toUpperCase() : 'U'}
+              </div>
+              <div className="hidden xl:block text-left text-xs leading-tight">
+                <p className="font-semibold text-slate-900 truncate max-w-[120px] flex items-center gap-1">
+                  <span>{userProfile?.displayName || 'Pengguna'}</span>
+                  <KeyRound className="w-3 h-3 text-slate-400 group-hover:text-emerald-700 opacity-60" />
+                </p>
+                <p className="text-[10px] text-slate-500 truncate">{userProfile?.role}</p>
+              </div>
+            </button>
+          )}
         </div>
       </header>
 
       {/* Modal Profile / Ganti Sandi */}
-      <ProfileModal
-        isOpen={isProfileModalOpen}
-        onClose={() => setIsProfileModalOpen(false)}
-      />
+      {!isViewer && (
+        <ProfileModal
+          isOpen={isProfileModalOpen}
+          onClose={() => setIsProfileModalOpen(false)}
+        />
+      )}
     </>
   );
 };

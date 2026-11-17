@@ -26,8 +26,11 @@ import { db } from '../../lib/firebase';
 import { OfficialSignatory } from '../../types/audit';
 import { INITIAL_OFFICIALS } from '../../data/initialData';
 import { DigitalSignaturePad } from '../common/DigitalSignaturePad';
+import { useAuth } from '../../context/AuthContext';
 
 export const SignatoriesModule: React.FC = () => {
+  const { hasRole } = useAuth();
+  const canManage = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
   const [officials, setOfficials] = useState<OfficialSignatory[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -54,6 +57,7 @@ export const SignatoriesModule: React.FC = () => {
   }, []);
 
   const openAddForm = () => {
+    if (!canManage) return;
     setEditingId(null);
     setFormName('');
     setFormNip('');
@@ -66,6 +70,7 @@ export const SignatoriesModule: React.FC = () => {
   };
 
   const openEditForm = (ofc: OfficialSignatory) => {
+    if (!canManage) return;
     setEditingId(ofc.id);
     setFormName(ofc.name);
     setFormNip(ofc.nip);
@@ -79,6 +84,7 @@ export const SignatoriesModule: React.FC = () => {
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManage) return;
     if (!formName.trim() || !formPosition.trim()) {
       alert('Nama dan Jabatan wajib diisi.');
       return;
@@ -125,6 +131,7 @@ export const SignatoriesModule: React.FC = () => {
   };
 
   const handleDelete = async (id: string, name: string) => {
+    if (!canManage) return;
     if (!window.confirm(`Hapus jabatan untuk "${name}"?`)) return;
     try {
       await deleteDoc(doc(db, 'signatories', id));
@@ -136,6 +143,7 @@ export const SignatoriesModule: React.FC = () => {
   };
 
   const handleResetDefaults = async () => {
+    if (!canManage) return;
     if (!window.confirm('Muat ulang seluruh daftar pejabat standar BUMD Tirta Saiyo?')) return;
     try {
       for (const ofc of INITIAL_OFFICIALS) {
@@ -170,22 +178,24 @@ export const SignatoriesModule: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleResetDefaults}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg shadow-2xs transition-colors"
-          >
-            <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
-            <span>Muat Pejabat Standar</span>
-          </button>
-          <button
-            onClick={openAddForm}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>Tambah Jabatan Baru</span>
-          </button>
-        </div>
+        {canManage && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleResetDefaults}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg shadow-2xs transition-colors"
+            >
+              <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+              <span>Muat Pejabat Standar</span>
+            </button>
+            <button
+              onClick={openAddForm}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Tambah Jabatan Baru</span>
+            </button>
+          </div>
+        )}
       </div>
 
       {notice && (
@@ -347,13 +357,13 @@ export const SignatoriesModule: React.FC = () => {
                 <th className="py-3 px-4">3. Jabatan Penandatangan</th>
                 <th className="py-3 px-4">Unit / Departemen</th>
                 <th className="py-3 px-4 text-center">Tanda Tangan Digital</th>
-                <th className="py-3 px-4 text-center w-24">Aksi</th>
+                {canManage && <th className="py-3 px-4 text-center w-24">Aksi</th>}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800">
               {filteredOfficials.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-400">
+                  <td colSpan={canManage ? 7 : 6} className="py-8 text-center text-slate-400">
                     Tidak ditemukan data jabatan.
                   </td>
                 </tr>
@@ -384,24 +394,26 @@ export const SignatoriesModule: React.FC = () => {
                         <span className="text-[11px] text-slate-400 italic">Belum Ada TTD</span>
                       )}
                     </td>
-                    <td className="py-3 px-4 text-center">
-                      <div className="flex items-center justify-center gap-1">
-                        <button
-                          onClick={() => openEditForm(ofc)}
-                          className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-slate-100 rounded-md transition-colors"
-                          title="Ubah Jabatan & TTD"
-                        >
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => handleDelete(ofc.id, ofc.name)}
-                          className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
-                          title="Hapus Jabatan"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    </td>
+                    {canManage && (
+                      <td className="py-3 px-4 text-center">
+                        <div className="flex items-center justify-center gap-1">
+                          <button
+                            onClick={() => openEditForm(ofc)}
+                            className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-slate-100 rounded-md transition-colors"
+                            title="Ubah Jabatan & TTD"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => handleDelete(ofc.id, ofc.name)}
+                            className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors"
+                            title="Hapus Jabatan"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))
               )}

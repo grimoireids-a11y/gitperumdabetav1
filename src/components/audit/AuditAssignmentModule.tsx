@@ -70,6 +70,7 @@ export const AuditAssignmentModule: React.FC<AuditAssignmentModuleProps> = ({
   const [formStatus, setFormStatus] = useState<'Diterbitkan' | 'Berlangsung' | 'Selesai'>('Diterbitkan');
 
   const canManage = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
+  const isViewer = userProfile?.role === 'VIEWER';
 
   useEffect(() => {
     const unsubAssignments = onSnapshot(collection(db, 'audit_assignments'), (snap) => {
@@ -110,6 +111,7 @@ export const AuditAssignmentModule: React.FC<AuditAssignmentModuleProps> = ({
   }, [initialPrefillFromPkpt, assignments.length, activeYear, units, userProfile?.displayName]);
 
   const openAddModal = () => {
+    if (!canManage) return;
     setEditingAssignment(null);
     const seq = assignments.length + 1;
     setFormLetterNumber(`090/SPI-PTS/${String(seq).padStart(3, '0')}/${activeYear}`);
@@ -130,6 +132,7 @@ export const AuditAssignmentModule: React.FC<AuditAssignmentModuleProps> = ({
   };
 
   const openEditModal = (a: AuditAssignment) => {
+    if (!canManage) return;
     setEditingAssignment(a);
     setFormLetterNumber(a.letterNumber || '');
     setFormLetterDate(a.letterDate || new Date().toISOString().slice(0, 10));
@@ -150,6 +153,7 @@ export const AuditAssignmentModule: React.FC<AuditAssignmentModuleProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!canManage) return;
     const selUnit = units.find((u) => u.id === formUnitId);
     const unitName = selUnit ? selUnit.name : 'Unit Pelayanan Tirta Saiyo';
 
@@ -183,6 +187,7 @@ export const AuditAssignmentModule: React.FC<AuditAssignmentModuleProps> = ({
   };
 
   const handleDelete = async (id: string) => {
+    if (!canManage) return;
     if (!window.confirm('Hapus surat penugasan ini?')) return;
     try {
       await deleteDoc(doc(db, 'audit_assignments', id));
@@ -311,10 +316,10 @@ export const AuditAssignmentModule: React.FC<AuditAssignmentModuleProps> = ({
                     <button
                       onClick={() => onNavigateToLha(a.id)}
                       className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-300 transition-colors cursor-pointer"
-                      title="Susun Laporan Hasil Audit (LHA) dengan asistensi AI untuk penugasan ini"
+                      title={isViewer ? 'Lihat Laporan Hasil Audit (LHA) untuk penugasan ini' : 'Susun Laporan Hasil Audit (LHA) dengan asistensi AI untuk penugasan ini'}
                     >
                       <FileText className="w-3.5 h-3.5 text-emerald-700" />
-                      <span>Susun LHA</span>
+                      <span>{isViewer ? 'Lihat LHA' : 'Susun LHA'}</span>
                     </button>
                   )}
                   <button

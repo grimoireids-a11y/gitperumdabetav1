@@ -86,6 +86,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
   const [formRkaId, setFormRkaId] = useState<string>('');
 
   const isKepalaSPI = hasRole(['KEPALA_SPI', 'ADMIN_SISTEM']);
+  const isViewer = userProfile?.role === 'VIEWER';
 
   useEffect(() => {
     const unsubPkpt = onSnapshot(collection(db, 'pkpt'), (snap) => {
@@ -651,7 +652,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
                     </td>
                     <td className="py-3 px-4 text-center">
                       <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                        {onNavigateToAssignment && (
+                        {!isViewer && onNavigateToAssignment && (
                           <button
                             onClick={() => onNavigateToAssignment(p)}
                             className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-300 transition-colors"

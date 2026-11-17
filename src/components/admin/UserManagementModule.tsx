@@ -360,6 +360,18 @@ export const UserManagementModule: React.FC = () => {
     return matchesSearch && matchesRole && matchesTab;
   });
 
+  if (!isSuperUser) {
+    return (
+      <div className="bg-white border border-slate-200 rounded-xl p-10 text-center max-w-xl mx-auto mt-10">
+        <Shield className="w-8 h-8 text-rose-600 mx-auto mb-3" />
+        <h2 className="text-base font-bold text-slate-900">Akses Ditolak — Khusus Kepala SPI / Super User</h2>
+        <p className="text-xs text-slate-600 mt-1.5">
+          Fitur Manajemen Pengguna tidak tersedia untuk peran akun Anda.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -537,6 +549,7 @@ export const UserManagementModule: React.FC = () => {
                       <option value="DIREKTUR">Direktur</option>
                       <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
                       <option value="AUDITEE">Unit Kerja / Auditee</option>
+                      <option value="VIEWER">Viewer (Hanya Lihat &amp; Cetak)</option>
                       <option value="ADMIN_SISTEM">Administrator Sistem</option>
                     </select>
                   </div>
@@ -657,6 +670,7 @@ export const UserManagementModule: React.FC = () => {
             <option value="DIREKTUR">Direktur</option>
             <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
             <option value="AUDITEE">Auditee</option>
+            <option value="VIEWER">Viewer (Lihat &amp; Cetak)</option>
             <option value="ADMIN_SISTEM">Admin Sistem</option>
           </select>
         </div>
@@ -834,6 +848,7 @@ export const UserManagementModule: React.FC = () => {
                     <option value="DIREKTUR">Direktur</option>
                     <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
                     <option value="AUDITEE">Unit Kerja / Auditee</option>
+                    <option value="VIEWER">Viewer (Hanya Lihat &amp; Cetak)</option>
                     <option value="ADMIN_SISTEM">Administrator Sistem</option>
                   </select>
                 </div>
@@ -1048,6 +1063,7 @@ export const UserManagementModule: React.FC = () => {
                     <option value="KEPALA_SPI">Kepala SPI</option>
                     <option value="DIREKTUR">Direktur</option>
                     <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
+                    <option value="VIEWER">Viewer (Hanya Lihat &amp; Cetak)</option>
                     <option value="ADMIN_SISTEM">Administrator Sistem</option>
                   </select>
                 </div>

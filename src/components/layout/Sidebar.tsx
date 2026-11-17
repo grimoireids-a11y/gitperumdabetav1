@@ -85,6 +85,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return 'Unit Kerja / Auditee';
       case 'ADMIN_SISTEM':
         return 'Admin Sistem';
+      case 'VIEWER':
+        return 'Viewer (Lihat & Cetak)';
       default:
         return 'Pengguna';
     }
@@ -104,8 +106,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }
 
   const isFullAccess = userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
+  const isViewer = userProfile?.role === 'VIEWER';
+  const canViewAllModules = isFullAccess || isViewer;
 
-  const navSections: NavSection[] = isFullAccess
+  const navSections: NavSection[] = canViewAllModules
     ? [
         {
           title: 'Pusat Komando',
@@ -122,13 +126,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
               id: 'risk_profile',
               label: 'Profil Risiko Korporat',
               icon: ShieldAlert,
-              roles: ['KEPALA_SPI', 'ADMIN_SISTEM'],
+              roles: ['KEPALA_SPI', 'ADMIN_SISTEM', 'VIEWER'],
             },
             {
               id: 'risk_annual_report',
               label: 'Laporan Tahunan Risiko',
               icon: FileBarChart2,
-              roles: ['KEPALA_SPI', 'ADMIN_SISTEM'],
+              roles: ['KEPALA_SPI', 'ADMIN_SISTEM', 'VIEWER'],
             },
             { id: 'rcsa', label: 'Penilaian RCSA Unit', icon: ClipboardList },
             { id: 'bpkp_assessment', label: 'Self Assessment SPIP', icon: Award },
@@ -161,7 +165,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               id: 'investigations',
               label: 'Audit Investigatif & Fraud',
               icon: Lock,
-              roles: ['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM', 'DIREKTUR'],
+              roles: ['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM', 'DIREKTUR', 'VIEWER'],
             },
             { id: 'regulations', label: 'Review Produk Hukum', icon: BookOpen },
           ],
@@ -185,7 +189,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               id: 'master_units',
               label: 'Master Unit & Wilayah',
               icon: Settings,
-              roles: ['KEPALA_SPI', 'ADMIN_SISTEM'],
+              roles: ['KEPALA_SPI', 'ADMIN_SISTEM', 'VIEWER'],
             },
             {
               id: 'signatories',
@@ -376,16 +380,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>Manual Book (PDF)</span>
             </button>
           )}
-          <button
-            onClick={() => {
-              if (setActiveTab) setActiveTab('user_management');
-              setIsOpen(false);
-            }}
-            className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-emerald-200 bg-emerald-900/30 hover:bg-emerald-800/40 border border-emerald-800/40 rounded-lg transition-colors"
-          >
-            <Settings className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Pengaturan Akun & Profil</span>
-          </button>
+          {!isViewer && (
+            <button
+              onClick={() => {
+                if (setActiveTab) setActiveTab('user_management');
+                setIsOpen(false);
+              }}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-emerald-200 bg-emerald-900/30 hover:bg-emerald-800/40 border border-emerald-800/40 rounded-lg transition-colors"
+            >
+              <Settings className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Pengaturan Akun & Profil</span>
+            </button>
+          )}
           <button
             onClick={logout}
             className="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs font-medium text-rose-300 bg-rose-950/30 hover:bg-rose-900/40 border border-rose-900/40 rounded-lg transition-colors"

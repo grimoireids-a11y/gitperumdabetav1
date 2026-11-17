@@ -8,7 +8,7 @@
         "uid": { "type": "string", "maxLength": 128 },
         "email": { "type": "string", "maxLength": 128 },
         "displayName": { "type": "string", "maxLength": 128 },
-        "role": { "type": "string", "enum": ["KEPALA_SPI", "AUDITOR", "DIREKTUR", "DEWAN_PENGAWAS", "AUDITEE", "ADMIN_SISTEM"] },
+        "role": { "type": "string", "enum": ["KEPALA_SPI", "AUDITOR", "DIREKTUR", "DEWAN_PENGAWAS", "AUDITEE", "ADMIN_SISTEM", "VIEWER"] },
         "unitId": { "type": "string", "maxLength": 64 },
         "unitName": { "type": "string", "maxLength": 128 },
         "nip": { "type": "string", "maxLength": 64 },

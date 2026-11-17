@@ -124,6 +124,7 @@ export const RiskRegisterModule: React.FC<RiskRegisterModuleProps> = ({
 
   // Role permissions
   const isAuditee = userProfile?.role === 'AUDITEE';
+  const isViewer = userProfile?.role === 'VIEWER';
   const isSpiAuditor = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
   const isDireksiOrDewas = hasRole(['DIREKTUR', 'DEWAN_PENGAWAS']);
 
@@ -176,6 +177,7 @@ export const RiskRegisterModule: React.FC<RiskRegisterModuleProps> = ({
 
   // Open add modal with defaults
   const openAddModal = () => {
+    if (isViewer) return;
     const targetYr = selectedYear === 0 ? activeYear : selectedYear;
     setEditingRisk(null);
     const nextSeq = risks.length + 1;
@@ -215,6 +217,7 @@ export const RiskRegisterModule: React.FC<RiskRegisterModuleProps> = ({
 
   // Open edit modal
   const openEditModal = (r: RiskRegister) => {
+    if (isViewer) return;
     // Security check: Auditee can ONLY edit risks of their own unit!
     if (isAuditee && r.unitId !== auditeeUnitId && r.unitName !== auditeeUnitName) {
       alert('Akses Dibatasi: Anda hanya memiliki wewenang untuk mengedit register risiko unit kerja Anda sendiri.');
@@ -250,6 +253,7 @@ export const RiskRegisterModule: React.FC<RiskRegisterModuleProps> = ({
 
   // Open SPI Review Modal
   const openSpiReviewModal = (r: RiskRegister) => {
+    if (isViewer) return;
     setReviewingRisk(r);
     setReviewStatus(r.spiReviewStatus || 'Sesuai Kaidah');
     setReviewNotes(
@@ -261,7 +265,7 @@ export const RiskRegisterModule: React.FC<RiskRegisterModuleProps> = ({
 
   const handleSaveSpiReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reviewingRisk) return;
+    if (isViewer || !reviewingRisk) return;
 
     try {
       await updateDoc(doc(db, 'risk_registers', reviewingRisk.id), {
@@ -280,6 +284,7 @@ export const RiskRegisterModule: React.FC<RiskRegisterModuleProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isViewer) return;
 
     // Enforce Auditee unit assignment
     const targetUnitId = isAuditee && auditeeUnitId ? auditeeUnitId : formUnitId;
@@ -339,6 +344,7 @@ export const RiskRegisterModule: React.FC<RiskRegisterModuleProps> = ({
   };
 
   const handleDelete = async (r: RiskRegister) => {
+    if (isViewer) return;
     // Security check: Auditee can ONLY delete their own unit's risk
     if (isAuditee && r.unitId !== auditeeUnitId && r.unitName !== auditeeUnitName) {
       alert('Akses Dibatasi: Anda tidak dapat menghapus register risiko milik unit kerja lain.');
@@ -564,14 +570,16 @@ export const RiskRegisterModule: React.FC<RiskRegisterModuleProps> = ({
             <span>Ekspor Excel</span>
           </button>
 
-          {/* Both Auditee (for their own unit) and SPI can add new risks! */}
-          <button
-            onClick={openAddModal}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors"
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>{isAuditee ? '+ Input Risiko Unit' : '+ Input Risiko Baru'}</span>
-          </button>
+          {/* Both Auditee (for their own unit) and SPI can add new risks; hidden for VIEWER */}
+          {!isViewer && (
+            <button
+              onClick={openAddModal}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>{isAuditee ? '+ Input Risiko Unit' : '+ Input Risiko Baru'}</span>
+            </button>
+          )}
         </div>
       </div>
 
@@ -766,7 +774,8 @@ export const RiskRegisterModule: React.FC<RiskRegisterModuleProps> = ({
                   ) : (
                     filteredRisks.map((r) => {
                       const isOwnRisk =
-                        !isAuditee || r.unitId === auditeeUnitId || r.unitName === auditeeUnitName;
+                        !isViewer &&
+                        (!isAuditee || r.unitId === auditeeUnitId || r.unitName === auditeeUnitName);
 
                       return (
                         <tr key={r.id} className="hover:bg-slate-50/80 transition-colors align-top">
@@ -873,74 +882,78 @@ export const RiskRegisterModule: React.FC<RiskRegisterModuleProps> = ({
 
                           {/* Actions */}
                           <td className="py-3 px-3 text-center">
-                            <div className="flex flex-col items-center gap-1.5">
-                              <div className="flex items-center gap-1">
-                                {onOpenAiAssistantWithContext && (
+                            {isViewer ? (
+                              <span className="text-[10px] text-slate-400 font-medium">Lihat Saja</span>
+                            ) : (
+                              <div className="flex flex-col items-center gap-1.5">
+                                <div className="flex items-center gap-1">
+                                  {onOpenAiAssistantWithContext && (
+                                    <button
+                                      onClick={() =>
+                                        onOpenAiAssistantWithContext({
+                                          action: 'bpkp_risk_validation',
+                                          event: r.event,
+                                          cause: r.cause,
+                                          causeCategory5M: r.causeCategory5M,
+                                          impactDesc: r.impactDesc,
+                                          objective: r.objective,
+                                          treatmentOption: r.treatmentOption,
+                                          unitName: r.unitName,
+                                        })
+                                      }
+                                      className="p-1 text-amber-600 hover:text-amber-800 rounded-md transition-colors"
+                                      title="Evaluasi Kaidah SPIP dengan Asisten AI"
+                                    >
+                                      <Sparkles className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+
+                                  {/* Auditee can edit their own risk */}
+                                  {isOwnRisk && (
+                                    <button
+                                      onClick={() => openEditModal(r)}
+                                      className="p-1 text-slate-500 hover:text-emerald-700 rounded-md transition-colors"
+                                      title="Edit Risiko"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+
+                                  {/* Delete only if own risk or SPI */}
+                                  {(isSpiAuditor || isOwnRisk) && (
+                                    <button
+                                      onClick={() => handleDelete(r)}
+                                      className="p-1 text-slate-400 hover:text-rose-600 rounded-md transition-colors"
+                                      title="Hapus Risiko"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+
+                                {/* Evaluasi SPI Button: for SPI Auditors & Kepala SPI */}
+                                {isSpiAuditor && (
                                   <button
-                                    onClick={() =>
-                                      onOpenAiAssistantWithContext({
-                                        action: 'bpkp_risk_validation',
-                                        event: r.event,
-                                        cause: r.cause,
-                                        causeCategory5M: r.causeCategory5M,
-                                        impactDesc: r.impactDesc,
-                                        objective: r.objective,
-                                        treatmentOption: r.treatmentOption,
-                                        unitName: r.unitName,
-                                      })
-                                    }
-                                    className="p-1 text-amber-600 hover:text-amber-800 rounded-md transition-colors"
-                                    title="Evaluasi Kaidah SPIP dengan Asisten AI"
+                                    onClick={() => openSpiReviewModal(r)}
+                                    className="w-full px-2 py-0.5 text-[9.5px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-300 transition-colors"
+                                    title="Evaluasi Kualitas Risiko oleh SPI (Slide 3 & 12)"
                                   >
-                                    <Sparkles className="w-3.5 h-3.5" />
+                                    Telaah SPI
                                   </button>
                                 )}
 
-                                {/* Auditee can edit their own risk */}
-                                {isOwnRisk && (
+                                {/* Usul PKPT: only for SPI & Management */}
+                                {!isAuditee && onNavigateToPkpt && (
                                   <button
-                                    onClick={() => openEditModal(r)}
-                                    className="p-1 text-slate-500 hover:text-emerald-700 rounded-md transition-colors"
-                                    title="Edit Risiko"
+                                    onClick={() => onNavigateToPkpt(r)}
+                                    className="w-full px-2 py-0.5 text-[9.5px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 transition-colors"
+                                    title="Usulkan risiko signifikan ini ke PKPT"
                                   >
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-                                )}
-
-                                {/* Delete only if own risk or SPI */}
-                                {(isSpiAuditor || isOwnRisk) && (
-                                  <button
-                                    onClick={() => handleDelete(r)}
-                                    className="p-1 text-slate-400 hover:text-rose-600 rounded-md transition-colors"
-                                    title="Hapus Risiko"
-                                  >
-                                    <Trash2 className="w-3.5 h-3.5" />
+                                    + PKPT
                                   </button>
                                 )}
                               </div>
-
-                              {/* Evaluasi SPI Button: for SPI Auditors & Kepala SPI */}
-                              {isSpiAuditor && (
-                                <button
-                                  onClick={() => openSpiReviewModal(r)}
-                                  className="w-full px-2 py-0.5 text-[9.5px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-300 transition-colors"
-                                  title="Evaluasi Kualitas Risiko oleh SPI (Slide 3 & 12)"
-                                >
-                                  Telaah SPI
-                                </button>
-                              )}
-
-                              {/* Usul PKPT: only for SPI & Management */}
-                              {!isAuditee && onNavigateToPkpt && (
-                                <button
-                                  onClick={() => onNavigateToPkpt(r)}
-                                  className="w-full px-2 py-0.5 text-[9.5px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded border border-slate-300 transition-colors"
-                                  title="Usulkan risiko signifikan ini ke PKPT"
-                                >
-                                  + PKPT
-                                </button>
-                              )}
-                            </div>
+                            )}
                           </td>
                         </tr>
                       );

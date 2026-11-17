@@ -285,7 +285,7 @@ export const SelfAssessmentBPKPModule: React.FC = () => {
 
   // AI Diagnostic Analysis
   const handleRunAiDiagnostic = async () => {
-    if (!activeAssessment) return;
+    if (!canManage || !activeAssessment) return;
     setIsAiAnalyzing(true);
     setAiError(null);
     setAiSuccessMsg(null);
@@ -361,19 +361,21 @@ export const SelfAssessmentBPKPModule: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
-          <button
-            onClick={handleRunAiDiagnostic}
-            disabled={isAiAnalyzing || !activeAssessment}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-950 bg-gradient-to-r from-amber-300 via-amber-200 to-yellow-300 hover:from-amber-400 hover:to-yellow-400 rounded-xl shadow-xs transition-all disabled:opacity-50 cursor-pointer"
-            title="Jalankan evaluasi diagnostik dan rekomendasi peningkatan SPIP dengan AI Gemini"
-          >
-            {isAiAnalyzing ? (
-              <Loader2 className="w-4 h-4 animate-spin text-emerald-900" />
-            ) : (
-              <Sparkles className="w-4 h-4 text-emerald-900" />
-            )}
-            <span>{isAiAnalyzing ? 'Menganalisis SPIP...' : '✨ Diagnostik AI SPIP'}</span>
-          </button>
+          {canManage && (
+            <button
+              onClick={handleRunAiDiagnostic}
+              disabled={isAiAnalyzing || !activeAssessment}
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-950 bg-gradient-to-r from-amber-300 via-amber-200 to-yellow-300 hover:from-amber-400 hover:to-yellow-400 rounded-xl shadow-xs transition-all disabled:opacity-50 cursor-pointer"
+              title="Jalankan evaluasi diagnostik dan rekomendasi peningkatan SPIP dengan AI Gemini"
+            >
+              {isAiAnalyzing ? (
+                <Loader2 className="w-4 h-4 animate-spin text-emerald-900" />
+              ) : (
+                <Sparkles className="w-4 h-4 text-emerald-900" />
+              )}
+              <span>{isAiAnalyzing ? 'Menganalisis SPIP...' : '✨ Diagnostik AI SPIP'}</span>
+            </button>
+          )}
 
           {activeAssessment && (
             <button
@@ -856,14 +858,16 @@ export const SelfAssessmentBPKPModule: React.FC = () => {
                 </p>
               </div>
 
-              <button
-                onClick={handleRunAiDiagnostic}
-                disabled={isAiAnalyzing}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-950 bg-amber-300 hover:bg-amber-400 rounded-lg transition-colors cursor-pointer"
-              >
-                {isAiAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
-                <span>Perbarui Analisis</span>
-              </button>
+              {canManage && (
+                <button
+                  onClick={handleRunAiDiagnostic}
+                  disabled={isAiAnalyzing}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-950 bg-amber-300 hover:bg-amber-400 rounded-lg transition-colors cursor-pointer"
+                >
+                  {isAiAnalyzing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                  <span>Perbarui Analisis</span>
+                </button>
+              )}
             </div>
 
             {/* Diagnostic Content */}

@@ -43,6 +43,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const { userProfile } = useAuth();
   const { activeYear, availableYears } = useFiscalYear();
   const isFullAccess = userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
+  const isViewer = userProfile?.role === 'VIEWER';
 
   const [selectedYear, setSelectedYear] = useState<number>(activeYear);
   const [selectedUnit, setSelectedUnit] = useState<string>('ALL');
@@ -277,9 +278,9 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     return true;
   });
 
-  // RESTRICTED VIEW: For non-Kepala SPI and non-Admin Sistem users
+  // RESTRICTED VIEW: For non-Kepala SPI, non-Admin Sistem, and non-Viewer users
   // Specifically requested: Dashboard Pengawasan only displays Peta Risiko Korporat (5x5 Risk Heat Map)
-  if (!isFullAccess) {
+  if (!isFullAccess && !isViewer) {
     return (
       <div className="space-y-6">
         {/* Executive Header Peta Risiko Korporat */}

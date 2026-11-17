@@ -377,6 +377,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const updateProfileData = async (updates: Partial<UserProfile>) => {
     if (!userProfile) return;
+    if (userProfile.role === 'VIEWER') {
+      throw new Error('Akun Viewer hanya memiliki akses lihat & cetak dan tidak dapat mengubah profil.');
+    }
     const updated = { ...userProfile, ...updates };
     setUserProfile(updated);
     localStorage.setItem(LOCAL_USER_KEY, JSON.stringify(updated));

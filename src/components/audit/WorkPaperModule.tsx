@@ -98,6 +98,7 @@ export const WorkPaperModule: React.FC<WorkPaperModuleProps> = ({
   }, []);
 
   const openAddModal = () => {
+    if (!isAuditor) return;
     setEditingKka(null);
     const count = workPapers.length + 1;
     setFormAssignmentId(assignments[0]?.id || '');
@@ -118,6 +119,7 @@ export const WorkPaperModule: React.FC<WorkPaperModuleProps> = ({
   };
 
   const openEditModal = (k: WorkPaper) => {
+    if (!isAuditor) return;
     if (k.isLocked && !isKepalaSPI) {
       alert('Kertas Kerja Audit (KKA) ini telah disetujui dan terkunci. Hanya Kepala SPI yang berwenang membuka kunci revisi.');
       return;
@@ -142,6 +144,7 @@ export const WorkPaperModule: React.FC<WorkPaperModuleProps> = ({
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!isAuditor) return;
     const selAssign = assignments.find((a) => a.id === formAssignmentId);
     const assignmentTitle = selAssign ? selAssign.objectName : 'Penugasan Audit';
 
@@ -181,6 +184,7 @@ export const WorkPaperModule: React.FC<WorkPaperModuleProps> = ({
   };
 
   const openReviewModal = (k: WorkPaper) => {
+    if (!isKepalaSPI) return;
     setReviewingKka(k);
     setReviewerNotes(k.reviewerNotes || '');
     setApprovalAction(k.status === 'Approved' ? 'Approved' : 'Reviewed');
@@ -189,7 +193,7 @@ export const WorkPaperModule: React.FC<WorkPaperModuleProps> = ({
 
   const handleSaveReview = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!reviewingKka) return;
+    if (!isKepalaSPI || !reviewingKka) return;
 
     try {
       await updateDoc(doc(db, 'work_papers', reviewingKka.id), {
@@ -206,6 +210,7 @@ export const WorkPaperModule: React.FC<WorkPaperModuleProps> = ({
   };
 
   const handleDelete = async (id: string) => {
+    if (!isKepalaSPI) return;
     const k = workPapers.find((item) => item.id === id);
     if (k?.isLocked && !isKepalaSPI) {
       alert('KKA terkunci tidak dapat dihapus.');
@@ -424,13 +429,15 @@ export const WorkPaperModule: React.FC<WorkPaperModuleProps> = ({
                     <Printer className="w-3.5 h-3.5" />
                   </button>
 
-                  <button
-                    onClick={() => openEditModal(k)}
-                    className="p-1 text-slate-500 hover:text-emerald-700 rounded-md"
-                    title="Edit KKA"
-                  >
-                    <Edit2 className="w-3.5 h-3.5" />
-                  </button>
+                  {isAuditor && (
+                    <button
+                      onClick={() => openEditModal(k)}
+                      className="p-1 text-slate-500 hover:text-emerald-700 rounded-md"
+                      title="Edit KKA"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
 
                   {isKepalaSPI && (
                     <button

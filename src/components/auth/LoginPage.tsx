@@ -181,6 +181,7 @@ export const LoginPage: React.FC = () => {
                     <option value="DIREKTUR">Direktur Perumda Tirta Saiyo</option>
                     <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
                     <option value="AUDITEE">Unit Kerja / Auditee</option>
+                    <option value="VIEWER">Viewer (Hanya Lihat &amp; Cetak)</option>
                     <option value="ADMIN_SISTEM">Administrator Sistem</option>
                   </select>
                   <p className="text-[10px] text-slate-400 mt-1 italic">

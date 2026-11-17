@@ -83,6 +83,9 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
 
   const isSuperOrKepalaSpi =
     userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
+  const isViewer = userProfile?.role === 'VIEWER';
+  const canAccess = isSuperOrKepalaSpi || isViewer;
+  const canEdit = isSuperOrKepalaSpi;
 
   const [selectedYear, setSelectedYear] = useState<number>(activeYear);
   const [activeSection, setActiveSection] = useState<ReportSectionKey>('all');
@@ -127,7 +130,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
   }, [activeYear]);
 
   useEffect(() => {
-    if (!isSuperOrKepalaSpi) return;
+    if (!canAccess) return;
 
     const unsubs = [
       onSnapshot(
@@ -199,7 +202,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
     ];
 
     return () => unsubs.forEach((u) => u());
-  }, [isSuperOrKepalaSpi]);
+  }, [canAccess]);
 
   const activeProfileConfig = useMemo(() => {
     return (
@@ -323,7 +326,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
     };
   }, [officials]);
 
-  if (!isSuperOrKepalaSpi) {
+  if (!canAccess) {
     return (
       <div className="bg-white border border-slate-200 rounded-xl p-10 text-center max-w-xl mx-auto mt-10">
         <div className="w-12 h-12 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 flex items-center justify-center mx-auto mb-4">
@@ -373,6 +376,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
   };
 
   const handleSaveReport = async (overrideStatus?: RiskAnnualReportStatus) => {
+    if (!canEdit) return;
     setIsSaving(true);
     setFeedbackNotice(null);
     const reportObj = buildReportObject(overrideStatus);
@@ -392,6 +396,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
   };
 
   const handleSyncFromLiveData = () => {
+    if (!canEdit) return;
     applyGeneratedNarratives();
     setFeedbackNotice(
       'Seluruh narasi Bab I hingga Bab VII berhasil disinkronkan ulang menggunakan data real-time terbaru.'
@@ -546,7 +551,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
       <div className="bg-white border border-slate-200 rounded-xl p-5 flex flex-col xl:flex-row xl:items-center justify-between gap-4">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 font-medium mb-1">
-            <span>Akses Eksklusif Kepala SPI &amp; Super User</span>
+            <span>{isViewer ? 'Mode Lihat & Cetak (Viewer)' : 'Akses Eksklusif Kepala SPI & Super User'}</span>
             <span aria-hidden="true">·</span>
             <span className="font-mono">{reportNumber}</span>
             <span aria-hidden="true">·</span>
@@ -579,25 +584,29 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
             </select>
           </div>
 
-          <button
-            type="button"
-            onClick={handleSyncFromLiveData}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            title="Buat ulang narasi otomatis berdasarkan angka data Firestore terbaru"
-          >
-            <RefreshCw className="w-3.5 h-3.5 text-emerald-700" />
-            <span>Sinkronkan Narasi</span>
-          </button>
+          {canEdit && (
+            <>
+              <button
+                type="button"
+                onClick={handleSyncFromLiveData}
+                className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 border border-slate-300 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                title="Buat ulang narasi otomatis berdasarkan angka data Firestore terbaru"
+              >
+                <RefreshCw className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Sinkronkan Narasi</span>
+              </button>
 
-          <button
-            type="button"
-            onClick={() => handleSaveReport()}
-            disabled={isSaving}
-            className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-          >
-            <Save className="w-3.5 h-3.5" />
-            <span>{isSaving ? 'Menyimpan...' : 'Simpan Laporan'}</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => handleSaveReport()}
+                disabled={isSaving}
+                className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 disabled:opacity-60 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                <Save className="w-3.5 h-3.5" />
+                <span>{isSaving ? 'Menyimpan...' : 'Simpan Laporan'}</span>
+              </button>
+            </>
+          )}
 
           <button
             type="button"
@@ -731,8 +740,9 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                 </div>
                 <select
                   value={status}
+                  disabled={!canEdit}
                   onChange={(e) => setStatus(e.target.value as RiskAnnualReportStatus)}
-                  className="px-3 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-slate-50 text-slate-900"
+                  className="px-3 py-1.5 text-xs font-semibold border border-slate-300 rounded-lg bg-slate-50 text-slate-900 disabled:opacity-75"
                 >
                   <option value="Draft">Draft</option>
                   <option value="Final / Disahkan Kepala SPI">Final / Disahkan Kepala SPI</option>
@@ -747,6 +757,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                   <label className="block font-semibold text-slate-700 mb-1">Judul Laporan</label>
                   <input
                     type="text"
+                    readOnly={!canEdit}
                     value={reportTitle}
                     onChange={(e) => setReportTitle(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white font-semibold text-slate-900"
@@ -756,6 +767,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                   <label className="block font-semibold text-slate-700 mb-1">Nomor Laporan</label>
                   <input
                     type="text"
+                    readOnly={!canEdit}
                     value={reportNumber}
                     onChange={(e) => setReportNumber(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white font-mono text-slate-900"
@@ -765,6 +777,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                   <label className="block font-semibold text-slate-700 mb-1">Tanggal Laporan</label>
                   <input
                     type="text"
+                    readOnly={!canEdit}
                     value={reportDate}
                     onChange={(e) => setReportDate(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white text-slate-900"
@@ -774,6 +787,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                   <label className="block font-semibold text-slate-700 mb-1">Disusun Oleh</label>
                   <input
                     type="text"
+                    readOnly={!canEdit}
                     value={preparedBy}
                     onChange={(e) => setPreparedBy(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white text-slate-900"
@@ -785,6 +799,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                   </label>
                   <input
                     type="text"
+                    readOnly={!canEdit}
                     value={recipient}
                     onChange={(e) => setRecipient(e.target.value)}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg bg-slate-50 focus:bg-white text-slate-900"
@@ -810,6 +825,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                 </label>
                 <textarea
                   rows={6}
+                  readOnly={!canEdit}
                   value={executiveSummaryNarrative}
                   onChange={(e) => setExecutiveSummaryNarrative(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -917,6 +933,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                 </label>
                 <textarea
                   rows={5}
+                  readOnly={!canEdit}
                   value={contextAndGovernanceNarrative}
                   onChange={(e) => setContextAndGovernanceNarrative(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1013,6 +1030,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                 </label>
                 <textarea
                   rows={5}
+                  readOnly={!canEdit}
                   value={categoryAndHeatmapAnalysis}
                   onChange={(e) => setCategoryAndHeatmapAnalysis(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1128,6 +1146,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                 </label>
                 <textarea
                   rows={5}
+                  readOnly={!canEdit}
                   value={unitExposureAnalysis}
                   onChange={(e) => setUnitExposureAnalysis(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1187,6 +1206,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                 </label>
                 <textarea
                   rows={5}
+                  readOnly={!canEdit}
                   value={mitigationAndControlEvaluation}
                   onChange={(e) => setMitigationAndControlEvaluation(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1248,6 +1268,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                 </label>
                 <textarea
                   rows={5}
+                  readOnly={!canEdit}
                   value={spipPkptIntegrationAnalysis}
                   onChange={(e) => setSpipPkptIntegrationAnalysis(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1306,6 +1327,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                 </label>
                 <textarea
                   rows={5}
+                  readOnly={!canEdit}
                   value={conclusionAndChallenges}
                   onChange={(e) => setConclusionAndChallenges(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1319,6 +1341,7 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                 </label>
                 <textarea
                   rows={5}
+                  readOnly={!canEdit}
                   value={nextYearRoadmapNarrative}
                   onChange={(e) => setNextYearRoadmapNarrative(e.target.value)}
                   className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
@@ -1352,16 +1375,18 @@ export const RiskAnnualReportModule: React.FC<RiskAnnualReportModuleProps> = ({
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-200">
-                <button
-                  type="button"
-                  onClick={() => handleSaveReport('Final / Disahkan Kepala SPI')}
-                  disabled={isSaving}
-                  className="px-4 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg cursor-pointer"
-                >
-                  Sahkan &amp; Simpan Laporan (Kepala SPI)
-                </button>
-              </div>
+              {canEdit && (
+                <div className="flex flex-wrap items-center justify-end gap-2 pt-3 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => handleSaveReport('Final / Disahkan Kepala SPI')}
+                    disabled={isSaving}
+                    className="px-4 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg cursor-pointer"
+                  >
+                    Sahkan &amp; Simpan Laporan (Kepala SPI)
+                  </button>
+                </div>
+              )}
             </section>
           )}
         </div>

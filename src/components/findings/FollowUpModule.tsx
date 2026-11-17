@@ -84,6 +84,7 @@ export const FollowUpModule: React.FC<FollowUpModuleProps> = ({ initialFindingId
     userProfile?.username === 'superman';
 
   const isAuditee = userProfile?.role === 'AUDITEE';
+  const isViewer = userProfile?.role === 'VIEWER';
   const auditeeUnitId = userProfile?.unitId || '';
   const auditeeUnitName = userProfile?.unitName || '';
 
@@ -103,6 +104,7 @@ export const FollowUpModule: React.FC<FollowUpModuleProps> = ({ initialFindingId
   }, []);
 
   const openSubmitAction = (r: Recommendation) => {
+    if (isViewer) return;
     setActiveRec(r);
     setResponseNotes('');
     setActionSteps('');
@@ -116,7 +118,7 @@ export const FollowUpModule: React.FC<FollowUpModuleProps> = ({ initialFindingId
 
   const handleSubmitAction = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeRec) return;
+    if (isViewer || !activeRec) return;
 
     let formattedUrl = evidenceFileUrl.trim();
     if (formattedUrl && !formattedUrl.startsWith('http://') && !formattedUrl.startsWith('https://')) {
@@ -599,13 +601,15 @@ export const FollowUpModule: React.FC<FollowUpModuleProps> = ({ initialFindingId
                   )}
 
                   {/* Auditee / Unit action: Upload Bukti Aksi Unit */}
-                  <button
-                    onClick={() => openSubmitAction(r)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors cursor-pointer"
-                  >
-                    <UploadCloud className="w-3.5 h-3.5 text-emerald-800" />
-                    <span>Laporkan Bukti Aksi Unit</span>
-                  </button>
+                  {!isViewer && (
+                    <button
+                      onClick={() => openSubmitAction(r)}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-900 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors cursor-pointer"
+                    >
+                      <UploadCloud className="w-3.5 h-3.5 text-emerald-800" />
+                      <span>Laporkan Bukti Aksi Unit</span>
+                    </button>
+                  )}
 
                   {/* SPI Auditor action */}
                   {isAuditorOrHead && (
