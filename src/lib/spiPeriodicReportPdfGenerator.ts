@@ -227,6 +227,7 @@ export function buildSpiPeriodicReportPdfDoc(opts: SpiPeriodicPdfOptions): jsPDF
       ['Laporan Hasil Audit (LHA)', `${analytics.lhaTotal} Laporan`, `Final / Terbit ke Direktur: ${analytics.lhaFinalCount}`],
       ['Temuan Audit 5C', `${analytics.findingsTotal} Temuan`, `Kritis/Tinggi: ${analytics.findingsCriticalHigh} · Potensi Kerugian: ${formatRupiahId(analytics.totalPotentialLoss)}`],
       ['Tindak Lanjut Rekomendasi (TLR)', `${analytics.recCompletionPct}% Selesai`, `Selesai: ${analytics.recCompleted}/${analytics.recTotal} · TLR Disetujui: ${analytics.followUpsApproved}`],
+      ['Whistleblowing System (WBS)', `${analytics.wbsReportsTotal} Laporan`, `Anonim: ${analytics.wbsAnonCount} · ST WBS: ${analytics.wbsAssignmentsTotal} · Masuk 5C: ${analytics.wbsConvertedToFindingCount}`],
       ['Investigasi & Kepatuhan Hukum', `${analytics.investigationsTotal} Kasus`, `Regulasi Berlaku: ${analytics.regulationsActive} · Dalam Review: ${analytics.regulationsInReview}`],
     ],
   });
@@ -342,7 +343,7 @@ export function buildSpiPeriodicReportPdfDoc(opts: SpiPeriodicPdfOptions): jsPDF
       headStyles: { fillColor: [30, 41, 59], textColor: [255, 255, 255], fontSize: 7.5 },
       bodyStyles: { fontSize: 7.5, halign: 'center' },
       columnStyles: { 0: { halign: 'left', fontStyle: 'bold' } },
-      head: [['Bulan', 'SPT Audit', 'KKA', 'LHA', 'Temuan 5C', 'TLR Masuk', 'TLR Disetujui', 'Investigasi']],
+      head: [['Bulan', 'SPT', 'KKA', 'LHA', 'Temuan 5C', 'TLR Masuk', 'TLR Disetujui', 'Investigasi', 'WBS']],
       body: analytics.monthlyBreakdown.map((m) => [
         m.monthName,
         `${m.assignmentsCount}`,
@@ -352,6 +353,7 @@ export function buildSpiPeriodicReportPdfDoc(opts: SpiPeriodicPdfOptions): jsPDF
         `${m.followUpsSubmitted}`,
         `${m.followUpsApproved}`,
         `${m.investigationsCount}`,
+        `${m.wbsReportsCount}`,
       ]),
     });
     cursorY = getTableLastY(cursorY + 55);
@@ -405,12 +407,33 @@ export function buildSpiPeriodicReportPdfDoc(opts: SpiPeriodicPdfOptions): jsPDF
   cursorY = getTableLastY(cursorY + 35);
 
   // =========================================================================
-  // BAB V & VI - INVESTIGASI, REGULASI, KENDALA & PENGESAHAN
+  // BAB V & VI - INVESTIGASI, WBS, REGULASI, KENDALA & PENGESAHAN
   // =========================================================================
   doc.addPage();
   cursorY = topMargin;
-  writeChapterHeader('BAB V', 'Audit Investigatif, Kepatuhan Hukum & Konteks Risiko SPIP');
+  writeChapterHeader('BAB V', 'Whistleblowing System (WBS), Audit Investigatif, Kepatuhan & Risiko SPIP');
   writeParagraphs(report.investigationAndComplianceSummary);
+
+  writeSectionTitle('5.1 Rekapitulasi Penanganan Whistleblowing System (WBS)');
+  autoTable(doc, {
+    startY: cursorY,
+    margin: { left: marginX, right: marginX },
+    theme: 'grid',
+    headStyles: { fillColor: EMERALD_DARK, textColor: [255, 255, 255], fontSize: 7.5 },
+    bodyStyles: { fontSize: 7.4 },
+    head: [['No. Tiket WBS', 'Identitas', 'Judul & Unit Terlapor', 'Status Penanganan', 'SPT WBS / Temuan 5C']],
+    body:
+      analytics.wbsReports.length > 0
+        ? analytics.wbsReports.map((w) => [
+            w.ticketNumber,
+            w.identityMode,
+            `${w.title}\n(${w.reportedUnitName})`,
+            w.status,
+            `${w.linkedAssignmentNumber || '-'}${w.linkedFindingNumber ? `\n${w.linkedFindingNumber}` : ''}`,
+          ])
+        : [['-', '-', 'Tidak ada pengaduan WBS baru pada periode ini', '-', '-']],
+  });
+  cursorY = getTableLastY(cursorY + 35);
 
   writeChapterHeader('BAB VI', 'Kendala, Rekomendasi Strategis, Rencana Kerja & Pengesahan');
   writeSectionTitle('6.1 Kendala & Rekomendasi Strategis kepada Direksi');

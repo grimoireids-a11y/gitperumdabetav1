@@ -12,6 +12,10 @@ import {
   RiskRegister,
   SPIPeriodicType,
   SPIProgram,
+  WBSAssignment,
+  WBSReport,
+  WBSResultReport,
+  WBSWorkPaper,
   WorkPaper,
 } from '../types/audit';
 import { formatRupiahId } from './riskAnalytics';
@@ -41,6 +45,7 @@ export interface MonthlyActivityRow {
   followUpsSubmitted: number;
   followUpsApproved: number;
   investigationsCount: number;
+  wbsReportsCount: number;
 }
 
 export interface SPIPeriodicAnalytics {
@@ -88,10 +93,21 @@ export interface SPIPeriodicAnalytics {
   followUps: FollowUp[];
   followUpsSubmitted: number;
   followUpsApproved: number;
-  // Investigation & Regulations & Risk Context
+  // Investigation, WBS, Regulations & Risk Context
   investigations: Investigation[];
   investigationsTotal: number;
   investigationsEstimatedLoss: number;
+  wbsReports: WBSReport[];
+  wbsReportsTotal: number;
+  wbsAnonCount: number;
+  wbsInProcessCount: number;
+  wbsCompletedCount: number;
+  wbsProvenCount: number;
+  wbsConvertedToFindingCount: number;
+  wbsAssignmentsTotal: number;
+  wbsWorkPapersTotal: number;
+  wbsResultsTotal: number;
+  wbsEstimatedLoss: number;
   regulationsActive: number;
   regulationsInReview: number;
   risksTotal: number;
@@ -163,6 +179,10 @@ export function buildSpiPeriodicAnalytics(params: {
   regulationsList: Regulation[];
   risksList: RiskRegister[];
   bpkpList: BPKPSelfAssessment[];
+  wbsReportsList?: WBSReport[];
+  wbsAssignmentsList?: WBSAssignment[];
+  wbsWorkPapersList?: WBSWorkPaper[];
+  wbsResultsList?: WBSResultReport[];
 }): SPIPeriodicAnalytics {
   const {
     periodType,
@@ -181,6 +201,10 @@ export function buildSpiPeriodicAnalytics(params: {
     regulationsList,
     risksList,
     bpkpList,
+    wbsReportsList = [],
+    wbsAssignmentsList = [],
+    wbsWorkPapersList = [],
+    wbsResultsList = [],
   } = params;
 
   const activeMonth = periodType === 'BULANAN' ? month || 1 : undefined;
@@ -272,7 +296,7 @@ export function buildSpiPeriodicAnalytics(params: {
     matchesPeriod(fu.submittedAt || fu.actionDate, year, activeMonth)
   );
 
-  // 5. Investigations, Regulations, Risk & SPIP Context
+  // 5. Investigations, WBS, Regulations, Risk & SPIP Context
   const investigations = investigationsList.filter((inv) =>
     matchesPeriod(inv.receiptDate || inv.createdAt, year, activeMonth)
   );
@@ -280,6 +304,34 @@ export function buildSpiPeriodicAnalytics(params: {
     (s, inv) => s + (inv.estimatedLoss || 0),
     0
   );
+
+  const wbsReports = wbsReportsList.filter((w) =>
+    matchesPeriod(w.createdAt, year, activeMonth, w.year)
+  );
+  const wbsAssignments = wbsAssignmentsList.filter((a) =>
+    matchesPeriod(a.letterDate || a.createdAt, year, activeMonth, a.year)
+  );
+  const wbsWorkPapers = wbsWorkPapersList.filter((k) =>
+    matchesPeriod(k.createdAt || k.updatedAt, year, activeMonth, k.year)
+  );
+  const wbsResults = wbsResultsList.filter((r) =>
+    matchesPeriod(r.reportDate || r.createdAt, year, activeMonth, r.year)
+  );
+
+  const wbsAnonCount = wbsReports.filter((w) => w.identityMode === 'ANONIM').length;
+  const wbsCompletedCount = wbsReports.filter(
+    (w) =>
+      w.status === 'Laporan Hasil Selesai' ||
+      w.status === 'Tidak Terbukti / Diarsipkan' ||
+      w.status === 'Menjadi Temuan 5C'
+  ).length;
+  const wbsInProcessCount = Math.max(0, wbsReports.length - wbsCompletedCount);
+  const wbsProvenCount = wbsResults.filter((r) => r.proofConclusion !== 'Tidak Terbukti / Selesai').length;
+  const wbsConvertedToFindingCount = wbsResults.filter((r) => Boolean(r.syncedToFindingId)).length;
+  const wbsEstimatedLoss =
+    wbsResults.length > 0
+      ? wbsResults.reduce((s, r) => s + (r.potentialLoss || 0), 0)
+      : wbsReports.reduce((s, w) => s + (w.estimatedLoss || 0), 0);
 
   const regulationsActive = regulationsList.filter((r) => r.status === 'Berlaku').length;
   const regulationsInReview = regulationsList.filter((r) => r.status === 'Dalam Review').length;
@@ -314,6 +366,9 @@ export function buildSpiPeriodicAnalytics(params: {
     const mInv = investigationsList.filter((inv) =>
       matchesPeriod(inv.receiptDate || inv.createdAt, year, mNum)
     ).length;
+    const mWbs = wbsReportsList.filter((w) =>
+      matchesPeriod(w.createdAt, year, mNum)
+    ).length;
 
     return {
       month: mNum,
@@ -325,6 +380,7 @@ export function buildSpiPeriodicAnalytics(params: {
       followUpsSubmitted: mFuSub,
       followUpsApproved: mFuApp,
       investigationsCount: mInv,
+      wbsReportsCount: mWbs,
     };
   });
 
@@ -375,6 +431,17 @@ export function buildSpiPeriodicAnalytics(params: {
     investigations,
     investigationsTotal: investigations.length,
     investigationsEstimatedLoss,
+    wbsReports,
+    wbsReportsTotal: wbsReports.length,
+    wbsAnonCount,
+    wbsInProcessCount,
+    wbsCompletedCount,
+    wbsProvenCount,
+    wbsConvertedToFindingCount,
+    wbsAssignmentsTotal: wbsAssignments.length,
+    wbsWorkPapersTotal: wbsWorkPapers.length,
+    wbsResultsTotal: wbsResults.length,
+    wbsEstimatedLoss,
     regulationsActive,
     regulationsInReview,
     risksTotal: yearRisks.length,
@@ -401,8 +468,8 @@ export function generateSpiPeriodicNarratives(
 
   return {
     executiveSummary:
-      `Laporan ${isMonthly ? 'Bulanan' : 'Tahunan'} Satuan Pengawasan Intern (SPI) ${institutionName} untuk ${scopeDesc} menyajikan ikhtisar capaian pelaksanaan tugas pengawasan, evaluasi pengendalian intern, pemantauan tindak lanjut hasil audit, serta fungsi konsultansi dan investigasi.\n\n` +
-      `Pada ${scopeDesc}, SPI mencatat ${analytics.assignmentsTotal} Surat Perintah Tugas (SPT) audit (${analytics.assignmentsCompleted} selesai, ${analytics.assignmentsOngoing} berlangsung), penyusunan ${analytics.workPapersTotal} Kertas Kerja Audit (KKA), dan penerbitan ${analytics.lhaTotal} Laporan Hasil Audit (LHA). Dari hasil pengawasan tersebut teridentifikasi ${analytics.findingsTotal} temuan audit 5C dengan estimasi potensi kerugian sebesar ${formatRupiahId(analytics.totalPotentialLoss)}, sementara tingkat penyelesaian rekomendasi (TLR) mencapai ${analytics.recCompletionPct}%.`,
+      `Laporan ${isMonthly ? 'Bulanan' : 'Tahunan'} Satuan Pengawasan Intern (SPI) ${institutionName} untuk ${scopeDesc} menyajikan ikhtisar capaian pelaksanaan tugas pengawasan, evaluasi pengendalian intern, pemantauan tindak lanjut hasil audit, pengelolaan pengaduan Whistleblowing System (WBS), serta fungsi konsultansi dan investigasi.\n\n` +
+      `Pada ${scopeDesc}, SPI mencatat ${analytics.assignmentsTotal} Surat Perintah Tugas (SPT) audit (${analytics.assignmentsCompleted} selesai, ${analytics.assignmentsOngoing} berlangsung), penyusunan ${analytics.workPapersTotal} Kertas Kerja Audit (KKA), dan penerbitan ${analytics.lhaTotal} Laporan Hasil Audit (LHA), serta pengelolaan ${analytics.wbsReportsTotal} pengaduan WBS (${analytics.wbsConvertedToFindingCount} terkonversi menjadi Temuan 5C). Dari hasil pengawasan tersebut teridentifikasi ${analytics.findingsTotal} temuan audit 5C dengan estimasi potensi kerugian sebesar ${formatRupiahId(analytics.totalPotentialLoss)}, sementara tingkat penyelesaian rekomendasi (TLR) mencapai ${analytics.recCompletionPct}%.`,
 
     pkptAndProgramRealization:
       `Pelaksanaan Program Kerja Pengawasan Tahunan (PKPT) ${isMonthly ? 'triwulan berjalan & aktif' : `Tahun ${analytics.year}`} mencatat ${analytics.pkptTotal} agenda pengawasan dengan realisasi selesai sebanyak ${analytics.pkptCompleted} kegiatan (${analytics.pkptRealizationPct}%), ${analytics.pkptOngoing} kegiatan sedang berlangsung, dan ${analytics.pkptPlanned} kegiatan dalam tahap perencanaan.\n\n` +
@@ -417,7 +484,8 @@ export function generateSpiPeriodicNarratives(
       `Dari keseluruhan ${analytics.recTotal} rekomendasi audit tahun ${analytics.year}, sebanyak ${analytics.recCompleted} rekomendasi (${analytics.recCompletionPct}%) telah berstatus Selesai, ${analytics.recInProgress} dalam proses/verifikasi, dan ${analytics.recNotStarted} belum ditindaklanjuti. Pada ${scopeDesc} diterima ${analytics.followUpsSubmitted} laporan tindak lanjut unit kerja dengan ${analytics.followUpsApproved} di antaranya disetujui SPI.`,
 
     investigationAndComplianceSummary:
-      `Dalam aspek penanganan indikasi kecurangan dan kepatuhan regulasi, SPI mencatat ${analytics.investigationsTotal} kasus audit investigatif / penelaahan pada ${scopeDesc} dengan estimasi nilai kerugian sebesar ${formatRupiahId(analytics.investigationsEstimatedLoss)}.\n\n` +
+      `Dalam aspek penanganan indikasi kecurangan, Whistleblowing System (WBS), dan kepatuhan regulasi, SPI mencatat ${analytics.investigationsTotal} kasus audit investigatif (estimasi kerugian ${formatRupiahId(analytics.investigationsEstimatedLoss)}) serta ${analytics.wbsReportsTotal} pengaduan WBS masuk pada ${scopeDesc} (${analytics.wbsAnonCount} Anonim, ${analytics.wbsInProcessCount} dalam telaah/pemeriksaan, ${analytics.wbsCompletedCount} selesai diproses).\n\n` +
+      `Penanganan WBS pada ${scopeDesc} meliputi penerbitan ${analytics.wbsAssignmentsTotal} Surat Tugas Penanganan WBS, penyusunan ${analytics.wbsWorkPapersTotal} Kertas Kerja WBS, dan ${analytics.wbsResultsTotal} Laporan Hasil WBS (${analytics.wbsProvenCount} terbukti, dengan ${analytics.wbsConvertedToFindingCount} di antaranya masuk ke Matriks Temuan 5C dan nilai indikasi kerugian WBS sebesar ${formatRupiahId(analytics.wbsEstimatedLoss)}).\n\n` +
       `Pada fungsi kepatuhan dan konsultansi hukum, terinventarisasi ${analytics.regulationsActive} produk hukum/SOP berstatus Berlaku dan ${analytics.regulationsInReview} regulasi sedang dalam reviu SPI. Seluruh pengawasan diselaraskan dengan peta ${analytics.risksTotal} risiko korporat (${analytics.risksCriticalHigh} risiko tinggi/ekstrem) serta skor Maturitas SPIP Terpadu sebesar ${analytics.spipMaturityScore.toFixed(2)} (${analytics.spipMaturityLevel}).`,
 
     constraintsAndRecommendations:

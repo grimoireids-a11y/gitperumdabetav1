@@ -345,6 +345,116 @@
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "periodType", "year", "reportNumber", "reportTitle", "status"]
+    },
+    "WBSReport": {
+      "title": "WBSReport",
+      "description": "Whistleblowing System report submitted via public portal or manual SPI entry",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "ticketNumber": { "type": "string", "maxLength": 32 },
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "identityMode": { "type": "string", "enum": ["IDENTITAS", "ANONIM"] },
+        "reporterName": { "type": "string", "maxLength": 128 },
+        "reporterIdentityNumber": { "type": "string", "maxLength": 64 },
+        "reporterPhone": { "type": "string", "maxLength": 32 },
+        "reporterEmail": { "type": "string", "maxLength": 128 },
+        "category": { "type": "string", "maxLength": 128 },
+        "title": { "type": "string", "maxLength": 256 },
+        "reportedUnitId": { "type": "string", "maxLength": 64 },
+        "reportedUnitName": { "type": "string", "maxLength": 128 },
+        "reportedParty": { "type": "string", "maxLength": 256 },
+        "incidentDate": { "type": "string", "maxLength": 32 },
+        "incidentLocation": { "type": "string", "maxLength": 256 },
+        "chronology": { "type": "string", "maxLength": 6000 },
+        "estimatedLoss": { "type": "number" },
+        "urgencyLevel": { "type": "string", "enum": ["Sedang", "Tinggi", "Kritis"] },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Diterima",
+            "Verifikasi & Penelaahan",
+            "Surat Tugas Diterbitkan",
+            "Dalam Pemeriksaan WBS",
+            "Laporan Hasil Selesai",
+            "Menjadi Temuan 5C",
+            "Tidak Terbukti / Diarsipkan"
+          ]
+        },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "ticketNumber", "year", "month", "identityMode", "title", "status"]
+    },
+    "WBSAssignment": {
+      "title": "WBSAssignment",
+      "description": "Official confidential assignment letter for handling a WBS report",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "wbsReportId": { "type": "string", "maxLength": 64 },
+        "ticketNumber": { "type": "string", "maxLength": 32 },
+        "year": { "type": "number" },
+        "letterNumber": { "type": "string", "maxLength": 128 },
+        "letterDate": { "type": "string", "maxLength": 32 },
+        "assignmentTitle": { "type": "string", "maxLength": 256 },
+        "unitName": { "type": "string", "maxLength": 128 },
+        "teamLeader": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["Diterbitkan", "Berlangsung", "Selesai"] }
+      },
+      "required": ["id", "wbsReportId", "ticketNumber", "letterNumber", "status"]
+    },
+    "WBSWorkPaper": {
+      "title": "WBSWorkPaper",
+      "description": "Work paper documenting WBS verification and evidence testing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "wbsReportId": { "type": "string", "maxLength": 64 },
+        "ticketNumber": { "type": "string", "maxLength": 32 },
+        "wbsAssignmentId": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "kkaNumber": { "type": "string", "maxLength": 64 },
+        "title": { "type": "string", "maxLength": 256 },
+        "indicatedLoss": { "type": "number" },
+        "status": { "type": "string", "enum": ["Draft", "Direviu", "Disetujui & Dikunci"] },
+        "isLocked": { "type": "boolean" }
+      },
+      "required": ["id", "wbsReportId", "wbsAssignmentId", "kkaNumber", "title", "status"]
+    },
+    "WBSResultReport": {
+      "title": "WBSResultReport",
+      "description": "Final WBS examination result report capable of auto-converting to a 5C Finding",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "wbsReportId": { "type": "string", "maxLength": 64 },
+        "ticketNumber": { "type": "string", "maxLength": 32 },
+        "year": { "type": "number" },
+        "reportNumber": { "type": "string", "maxLength": 128 },
+        "reportDate": { "type": "string", "maxLength": 32 },
+        "title": { "type": "string", "maxLength": 256 },
+        "isFinding": { "type": "boolean" },
+        "potentialLoss": { "type": "number" },
+        "syncedToFindingId": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["Draft", "Final / Disahkan Kepala SPI"] }
+      },
+      "required": ["id", "wbsReportId", "reportNumber", "title", "status"]
+    },
+    "WBSEvidenceChunk": {
+      "title": "WBSEvidenceChunk",
+      "description": "Base64 file chunk for WBS preliminary evidence uploads up to 2 MB",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "reportId": { "type": "string", "maxLength": 64 },
+        "attachmentId": { "type": "string", "maxLength": 64 },
+        "chunkIndex": { "type": "number" },
+        "totalChunks": { "type": "number" },
+        "data": { "type": "string", "maxLength": 600000 }
+      },
+      "required": ["id", "reportId", "attachmentId", "chunkIndex", "data"]
     }
   },
   "firestore": {
@@ -407,6 +517,26 @@
     "/regulations/{regId}": {
       "schema": "Regulation",
       "description": "BUMD regulations and compliance reviews"
+    },
+    "/wbs_reports/{reportId}": {
+      "schema": "WBSReport",
+      "description": "Whistleblowing System (WBS) public reports and tracking tickets"
+    },
+    "/wbs_assignments/{assignmentId}": {
+      "schema": "WBSAssignment",
+      "description": "Confidential WBS handling assignment letters"
+    },
+    "/wbs_work_papers/{kkaId}": {
+      "schema": "WBSWorkPaper",
+      "description": "WBS examination and verification work papers"
+    },
+    "/wbs_results/{resultId}": {
+      "schema": "WBSResultReport",
+      "description": "Final WBS examination result reports with 5C conversion"
+    },
+    "/wbs_evidence_chunks/{chunkId}": {
+      "schema": "WBSEvidenceChunk",
+      "description": "Chunked binary evidence attachments up to 2 MB for WBS reports"
     }
   }
 }

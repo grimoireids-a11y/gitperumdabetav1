@@ -240,6 +240,10 @@ export interface Finding {
   auditorAnalysis: string;
   auditeeResponse?: string;
   status: FindingStatus;
+  sourceType?: 'AUDIT_REGULER' | 'WBS' | 'LHA';
+  wbsReportId?: string;
+  wbsTicketNumber?: string;
+  wbsResultId?: string;
   createdAt: string;
 }
 
@@ -572,5 +576,194 @@ export interface SPIPeriodicReport {
   updatedAt: string;
 }
 
+// =========================================================================
+// WHISTLEBLOWING SYSTEM (WBS) TYPES
+// =========================================================================
 
+export type WBSIdentityMode = 'IDENTITAS' | 'ANONIM';
 
+export type WBSReportStatus =
+  | 'Diterima'
+  | 'Verifikasi & Penelaahan'
+  | 'Surat Tugas Diterbitkan'
+  | 'Dalam Pemeriksaan WBS'
+  | 'Laporan Hasil Selesai'
+  | 'Menjadi Temuan 5C'
+  | 'Tidak Terbukti / Diarsipkan';
+
+export type WBSViolationCategory =
+  | 'Korupsi, Suap & Gratifikasi'
+  | 'Penggelapan Kas / Aset'
+  | 'Rekayasa Penagihan & Meter Air'
+  | 'Penyalahgunaan Wewenang & Nepotisme'
+  | 'Kecurangan Pengadaan Barang/Jasa'
+  | 'Pelanggaran SOP & Kode Etik'
+  | 'Lainnya';
+
+export interface WBSEvidenceAttachment {
+  id: string;
+  kind: 'LINK' | 'DOCUMENT' | 'PHOTO';
+  fileName: string;
+  mimeType?: string;
+  sizeBytes?: number;
+  linkUrl?: string;
+  inlineDataUrl?: string;
+  chunkIds?: string[];
+  uploadedAt: string;
+}
+
+export interface WBSTimelineEntry {
+  id: string;
+  timestamp: string;
+  stage: string;
+  status: string;
+  publicNote: string;
+  actor: string;
+}
+
+export interface WBSClarificationMessage {
+  id: string;
+  sender: 'PELAPOR' | 'SPI';
+  message: string;
+  attachmentLink?: string;
+  createdAt: string;
+}
+
+export interface WBSReport {
+  id: string;
+  ticketNumber: string;
+  year: number;
+  month: number;
+  identityMode: WBSIdentityMode;
+  reporterName: string;
+  reporterIdentityNumber?: string;
+  reporterPhone?: string;
+  reporterEmail?: string;
+  category: WBSViolationCategory;
+  title: string;
+  reportedUnitId?: string;
+  reportedUnitName: string;
+  reportedParty: string;
+  incidentDate: string;
+  incidentLocation: string;
+  chronology: string;
+  estimatedLoss?: number;
+  urgencyLevel: 'Sedang' | 'Tinggi' | 'Kritis';
+  attachments: WBSEvidenceAttachment[];
+  evidenceSummaryNote?: string;
+  status: WBSReportStatus;
+  triageNotes?: string;
+  publicResponse?: string;
+  slaDeadlineDate?: string;
+  linkedAssignmentId?: string;
+  linkedAssignmentNumber?: string;
+  linkedWorkPaperId?: string;
+  linkedResultId?: string;
+  linkedFindingId?: string;
+  linkedFindingNumber?: string;
+  timeline: WBSTimelineEntry[];
+  messages?: WBSClarificationMessage[];
+  sourceChannel?: 'Portal WBS Publik' | 'Input Manual SPI';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WBSAssignment {
+  id: string;
+  wbsReportId: string;
+  ticketNumber: string;
+  year: number;
+  letterNumber: string;
+  letterDate: string;
+  basis: string;
+  assignmentTitle: string;
+  unitId?: string;
+  unitName: string;
+  assignmentType:
+    | 'Penelaahan Awal WBS'
+    | 'Audit Investigatif WBS'
+    | 'Klarifikasi & Verifikasi Lapangan WBS';
+  confidentialityLevel: 'Rahasia' | 'Sangat Rahasia';
+  supervisor: string;
+  teamLeader: string;
+  teamMembers: string;
+  objective: string;
+  scope: string;
+  startDate: string;
+  endDate: string;
+  status: 'Diterbitkan' | 'Berlangsung' | 'Selesai';
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WBSWorkPaper {
+  id: string;
+  wbsReportId: string;
+  ticketNumber: string;
+  wbsAssignmentId: string;
+  wbsAssignmentNumber?: string;
+  year: number;
+  kkaNumber: string;
+  title: string;
+  procedure: string;
+  evidenceVerified: string;
+  interviewSummary: string;
+  testResult: string;
+  indicatedLoss: number;
+  auditorAnalysis: string;
+  conclusion:
+    | 'Terbukti (Indikasi Kuat)'
+    | 'Terbukti Sebagian / Kelemahan SOP'
+    | 'Tidak Terbukti';
+  preparer: string;
+  reviewer?: string;
+  reviewerNotes?: string;
+  status: 'Draft' | 'Direviu' | 'Disetujui & Dikunci';
+  isLocked: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface WBSResultReport {
+  id: string;
+  wbsReportId: string;
+  ticketNumber: string;
+  wbsAssignmentId?: string;
+  wbsAssignmentNumber?: string;
+  wbsWorkPaperId?: string;
+  year: number;
+  reportNumber: string;
+  reportDate: string;
+  title: string;
+  unitId: string;
+  unitName: string;
+  category: string;
+  executiveSummary: string;
+  examinationFacts: string;
+  proofConclusion:
+    | 'Terbukti - Menjadi Temuan 5C'
+    | 'Terbukti - Pelanggaran Administratif/Disiplin'
+    | 'Tidak Terbukti / Selesai';
+  isFinding: boolean;
+  riskLevel: FindingRiskLevel;
+  condition: string;
+  criteria: string;
+  cause: string;
+  consequence: string;
+  potentialLoss: number;
+  auditorAnalysis: string;
+  recommendationText: string;
+  recommendationPic: string;
+  recommendationTargetDate: string;
+  recommendationIndicator: string;
+  status: 'Draft' | 'Final / Disahkan Kepala SPI';
+  syncedToFindingId?: string;
+  syncedFindingNumber?: string;
+  syncedRecommendationId?: string;
+  syncedAt?: string;
+  preparedBy: string;
+  approvedBy?: string;
+  createdAt: string;
+  updatedAt: string;
+}

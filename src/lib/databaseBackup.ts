@@ -115,6 +115,31 @@ export const BACKUP_COLLECTIONS: BackupCollectionMeta[] = [
     description: 'Catatan kasus rahasia, kronologi, modus, dan progres penelaahan',
   },
   {
+    key: 'wbs_reports',
+    label: 'WBS: Register Pengaduan',
+    description: 'Laporan whistleblower publik/manual, tiket pelacakan, dan timeline progres',
+  },
+  {
+    key: 'wbs_assignments',
+    label: 'WBS: Surat Tugas Penanganan',
+    description: 'Surat tugas rahasia penelaahan & audit investigatif pengaduan WBS',
+  },
+  {
+    key: 'wbs_work_papers',
+    label: 'WBS: Kertas Kerja Pemeriksaan',
+    description: 'Dokumentasi pengujian bukti, klarifikasi, dan indikasi kerugian WBS',
+  },
+  {
+    key: 'wbs_results',
+    label: 'WBS: Laporan Hasil Pemeriksaan',
+    description: 'Laporan hasil akhir WBS beserta status konversi otomatis ke Temuan 5C',
+  },
+  {
+    key: 'wbs_evidence_chunks',
+    label: 'WBS: Lampiran Bukti Permulaan',
+    description: 'Potongan berkas dokumen/foto bukti permulaan WBS (maks. 2 MB)',
+  },
+  {
     key: 'regulations',
     label: 'Basis Data Peraturan & Hukum',
     description: 'Inventaris produk hukum, SOP, dan hasil review klausul kepatuhan',

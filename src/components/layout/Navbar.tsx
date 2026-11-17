@@ -75,6 +75,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         return 'Matriks Temuan Audit 5C & Potensi Kerugian';
       case 'follow_ups':
         return 'Pemantauan & Verifikasi Tindak Lanjut Rekomendasi';
+      case 'wbs_management':
+        return 'Manajemen Whistleblowing System (WBS) & Konversi Temuan 5C';
       case 'investigations':
         return 'Audit Investigatif & Penanganan Indikasi Fraud';
       case 'regulations':

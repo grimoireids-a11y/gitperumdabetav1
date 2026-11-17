@@ -33,6 +33,10 @@ import {
   SPIPeriodicReportStatus,
   SPIPeriodicType,
   SPIProgram,
+  WBSAssignment,
+  WBSReport,
+  WBSResultReport,
+  WBSWorkPaper,
   WorkPaper,
 } from '../../types/audit';
 import {
@@ -85,6 +89,10 @@ export const SPIPeriodicReportModule: React.FC = () => {
   const [regulationsList, setRegulationsList] = useState<Regulation[]>([]);
   const [risksList, setRisksList] = useState<RiskRegister[]>([]);
   const [bpkpList, setBpkpList] = useState<BPKPSelfAssessment[]>([]);
+  const [wbsReportsList, setWbsReportsList] = useState<WBSReport[]>([]);
+  const [wbsAssignmentsList, setWbsAssignmentsList] = useState<WBSAssignment[]>([]);
+  const [wbsWorkPapersList, setWbsWorkPapersList] = useState<WBSWorkPaper[]>([]);
+  const [wbsResultsList, setWbsResultsList] = useState<WBSResultReport[]>([]);
   const [savedReports, setSavedReports] = useState<SPIPeriodicReport[]>([]);
   const [officials, setOfficials] = useState<OfficialSignatory[]>(INITIAL_OFFICIALS);
 
@@ -180,6 +188,26 @@ export const SPIPeriodicReportModule: React.FC = () => {
         (e) => handleFirestoreError(e, OperationType.LIST, 'bpkp_assessments')
       ),
       onSnapshot(
+        collection(db, 'wbs_reports'),
+        (s) => setWbsReportsList(s.docs.map((d) => ({ id: d.id, ...d.data() } as WBSReport))),
+        (e) => handleFirestoreError(e, OperationType.LIST, 'wbs_reports')
+      ),
+      onSnapshot(
+        collection(db, 'wbs_assignments'),
+        (s) => setWbsAssignmentsList(s.docs.map((d) => ({ id: d.id, ...d.data() } as WBSAssignment))),
+        (e) => handleFirestoreError(e, OperationType.LIST, 'wbs_assignments')
+      ),
+      onSnapshot(
+        collection(db, 'wbs_work_papers'),
+        (s) => setWbsWorkPapersList(s.docs.map((d) => ({ id: d.id, ...d.data() } as WBSWorkPaper))),
+        (e) => handleFirestoreError(e, OperationType.LIST, 'wbs_work_papers')
+      ),
+      onSnapshot(
+        collection(db, 'wbs_results'),
+        (s) => setWbsResultsList(s.docs.map((d) => ({ id: d.id, ...d.data() } as WBSResultReport))),
+        (e) => handleFirestoreError(e, OperationType.LIST, 'wbs_results')
+      ),
+      onSnapshot(
         collection(db, 'spi_periodic_reports'),
         (s) => setSavedReports(s.docs.map((d) => ({ id: d.id, ...d.data() } as SPIPeriodicReport))),
         (e) => handleFirestoreError(e, OperationType.LIST, 'spi_periodic_reports')
@@ -229,6 +257,10 @@ export const SPIPeriodicReportModule: React.FC = () => {
         regulationsList,
         risksList,
         bpkpList,
+        wbsReportsList,
+        wbsAssignmentsList,
+        wbsWorkPapersList,
+        wbsResultsList,
       }),
     [
       periodType,
@@ -247,6 +279,10 @@ export const SPIPeriodicReportModule: React.FC = () => {
       regulationsList,
       risksList,
       bpkpList,
+      wbsReportsList,
+      wbsAssignmentsList,
+      wbsWorkPapersList,
+      wbsResultsList,
     ]
   );
 
@@ -420,6 +456,8 @@ export const SPIPeriodicReportModule: React.FC = () => {
           'Potensi Kerugian': analytics.totalPotentialLoss,
           'Penyelesaian TLR (%)': analytics.recCompletionPct,
           'Kasus Investigasi': analytics.investigationsTotal,
+          'Pengaduan WBS Masuk': analytics.wbsReportsTotal,
+          'WBS Jadi Temuan 5C': analytics.wbsConvertedToFindingCount,
         },
       ]),
       'Ikhtisar Pengawasan'
@@ -462,12 +500,31 @@ export const SPIPeriodicReportModule: React.FC = () => {
           'No. Temuan': f.findingNumber,
           Unit: f.unitName,
           Judul: f.title,
+          Sumber: f.sourceType || 'AUDIT_REGULER',
           Risiko: f.riskLevel,
           'Potensi Kerugian': f.potentialLoss || 0,
           Status: f.status,
         }))
       ),
       'Temuan Audit 5C'
+    );
+
+    XLSX.utils.book_append_sheet(
+      wb,
+      XLSX.utils.json_to_sheet(
+        analytics.wbsReports.map((w) => ({
+          'Nomor Tiket': w.ticketNumber,
+          'Mode Identitas': w.identityMode,
+          Kategori: w.category,
+          Judul: w.title,
+          'Unit Terlapor': w.reportedUnitName,
+          Status: w.status,
+          'No. ST WBS': w.linkedAssignmentNumber || '-',
+          'Temuan 5C': w.linkedFindingNumber || '-',
+          'Tanggal Masuk': w.createdAt.slice(0, 10),
+        }))
+      ),
+      'Rekap Pengaduan WBS'
     );
 
     if (periodType === 'TAHUNAN') {
@@ -483,6 +540,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
             'TLR Masuk': m.followUpsSubmitted,
             'TLR Disetujui': m.followUpsApproved,
             Investigasi: m.investigationsCount,
+            'Pengaduan WBS': m.wbsReportsCount,
           }))
         ),
         'Rekap Bulanan Jan-Des'
@@ -715,12 +773,13 @@ export const SPIPeriodicReportModule: React.FC = () => {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-4">
-          <p className="text-xs font-medium text-slate-500">Investigasi &amp; SPIP</p>
+          <p className="text-xs font-medium text-slate-500">WBS &amp; Investigasi</p>
           <p className="text-2xl font-bold text-slate-900 mt-1 tabular-nums">
-            {analytics.investigationsTotal}
+            {analytics.wbsReportsTotal} <span className="text-slate-400 text-base">/</span>{' '}
+            <span className="text-indigo-700">{analytics.investigationsTotal}</span>
           </p>
           <p className="text-[11px] text-slate-500 mt-1 tabular-nums">
-            Skor SPIP: {analytics.spipMaturityScore.toFixed(2)}
+            {analytics.wbsConvertedToFindingCount} WBS ke 5C · SPIP {analytics.spipMaturityScore.toFixed(2)}
           </p>
         </div>
       </div>
@@ -999,6 +1058,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                           <th className="py-2 px-3 font-semibold text-right">TLR Masuk</th>
                           <th className="py-2 px-3 font-semibold text-right">TLR Disetujui</th>
                           <th className="py-2 px-3 font-semibold text-right">Investigasi</th>
+                          <th className="py-2 px-3 font-semibold text-right">WBS</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1012,6 +1072,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                             <td className="py-2 px-3 text-right font-mono tabular-nums">{m.followUpsSubmitted}</td>
                             <td className="py-2 px-3 text-right font-mono tabular-nums">{m.followUpsApproved}</td>
                             <td className="py-2 px-3 text-right font-mono tabular-nums">{m.investigationsCount}</td>
+                            <td className="py-2 px-3 text-right font-mono tabular-nums font-bold text-indigo-700">{m.wbsReportsCount}</td>
                           </tr>
                         ))}
                       </tbody>
@@ -1178,7 +1239,17 @@ export const SPIPeriodicReportModule: React.FC = () => {
                 className="w-full px-3.5 py-2.5 text-xs border border-slate-300 rounded-lg bg-slate-50 focus:bg-white leading-relaxed text-slate-800"
               />
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs tabular-nums">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 text-xs tabular-nums">
+                <div className="border border-slate-200 rounded-lg p-4">
+                  <p className="text-slate-500 font-medium">Whistleblowing System (WBS)</p>
+                  <p className="text-xl font-bold text-slate-900 mt-1">
+                    {analytics.wbsReportsTotal} Laporan
+                  </p>
+                  <p className="text-[11px] text-slate-600 mt-1">
+                    {analytics.wbsAssignmentsTotal} ST · {analytics.wbsWorkPapersTotal} KKA · {analytics.wbsConvertedToFindingCount} ke 5C
+                  </p>
+                </div>
+
                 <div className="border border-slate-200 rounded-lg p-4">
                   <p className="text-slate-500 font-medium">Audit Investigatif Periode Ini</p>
                   <p className="text-xl font-bold text-slate-900 mt-1">
@@ -1209,6 +1280,44 @@ export const SPIPeriodicReportModule: React.FC = () => {
                   </p>
                 </div>
               </div>
+
+              {analytics.wbsReports.length > 0 && (
+                <div className="overflow-x-auto pt-2">
+                  <h4 className="text-xs font-bold text-slate-800 mb-2">
+                    Rekapitulasi Pengelolaan Whistleblowing System (WBS) Periode {analytics.periodLabel}
+                  </h4>
+                  <table className="w-full text-left text-xs border-collapse border border-slate-200">
+                    <thead>
+                      <tr className="bg-slate-50 text-slate-600 border-b border-slate-200">
+                        <th className="py-2 px-3 font-semibold">No. Tiket</th>
+                        <th className="py-2 px-3 font-semibold">Identitas</th>
+                        <th className="py-2 px-3 font-semibold">Judul &amp; Unit</th>
+                        <th className="py-2 px-3 font-semibold">Status WBS</th>
+                        <th className="py-2 px-3 font-semibold">Surat Tugas / Temuan 5C</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {analytics.wbsReports.map((w) => (
+                        <tr key={w.id}>
+                          <td className="py-2 px-3 font-mono font-semibold whitespace-nowrap">
+                            {w.ticketNumber}
+                          </td>
+                          <td className="py-2 px-3">{w.identityMode}</td>
+                          <td className="py-2 px-3">
+                            <span className="font-medium text-slate-900 block">{w.title}</span>
+                            <span className="text-slate-500">{w.reportedUnitName}</span>
+                          </td>
+                          <td className="py-2 px-3 font-semibold">{w.status}</td>
+                          <td className="py-2 px-3 font-mono text-[11px]">
+                            {w.linkedAssignmentNumber || '-'}
+                            {w.linkedFindingNumber ? ` · ${w.linkedFindingNumber}` : ''}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </section>
           )}
 

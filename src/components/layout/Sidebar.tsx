@@ -44,6 +44,7 @@ export type ActiveTab =
   | 'spi_periodic_reports'
   | 'findings'
   | 'follow_ups'
+  | 'wbs_management'
   | 'investigations'
   | 'regulations'
   | 'user_management'
@@ -161,6 +162,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
         {
           title: 'Investigasi & Regulasi',
           items: [
+            {
+              id: 'wbs_management',
+              label: 'Manajemen WBS (Whistleblowing)',
+              icon: ShieldAlert,
+              roles: ['KEPALA_SPI', 'ADMIN_SISTEM', 'VIEWER'],
+            },
             {
               id: 'investigations',
               label: 'Audit Investigatif & Fraud',

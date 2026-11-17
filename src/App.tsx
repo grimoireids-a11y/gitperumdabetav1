@@ -26,6 +26,7 @@ import { SPIPeriodicReportModule } from './components/audit/SPIPeriodicReportMod
 import { FindingsModule } from './components/findings/FindingsModule';
 import { FollowUpModule } from './components/findings/FollowUpModule';
 import { InvestigationModule } from './components/investigation/InvestigationModule';
+import { WBSModule } from './components/wbs/WBSModule';
 import { RegulationModule } from './components/compliance/RegulationModule';
 import { UserManagementModule } from './components/admin/UserManagementModule';
 import { MasterUnitsModule } from './components/admin/MasterUnitsModule';
@@ -261,6 +262,12 @@ const AppContent: React.FC = () => {
         );
       case 'follow_ups':
         return <FollowUpModule initialFindingId={selectedFindingForFollowUp} />;
+      case 'wbs_management':
+        return (
+          <WBSModule
+            onNavigateToFindings={() => setActiveTab('findings')}
+          />
+        );
       case 'investigations':
         return (
           <InvestigationModule

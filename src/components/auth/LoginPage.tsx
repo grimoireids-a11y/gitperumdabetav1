@@ -1,13 +1,15 @@
 import React, { useState } from 'react';
-import { Shield, Lock, User, AlertCircle, ArrowRight, CheckCircle2, Info, Building2 } from 'lucide-react';
+import { Shield, Lock, User, AlertCircle, ArrowRight, CheckCircle2, Building2, ShieldAlert, Search, LogIn } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppBranding } from '../../context/AppBrandingContext';
 import { UserRole } from '../../types/audit';
 import { INITIAL_UNITS } from '../../data/initialData';
+import { WBSPublicPortal } from '../wbs/WBSPublicPortal';
 
 export const LoginPage: React.FC = () => {
   const { login, loginWithGoogle, register } = useAuth();
   const { branding } = useAppBranding();
+  const [viewMode, setViewMode] = useState<'login' | 'wbs_submit' | 'wbs_track'>('login');
   const [isRegisterMode, setIsRegisterMode] = useState(false);
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
@@ -82,12 +84,18 @@ export const LoginPage: React.FC = () => {
     }
   };
 
+  const isWbsView = viewMode === 'wbs_submit' || viewMode === 'wbs_track';
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-[#062415] via-[#0d3824] to-[#04170d] p-4 sm:p-6 text-slate-100 font-sans selection:bg-emerald-500 selection:text-white">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-emerald-950/20 overflow-hidden text-slate-900">
+      <div
+        className={`w-full transition-all duration-300 bg-white rounded-2xl shadow-2xl border border-emerald-950/20 overflow-hidden text-slate-900 ${
+          isWbsView ? 'max-w-3xl' : 'max-w-md'
+        }`}
+      >
         {/* Brand Banner */}
-        <div className="px-8 pt-8 pb-6 bg-gradient-to-b from-[#0a2f1c] to-[#0d3824] text-white text-center border-b border-emerald-900/40">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-xs p-2 shadow-lg shadow-emerald-950/70 mb-3 ring-4 ring-emerald-400/20 overflow-hidden">
+        <div className="px-8 pt-7 pb-5 bg-gradient-to-b from-[#0a2f1c] to-[#0d3824] text-white text-center border-b border-emerald-900/40">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/10 backdrop-blur-xs p-2 shadow-lg shadow-emerald-950/70 mb-2.5 ring-4 ring-emerald-400/20 overflow-hidden">
             {branding.logoType === 'image' && branding.logoUrl ? (
               <img
                 src={branding.logoUrl}
@@ -99,7 +107,7 @@ export const LoginPage: React.FC = () => {
                 className="w-full h-full rounded-xl flex items-center justify-center text-white"
                 style={{ backgroundColor: branding.logoThemeColor || branding.accentColor || '#059669' }}
               >
-                <Shield className="w-8 h-8 text-white" />
+                <Shield className="w-7 h-7 text-white" />
               </div>
             )}
           </div>
@@ -121,7 +129,57 @@ export const LoginPage: React.FC = () => {
           )}
         </div>
 
+        {/* Mode Switcher: Login vs Portal WBS */}
+        <div className="px-4 sm:px-6 pt-3 pb-2 bg-slate-100 border-b border-slate-200 grid grid-cols-3 gap-1.5 text-xs">
+          <button
+            type="button"
+            onClick={() => setViewMode('login')}
+            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg font-bold transition-colors cursor-pointer ${
+              viewMode === 'login'
+                ? 'bg-emerald-700 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+            }`}
+          >
+            <LogIn className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Masuk Sistem</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('wbs_submit')}
+            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg font-bold transition-colors cursor-pointer ${
+              viewMode === 'wbs_submit'
+                ? 'bg-amber-600 text-white shadow-xs'
+                : 'bg-amber-50 text-amber-900 hover:bg-amber-100 border border-amber-300'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Portal WBS</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setViewMode('wbs_track')}
+            className={`flex items-center justify-center gap-1.5 py-2 px-2 rounded-lg font-bold transition-colors cursor-pointer ${
+              viewMode === 'wbs_track'
+                ? 'bg-emerald-800 text-white shadow-xs'
+                : 'bg-white text-slate-700 hover:bg-slate-50 border border-slate-200'
+            }`}
+          >
+            <Search className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Lacak Tiket</span>
+          </button>
+        </div>
+
         {/* Form Body */}
+        {isWbsView ? (
+          <div className="p-6 sm:p-8 max-h-[75vh] overflow-y-auto">
+            <WBSPublicPortal
+              initialMode={viewMode === 'wbs_track' ? 'track' : 'submit'}
+              institutionName={branding.institutionName || 'Perumda Air Minum Tirta Saiyo'}
+            />
+          </div>
+        ) : (
         <div className="p-8 space-y-5">
           <div className="text-center">
             <h2 className="text-base font-bold text-slate-900">
@@ -305,6 +363,7 @@ export const LoginPage: React.FC = () => {
             </button>
           </div>
         </div>
+        )}
 
         {/* Footer Principles */}
         <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-200 flex items-center justify-center gap-4 text-[11px] text-slate-500">

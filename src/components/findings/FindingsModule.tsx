@@ -446,6 +446,11 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
                       >
                         Risiko {f.riskLevel}
                       </span>
+                      {f.sourceType === 'WBS' && (
+                        <span className="px-2 py-0.5 text-[10px] font-bold rounded-md bg-indigo-50 text-indigo-800 border border-indigo-200 font-mono">
+                          Sumber: WBS · {f.wbsTicketNumber || f.assignmentTitle}
+                        </span>
+                      )}
                       <span className="text-xs text-slate-400">· {f.category}</span>
                     </div>
 

@@ -93,6 +93,26 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /wbs_reports/{reportId} {
+      allow read, write: if true;
+    }
+
+    match /wbs_assignments/{assignmentId} {
+      allow read, write: if true;
+    }
+
+    match /wbs_work_papers/{kkaId} {
+      allow read, write: if true;
+    }
+
+    match /wbs_results/{resultId} {
+      allow read, write: if true;
+    }
+
+    match /wbs_evidence_chunks/{chunkId} {
+      allow read, write: if true;
+    }
+
     // Catch-all
     match /{document=**} {
       allow read, write: if true;
