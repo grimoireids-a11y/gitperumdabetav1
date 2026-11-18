@@ -17,20 +17,27 @@ import {
   Wallet,
   Sparkles,
   CheckCircle2,
+  Compass,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { db } from '../../lib/firebase';
-import { PKPT, Unit, RiskRegister, RKAItem } from '../../types/audit';
+import { PKPT, Unit, RiskRegister, RKAItem, AuditUniverseItem } from '../../types/audit';
 import { useAuth } from '../../context/AuthContext';
 import { useFiscalYear } from '../../context/FiscalYearContext';
 import { AUDIT_TYPES } from '../../data/initialData';
 import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
 import { calculateRkaWeightScore } from './RKAModule';
+import {
+  isEntityScheduledInPkpt,
+  mapCompositeToUnitRiskScore25,
+} from '../../lib/auditUniverseAnalytics';
 
 interface PKPTModuleProps {
   onNavigateToAssignment?: (pkptItem: PKPT) => void;
   initialPrefillFromRka?: RKAItem | null;
   onClearPrefillRka?: () => void;
+  initialPrefillFromUniverse?: AuditUniverseItem | null;
+  onClearPrefillUniverse?: () => void;
 }
 
 const computeCompositePriorityScore = (riskScore: number, rkaWeightScore?: number): number => {
@@ -47,6 +54,8 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
   onNavigateToAssignment,
   initialPrefillFromRka,
   onClearPrefillRka,
+  initialPrefillFromUniverse,
+  onClearPrefillUniverse,
 }) => {
   const { userProfile, hasRole } = useAuth();
   const { activeYear, availableYears, addCustomYear } = useFiscalYear();
@@ -55,6 +64,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
   const [units, setUnits] = useState<Unit[]>([]);
   const [risks, setRisks] = useState<RiskRegister[]>([]);
   const [rkaList, setRkaList] = useState<RKAItem[]>([]);
+  const [universeItems, setUniverseItems] = useState<AuditUniverseItem[]>([]);
 
   const [selectedYear, setSelectedYear] = useState<number>(activeYear);
   const [selectedQuarter, setSelectedQuarter] = useState<string>('ALL');
@@ -84,6 +94,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
   const [formPriorityScore, setFormPriorityScore] = useState<number>(85);
   const [formManualOverrideReason, setFormManualOverrideReason] = useState('');
   const [formRkaId, setFormRkaId] = useState<string>('');
+  const [formAuditUniverseId, setFormAuditUniverseId] = useState<string>('');
 
   const isKepalaSPI = hasRole(['KEPALA_SPI', 'ADMIN_SISTEM']);
   const isViewer = userProfile?.role === 'VIEWER';
@@ -105,11 +116,16 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
       setRkaList(snap.docs.map((d) => ({ id: d.id, ...d.data() } as RKAItem)));
     });
 
+    const unsubUniverse = onSnapshot(collection(db, 'audit_universe'), (snap) => {
+      setUniverseItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as AuditUniverseItem)));
+    });
+
     return () => {
       unsubPkpt();
       unsubUnits();
       unsubRisks();
       unsubRka();
+      unsubUniverse();
     };
   }, []);
 
@@ -135,6 +151,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
       setSelectedYear(initialPrefillFromRka.year || activeYear);
       setFormYear(initialPrefillFromRka.year || activeYear);
       setFormRkaId(initialPrefillFromRka.id);
+      setFormAuditUniverseId('');
       setFormTitle(`Audit Pelaksanaan & Anggaran: ${initialPrefillFromRka.programName}`);
       setFormUnitId(initialPrefillFromRka.unitId || units[0]?.id || '');
       setFormBusinessProcess(initialPrefillFromRka.category || 'Operasional & Anggaran RKA');
@@ -163,6 +180,37 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
       }
     }
   }, [initialPrefillFromRka, units, risks]);
+
+  // Prefill when navigated directly from Audit Universe Module ("Susun PKPT")
+  useEffect(() => {
+    if (initialPrefillFromUniverse) {
+      const au = initialPrefillFromUniverse;
+      const targetYr = au.year || activeYear;
+      setEditingPkpt(null);
+      setSelectedYear(targetYr);
+      setFormYear(targetYr);
+      setFormRkaId('');
+      setFormAuditUniverseId(au.id);
+      setFormTitle(au.entityName);
+      setFormUnitId(au.unitId || units[0]?.id || '');
+      setFormBusinessProcess(au.businessProcess || au.category);
+      setFormAuditType(au.defaultAuditType || 'Audit Operasional');
+      setFormObjective(au.auditObjectiveTemplate || '');
+      setFormScope(au.auditScopeTemplate || '');
+      setFormEstimatedDays(au.estimatedDays || 12);
+      setFormQuarter(au.recommendedQuarter || 'Q1');
+      setFormStatus('Rencana');
+      setFormApprovalStatus(isKepalaSPI ? 'Disetujui' : 'Draft');
+      setFormRiskScore(mapCompositeToUnitRiskScore25(au.compositeScore));
+      setFormPriorityScore(au.compositeScore);
+      setFormManualOverrideReason('');
+      setIsModalOpen(true);
+
+      if (onClearPrefillUniverse) {
+        onClearPrefillUniverse();
+      }
+    }
+  }, [initialPrefillFromUniverse, units]);
 
   const yearOptions = useMemo(() => {
     const docYears = pkptList.map((p) => p.year).filter((y) => typeof y === 'number' && y > 0);
@@ -198,6 +246,26 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
   );
   const totalRkaBudgetYear = rkaForActiveYear.reduce((s, r) => s + (r.budgetAmount || 0), 0);
 
+  const selectedUniverseObj = useMemo(
+    () => universeItems.find((u) => u.id === formAuditUniverseId) || null,
+    [universeItems, formAuditUniverseId]
+  );
+
+  const universeForActiveYear = useMemo(
+    () => universeItems.filter((u) => u.isActive !== false && (selectedYear === 0 || u.year === yearForStats)),
+    [universeItems, selectedYear, yearForStats]
+  );
+
+  const unscheduledP1Universe = useMemo(
+    () =>
+      universeForActiveYear.filter(
+        (u) =>
+          (u.riskTier === 'Sangat Tinggi (P1)' || u.riskTier === 'Tinggi (P2)') &&
+          !isEntityScheduledInPkpt(u, pkptList, u.year || yearForStats)
+      ),
+    [universeForActiveYear, pkptList, yearForStats]
+  );
+
   const openAddModal = () => {
     const targetYr = selectedYear === 0 ? activeYear : selectedYear;
     const defaultUnitId = units[0]?.id || '';
@@ -205,6 +273,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
     setEditingPkpt(null);
     setFormYear(targetYr);
     setFormRkaId('');
+    setFormAuditUniverseId('');
     setFormTitle('Audit Operasional Penurunan Tingkat Kehilangan Air (NRW)');
     setFormUnitId(defaultUnitId);
     setFormBusinessProcess('Transmisi, Distribusi & Pemeliharaan Jaringan');
@@ -225,6 +294,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
     setEditingPkpt(p);
     setFormYear(p.year);
     setFormRkaId(p.rkaId || '');
+    setFormAuditUniverseId(p.auditUniverseId || '');
     setFormTitle(p.title);
     setFormUnitId(p.unitId);
     setFormBusinessProcess(p.businessProcess);
@@ -239,6 +309,32 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
     setFormPriorityScore(p.priorityScore);
     setFormManualOverrideReason(p.manualOverrideReason || '');
     setIsModalOpen(true);
+  };
+
+  const handleSelectUniverseInModal = (auId: string) => {
+    setFormAuditUniverseId(auId);
+    if (!auId) return;
+    const au = universeItems.find((u) => u.id === auId);
+    if (!au) return;
+
+    const mappedRisk = mapCompositeToUnitRiskScore25(au.compositeScore);
+    setFormRiskScore(mappedRisk);
+    setFormPriorityScore(
+      selectedRkaObj
+        ? computeCompositePriorityScore(mappedRisk, selectedRkaWeight)
+        : au.compositeScore
+    );
+
+    if (!editingPkpt) {
+      setFormTitle(au.entityName);
+      setFormUnitId(au.unitId || formUnitId);
+      setFormBusinessProcess(au.businessProcess || au.category);
+      setFormAuditType(au.defaultAuditType || formAuditType);
+      setFormObjective(au.auditObjectiveTemplate || formObjective);
+      setFormScope(au.auditScopeTemplate || formScope);
+      setFormEstimatedDays(au.estimatedDays || 12);
+      setFormQuarter(au.recommendedQuarter || formQuarter);
+    }
   };
 
   const handleSelectRkaInModal = (rkaId: string) => {
@@ -378,6 +474,17 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
             rkaBudget: 0,
             rkaWeightScore: 0,
           }),
+      ...(selectedUniverseObj
+        ? {
+            auditUniverseId: selectedUniverseObj.id,
+            auditUniverseCode: selectedUniverseObj.code,
+            auditUniverseName: selectedUniverseObj.entityName,
+          }
+        : {
+            auditUniverseId: '',
+            auditUniverseCode: '',
+            auditUniverseName: '',
+          }),
     };
 
     try {
@@ -410,6 +517,9 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
       'Unit Kerja / Pemilik Risiko': p.unitName,
       'Proses Bisnis': p.businessProcess,
       'Jenis Audit': p.auditType,
+      'Referensi Audit Universe': p.auditUniverseCode
+        ? `${p.auditUniverseCode} - ${p.auditUniverseName}`
+        : '-',
       'Referensi RKA': p.rkaCode ? `${p.rkaCode} - ${p.rkaProgramName}` : '-',
       'Pagu RKA (Rp)': p.rkaBudget || 0,
       'Skor Prioritas': p.priorityScore,
@@ -439,6 +549,12 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
   const modalRkaOptions = useMemo(() => {
     return rkaList.filter((r) => r.year === formYear || r.id === formRkaId);
   }, [rkaList, formYear, formRkaId]);
+
+  const modalUniverseOptions = useMemo(() => {
+    return universeItems
+      .filter((u) => (u.year === formYear || u.id === formAuditUniverseId) && u.isActive !== false)
+      .sort((a, b) => (b.compositeScore || 0) - (a.compositeScore || 0));
+  }, [universeItems, formYear, formAuditUniverseId]);
 
   return (
     <div className="space-y-6">
@@ -495,6 +611,15 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
             <span className="px-2 py-0.5 text-[10px] font-bold bg-white text-emerald-800 border border-emerald-200 rounded-md font-mono">
               Total Pagu RKA: Rp {totalRkaBudgetYear.toLocaleString('id-ID')}
             </span>
+            {universeForActiveYear.length > 0 && (
+              <span className="px-2 py-0.5 text-[10px] font-bold bg-white text-slate-800 border border-slate-200 rounded-md inline-flex items-center gap-1">
+                <Compass className="w-3 h-3 text-emerald-700" />
+                Audit Universe: {universeForActiveYear.length} Objek
+                {unscheduledP1Universe.length > 0
+                  ? ` (${unscheduledP1Universe.length} P1/P2 belum masuk PKPT)`
+                  : ' (P1/P2 tercover)'}
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-emerald-900">
             {rkaForActiveYear.length === 0 ? (
@@ -601,15 +726,23 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
                       <p className="text-[11px] text-slate-500">
                         TA {p.year} · Proses: {p.businessProcess}
                       </p>
-                      {p.rkaCode && (
-                        <div className="mt-1 inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md">
-                          <Wallet className="w-3 h-3 text-emerald-700" />
-                          <span>
-                            RKA {p.rkaCode}
-                            {p.rkaBudget ? ` · Rp ${p.rkaBudget.toLocaleString('id-ID')}` : ''}
-                          </span>
-                        </div>
-                      )}
+                      <div className="mt-1 flex items-center gap-1.5 flex-wrap">
+                        {p.auditUniverseCode && (
+                          <div className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-sky-50 text-sky-900 border border-sky-200 rounded-md">
+                            <Compass className="w-3 h-3 text-sky-700" />
+                            <span>AU: {p.auditUniverseCode}</span>
+                          </div>
+                        )}
+                        {p.rkaCode && (
+                          <div className="inline-flex items-center gap-1.5 px-2 py-0.5 text-[10px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-md">
+                            <Wallet className="w-3 h-3 text-emerald-700" />
+                            <span>
+                              RKA {p.rkaCode}
+                              {p.rkaBudget ? ` · Rp ${p.rkaBudget.toLocaleString('id-ID')}` : ''}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                       {p.manualOverrideReason && (
                         <p className="text-[10px] text-amber-700 italic mt-0.5">
                           * Override Kepala SPI: {p.manualOverrideReason}
@@ -702,6 +835,35 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
             </div>
 
             <form onSubmit={handleSave} className="p-6 space-y-4 text-xs overflow-y-auto flex-1">
+              {/* Referensi Objek Audit Universe (GIAS 2024 & BPKP) */}
+              <div className="p-3.5 bg-sky-50/80 border border-sky-200 rounded-xl space-y-2">
+                <label className="block font-bold text-sky-950 flex items-center gap-1.5">
+                  <Compass className="w-4 h-4 text-sky-700" />
+                  <span>Referensi Objek Audit Universe (GIAS 2024 &amp; Pedoman BPKP)</span>
+                </label>
+                <select
+                  value={formAuditUniverseId}
+                  onChange={(e) => handleSelectUniverseInModal(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-sky-300 rounded-lg font-medium text-slate-800"
+                >
+                  <option value="">-- Pilih Objek Audit Universe (Opsional, Praisi Otomatis) --</option>
+                  {modalUniverseOptions.map((au) => (
+                    <option key={au.id} value={au.id}>
+                      [{au.code}] {au.entityName} — Skor {au.compositeScore}/100 ({au.riskTier})
+                    </option>
+                  ))}
+                </select>
+                {selectedUniverseObj && (
+                  <div className="flex flex-wrap items-center gap-2 text-[11px] text-sky-950 pt-0.5">
+                    <span className="font-bold">{selectedUniverseObj.riskTier}</span>
+                    <span>·</span>
+                    <span>Siklus: {selectedUniverseObj.recommendedFrequency}</span>
+                    <span>·</span>
+                    <span>Dasar: {selectedUniverseObj.regulatoryBasis}</span>
+                  </div>
+                )}
+              </div>
+
               {/* Referensi RKA (Mempengaruhi Skor Prioritas) */}
               <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-xl space-y-2">
                 <label className="block font-bold text-emerald-950 flex items-center gap-1.5">
@@ -999,6 +1161,11 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
                             <p className="text-[10px] text-slate-600">
                               Unit: {p.unitName} · Proses: {p.businessProcess}
                             </p>
+                            {p.auditUniverseCode && (
+                              <p className="text-[10px] text-sky-900 font-semibold">
+                                Ref Audit Universe: {p.auditUniverseCode}
+                              </p>
+                            )}
                             {p.rkaCode && (
                               <p className="text-[10px] text-emerald-800 font-semibold">
                                 Ref RKA: {p.rkaCode} (Rp {(p.rkaBudget || 0).toLocaleString('id-ID')})

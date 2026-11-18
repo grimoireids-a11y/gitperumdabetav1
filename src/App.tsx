@@ -10,6 +10,7 @@ import { Sidebar, ActiveTab } from './components/layout/Sidebar';
 import { Navbar } from './components/layout/Navbar';
 import { DashboardOverview } from './components/dashboard/DashboardOverview';
 import { RiskUniverseModule } from './components/risk/RiskUniverseModule';
+import { AuditUniverseModule } from './components/risk/AuditUniverseModule';
 import { RiskRegisterModule } from './components/risk/RiskRegisterModule';
 import { RiskProfileModule } from './components/risk/RiskProfileModule';
 import { RiskAnnualReportModule } from './components/risk/RiskAnnualReportModule';
@@ -34,7 +35,7 @@ import { SignatoriesModule } from './components/admin/SignatoriesModule';
 import { AppBrandingModule } from './components/admin/AppBrandingModule';
 import { AppBrandingProvider, useAppBranding } from './context/AppBrandingContext';
 import { FiscalYearProvider } from './context/FiscalYearContext';
-import { RKAItem } from './types/audit';
+import { RKAItem, AuditUniverseItem } from './types/audit';
 import { AiAssistantModal } from './components/ai/AiAssistantModal';
 import { AppManualBookModal } from './components/common/AppManualBookModal';
 import { DatabaseBackupModal } from './components/admin/DatabaseBackupModal';
@@ -51,6 +52,7 @@ const AppContent: React.FC = () => {
   const [prefillForAssignment, setPrefillForAssignment] = useState<any>(null);
   const [prefillForFindings, setPrefillForFindings] = useState<any>(null);
   const [prefillRkaForPkpt, setPrefillRkaForPkpt] = useState<RKAItem | null>(null);
+  const [prefillUniverseForPkpt, setPrefillUniverseForPkpt] = useState<AuditUniverseItem | null>(null);
   const [selectedFindingForFollowUp, setSelectedFindingForFollowUp] = useState<string | undefined>(undefined);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
@@ -143,6 +145,15 @@ const AppContent: React.FC = () => {
         );
       case 'risk_universe':
         return <RiskUniverseModule />;
+      case 'audit_universe':
+        return (
+          <AuditUniverseModule
+            onNavigateToPkptWithUniverse={(auItem) => {
+              setPrefillUniverseForPkpt(auItem);
+              setActiveTab('pkpt');
+            }}
+          />
+        );
       case 'risk_register':
         return (
           <RiskRegisterModule
@@ -187,6 +198,8 @@ const AppContent: React.FC = () => {
           <PKPTModule
             initialPrefillFromRka={prefillRkaForPkpt}
             onClearPrefillRka={() => setPrefillRkaForPkpt(null)}
+            initialPrefillFromUniverse={prefillUniverseForPkpt}
+            onClearPrefillUniverse={() => setPrefillUniverseForPkpt(null)}
             onNavigateToAssignment={(pkptItem) => {
               setPrefillForAssignment(pkptItem);
               setActiveTab('audit_assignments');

@@ -45,6 +45,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         return 'Pusat Kendali Pengawasan (Dashboard SPI)';
       case 'risk_universe':
         return 'Pemilik Risiko & Struktur Proses BUMD';
+      case 'audit_universe':
+        return 'Audit Universe & Pemetaan Objek Audit (Berbasis Risiko)';
       case 'risk_register':
         return 'Register Risiko Korporat (Matriks 5x5)';
       case 'risk_profile':

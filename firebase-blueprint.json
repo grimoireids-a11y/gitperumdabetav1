@@ -89,9 +89,44 @@
         "approvalStatus": { "type": "string", "enum": ["Draft", "Disetujui", "Ditolak"] },
         "approvedBy": { "type": "string", "maxLength": 128 },
         "approvedAt": { "type": "string", "maxLength": 64 },
-        "manualOverrideReason": { "type": "string", "maxLength": 1000 }
+        "manualOverrideReason": { "type": "string", "maxLength": 1000 },
+        "auditUniverseId": { "type": "string", "maxLength": 64 },
+        "auditUniverseCode": { "type": "string", "maxLength": 64 },
+        "auditUniverseName": { "type": "string", "maxLength": 256 }
       },
       "required": ["id", "year", "title", "unitId", "auditType", "status"]
+    },
+    "AuditUniverse": {
+      "title": "AuditUniverse",
+      "description": "Auditable entity in the SPI Audit Universe with multi-factor risk scoring and audit cycle planning",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "code": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "entityName": { "type": "string", "maxLength": 256 },
+        "category": { "type": "string", "maxLength": 64 },
+        "unitId": { "type": "string", "maxLength": 64 },
+        "unitName": { "type": "string", "maxLength": 128 },
+        "businessProcess": { "type": "string", "maxLength": 256 },
+        "regulatoryBasis": { "type": "string", "maxLength": 500 },
+        "defaultAuditType": { "type": "string", "maxLength": 64 },
+        "auditObjectiveTemplate": { "type": "string", "maxLength": 1000 },
+        "auditScopeTemplate": { "type": "string", "maxLength": 1000 },
+        "riskFactorScore": { "type": "number" },
+        "materialityScore": { "type": "number" },
+        "controlHistoryScore": { "type": "number" },
+        "complianceImpactScore": { "type": "number" },
+        "complexityScore": { "type": "number" },
+        "compositeScore": { "type": "number" },
+        "riskTier": { "type": "string", "maxLength": 32 },
+        "recommendedFrequency": { "type": "string", "maxLength": 64 },
+        "recommendedQuarter": { "type": "string", "enum": ["Q1", "Q2", "Q3", "Q4"] },
+        "estimatedDays": { "type": "number" },
+        "lastAuditYear": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "code", "year", "entityName", "unitId", "compositeScore", "isActive"]
     },
     "SPIProgram": {
       "title": "SPIProgram",
@@ -485,6 +520,10 @@
     "/pkpt/{pkptId}": {
       "schema": "PKPT",
       "description": "Annual risk-based internal audit plans"
+    },
+    "/audit_universe/{entityId}": {
+      "schema": "AuditUniverse",
+      "description": "SPI Audit Universe inventory of auditable entities, processes, branches, and risk-based audit cycles"
     },
     "/spi_programs/{programId}": {
       "schema": "SPIProgram",

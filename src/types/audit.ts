@@ -140,6 +140,66 @@ export interface PKPT {
   rkaProgramName?: string;
   rkaBudget?: number;
   rkaWeightScore?: number;
+  // Integrasi Audit Universe
+  auditUniverseId?: string;
+  auditUniverseCode?: string;
+  auditUniverseName?: string;
+}
+
+export type AuditUniverseCategory =
+  | 'Unit Pelayanan / Cabang'
+  | 'Proses Bisnis Operasional'
+  | 'Fungsi Keuangan & Aset'
+  | 'Proyek / Investasi RKA'
+  | 'Sistem TI & Data'
+  | 'Tata Kelola & Kepatuhan';
+
+export type AuditCycleFrequency =
+  | 'Tahunan (1 Tahun)'
+  | 'Dua Tahunan (2 Tahun)'
+  | 'Tiga Tahunan (3 Tahun)'
+  | 'Tematik / Ad-Hoc';
+
+export type AuditUniverseRiskTier =
+  | 'Sangat Tinggi (P1)'
+  | 'Tinggi (P2)'
+  | 'Sedang (P3)'
+  | 'Rendah (P4)';
+
+export interface AuditUniverseItem {
+  id: string;
+  code: string;
+  year: number;
+  entityName: string;
+  category: AuditUniverseCategory;
+  unitId: string;
+  unitName: string;
+  businessProcess: string;
+  regulatoryBasis: string;
+  defaultAuditType: string;
+  auditObjectiveTemplate: string;
+  auditScopeTemplate: string;
+  // 5-Factor Risk-Based Audit Scoring (scale 1 - 5)
+  riskFactorScore: number;        // 30%: Residual Risk Profile
+  materialityScore: number;       // 25%: RKA / Financial Materiality
+  controlHistoryScore: number;    // 20%: Time Since Last Audit + Open 5C/WBS
+  complianceImpactScore: number;  // 15%: Regulatory & Public Service Impact
+  complexityScore: number;        // 10%: Process/IT/Change Complexity
+  compositeScore: number;         // 0 - 100 weighted composite score
+  riskTier: AuditUniverseRiskTier;
+  recommendedFrequency: AuditCycleFrequency;
+  recommendedQuarter: 'Q1' | 'Q2' | 'Q3' | 'Q4';
+  estimatedDays: number;
+  lastAuditYear?: number;
+  lastAuditDate?: string;
+  lastAuditOpinion?: string;
+  openFindingsCount?: number;
+  linkedRkaBudget?: number;
+  isActive: boolean;
+  notes?: string;
+  createdBy?: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface SPIProgram {

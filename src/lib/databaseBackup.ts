@@ -60,6 +60,11 @@ export const BACKUP_COLLECTIONS: BackupCollectionMeta[] = [
     description: 'Daftar bidang atau kategori program RKA yang diinput manual Super User',
   },
   {
+    key: 'audit_universe',
+    label: 'Audit Universe (Semesta Audit)',
+    description: 'Inventaris objek audit, faktor risiko GIAS/BPKP, siklus audit, dan dasar PKPT',
+  },
+  {
     key: 'pkpt',
     label: 'Penyusunan PKPT',
     description: 'Program Kerja Pengawasan Tahunan beserta skor prioritas risiko + RKA',

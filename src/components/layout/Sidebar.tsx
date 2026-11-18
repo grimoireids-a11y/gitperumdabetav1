@@ -21,6 +21,7 @@ import {
   Upload,
   ShieldAlert,
   FileBarChart2,
+  Compass,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppBranding } from '../../context/AppBrandingContext';
@@ -29,6 +30,7 @@ import { UserRole } from '../../types/audit';
 export type ActiveTab =
   | 'dashboard'
   | 'risk_universe'
+  | 'audit_universe'
   | 'risk_register'
   | 'risk_profile'
   | 'risk_annual_report'
@@ -138,6 +140,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'rcsa', label: 'Penilaian RCSA Unit', icon: ClipboardList },
             { id: 'bpkp_assessment', label: 'Self Assessment SPIP', icon: Award },
             { id: 'rka', label: 'Input RKA Manual', icon: Wallet },
+            {
+              id: 'audit_universe',
+              label: 'Audit Universe (Peta Objek)',
+              icon: Compass,
+              roles: ['KEPALA_SPI', 'ADMIN_SISTEM', 'VIEWER'],
+            },
             { id: 'pkpt', label: 'Penyusunan PKPT', icon: CalendarCheck },
             { id: 'spi_programs', label: 'Program Tahunan SPI', icon: BookOpen },
           ],
