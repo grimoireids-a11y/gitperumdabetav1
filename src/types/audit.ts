@@ -834,3 +834,165 @@ export interface WBSResultReport {
   createdAt: string;
   updatedAt: string;
 }
+
+// =========================================================================
+// KEY PERFORMANCE INDICATORS (KPI) & CASCADING KINERJA BUMD AIR MINUM
+// =========================================================================
+
+export type KPIPerspective =
+  | 'Keuangan'
+  | 'Pelanggan dan Pelayanan'
+  | 'Operasional'
+  | 'Proses Bisnis Internal'
+  | 'Pembelajaran dan Pertumbuhan';
+
+export type KPIPolarity =
+  | 'MAXIMIZE'     // Semakin tinggi semakin baik
+  | 'MINIMIZE'     // Semakin rendah semakin baik (aman dari div-by-zero)
+  | 'STABILIZE'    // Rentang optimal (min - max)
+  | 'ZERO_TARGET'  // Target nol / zero-defect dengan penalti terukur
+  | 'MILESTONE';   // Kualitatif / Skala maturitas / Tahapan milestone
+
+export type KPIAccumulationType =
+  | 'CUMULATIVE'   // Akumulasi / Penjumlahan sepanjang tahun berjalan
+  | 'AVERAGE'      // Rata-rata capaian periode berjalan
+  | 'LAST_VALUE';  // Nilai posisi terakhir (snapshot)
+
+export type KPILevel =
+  | 1 // KPI Perusahaan
+  | 2 // KPI Direktur
+  | 3 // KPI Bidang
+  | 4 // KPI SubBidang/Unit
+  | 5; // KPI Individu Pegawai
+
+export type KPICascadeMethod =
+  | 'Direct (Identik)'
+  | 'Contributory (Kontribusi)'
+  | 'Driver (Pengungkit / Leading)'
+  | 'Specific (Fungsional Unit)';
+
+export type KPIFrequency = 'Bulanan' | 'Triwulanan' | 'Semesteran' | 'Tahunan';
+
+export type KPIApprovalStatus = 'Draft' | 'Diajukan' | 'Disahkan Kontrak Kinerja' | 'Direvisi';
+
+export type KPISPIVerificationStatus = 'Belum Diverifikasi' | 'Terverifikasi SPI' | 'Perlu Klarifikasi';
+
+export type KPIActionStatus = 'Belum Dimulai' | 'Dalam Proses' | 'Selesai';
+
+export interface KPIItem {
+  id: string;
+  code: string;
+  year: number;
+  perspective: KPIPerspective;
+  strategicObjective: string;
+  name: string;
+  indicatorType: 'Lagging (Hasil)' | 'Leading (Penggerak)';
+  level: KPILevel;
+  parentKpiId?: string;
+  parentKpiCode?: string;
+  cascadeMethod: KPICascadeMethod;
+  unitId?: string;
+  unitName: string;
+  ownerRole: string; // Contoh: Direktur Utama, Direktur Teknik, Kabag Distribusi, Kasubag Pemeliharaan, Teknisi
+  picName: string;
+  // Kamus KPI (KPI Dictionary)
+  operationalDefinition: string;
+  formula: string;
+  unitMeasurement: string; // %, Rp, Jam/Hari, m3, Skor, Kasus, kWh/m3
+  polarity: KPIPolarity;
+  accumulationType: KPIAccumulationType;
+  baselineValue: number;
+  targetValue: number;
+  rangeMin?: number; // Khusus polaritas STABILIZE
+  rangeMax?: number; // Khusus polaritas STABILIZE
+  zeroPenaltyStep?: number; // Khusus polaritas ZERO_TARGET (pengurangan % per kejadian)
+  weight: number; // % bobot pada tingkat/pemilik terkait
+  capMaxPct: number; // Batas atas capaian (umumnya 110% atau 120%)
+  floorMinPct: number; // Batas bawah capaian (umumnya 0%)
+  isGating?: boolean; // Indikator wajib (contoh: Baku Mutu Kualitas Air) yang tidak boleh dikompromikan
+  gatingThresholdPct?: number; // Batas minimal capaian agar predikat organisasi tidak ditahan
+  dataSource: string;
+  frequency: KPIFrequency;
+  evidenceRequired: string;
+  targetBasisNote?: string; // Analisis dasar penetapan target (tren 3 thn, Renbis, RKA, regulasi)
+  // Integrasi Renbis / RKA / Risiko SPI
+  linkedRkaCode?: string;
+  linkedRiskCode?: string;
+  approvalStatus: KPIApprovalStatus;
+  approvedBy?: string;
+  approvedAt?: string;
+  changeReason?: string; // Catatan tata kelola perubahan KPI (Bab VIII 8.3)
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KPIMeasurement {
+  id: string;
+  kpiId: string;
+  kpiCode: string;
+  year: number;
+  periodType: 'Bulanan' | 'Triwulanan' | 'Tahunan';
+  periodIndex: number; // 1..12 untuk Bulanan, 1..4 untuk Triwulanan, 1 untuk Tahunan
+  periodLabel: string; // e.g., "Jan 2026", "Q1 2026", "Tahunan 2026"
+  realizationValue: number;
+  rawAchievementPct: number;
+  cappedAchievementPct: number;
+  weightedScore: number;
+  trafficLight: 'HIJAU' | 'KUNING' | 'MERAH';
+  evidenceNote?: string;
+  evidenceUrl?: string;
+  submittedBy: string;
+  submittedAt: string;
+  // Pengendalian Kualitas Data oleh SPI (Bab VII 7.2)
+  spiVerificationStatus: KPISPIVerificationStatus;
+  spiVerificationNote?: string;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  // Evaluasi Kesenjangan & Rencana Aksi (Bab VI 6.3 & VII 7.3)
+  rootCauseAnalysis?: string;
+  actionPlan?: string;
+  actionPic?: string;
+  actionDeadline?: string;
+  actionBudget?: number;
+  actionExpectedOutcome?: string;
+  actionStatus?: KPIActionStatus;
+  updatedAt: string;
+}
+
+export interface KPIChecklistItem {
+  id: string;
+  year: number;
+  itemNumber: number; // 1..17
+  componentName: string;
+  pedomanRef: string;
+  requiredArtifact: string;
+  status: 'Ada' | 'Sebagian' | 'Tidak';
+  evidenceLocation: string;
+  notes: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+
+export interface KPISettings {
+  id: string; // kpi-settings-{year}
+  year: number;
+  defaultCapMaxPct: number; // e.g., 120
+  defaultFloorMinPct: number; // e.g., 0
+  roundingDecimals: number; // e.g., 2
+  greenThresholdPct: number; // >= 95
+  yellowThresholdPct: number; // >= 80
+  enforceGatingCap: boolean; // Jika KPI Gating gagal, predikat maksimal tertahan
+  gatingMaxTotalScore: number; // e.g., 84.99
+  perspectiveWeights: {
+    keuangan: number;
+    pelanggan: number;
+    operasional: number;
+    prosesBisnis: number;
+    pembelajaran: number;
+  };
+  governanceNote: string;
+  updatedBy: string;
+  updatedAt: string;
+}
+

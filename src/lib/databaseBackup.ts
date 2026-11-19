@@ -155,6 +155,26 @@ export const BACKUP_COLLECTIONS: BackupCollectionMeta[] = [
     description: 'Data jabatan, NIP, tanda tangan kanvas/upload, dan stempel QR',
   },
   {
+    key: 'kpi_items',
+    label: 'KPI & Kamus Cascading (5 Tingkat)',
+    description: 'Master indikator KPI perusahaan, Direksi, Divisi, Unit, Individu & Kamus KPI',
+  },
+  {
+    key: 'kpi_measurements',
+    label: 'Pengukuran Realisasi KPI & Rencana Aksi',
+    description: 'Realisasi periodik bulanan/triwulanan/tahunan, verifikasi SPI & rencana aksi',
+  },
+  {
+    key: 'kpi_checklist',
+    label: 'Checklist Kelengkapan Sistem KPI (17 Item)',
+    description: 'Daftar periksa kesiapan komponen tata kelola dan implementasi sistem KPI',
+  },
+  {
+    key: 'kpi_settings',
+    label: 'Kebijakan Skoring & Ambang KPI',
+    description: 'Aturan ceiling cap, gating mutu air, bobot perspektif, dan tata kelola KPI',
+  },
+  {
     key: 'app_settings',
     label: 'Logo, Identitas & Pengaturan Aplikasi',
     description: 'Konfigurasi nama aplikasi, nama instansi, alamat, dan logo kantor',

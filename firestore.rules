@@ -117,6 +117,22 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /kpi_items/{kpiId} {
+      allow read, write: if true;
+    }
+
+    match /kpi_measurements/{measurementId} {
+      allow read, write: if true;
+    }
+
+    match /kpi_checklist/{itemId} {
+      allow read, write: if true;
+    }
+
+    match /kpi_settings/{settingId} {
+      allow read, write: if true;
+    }
+
     // Catch-all
     match /{document=**} {
       allow read, write: if true;

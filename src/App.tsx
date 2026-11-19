@@ -16,6 +16,7 @@ import { RiskProfileModule } from './components/risk/RiskProfileModule';
 import { RiskAnnualReportModule } from './components/risk/RiskAnnualReportModule';
 import { RCSAModule } from './components/risk/RCSAModule';
 import { SelfAssessmentBPKPModule } from './components/assessment/SelfAssessmentBPKPModule';
+import { KPIModule } from './components/kpi/KPIModule';
 import { RKAModule } from './components/pkpt/RKAModule';
 import { PKPTModule } from './components/pkpt/PKPTModule';
 import { SPIProgramsModule } from './components/pkpt/SPIProgramsModule';
@@ -70,7 +71,12 @@ const AppContent: React.FC = () => {
       if (isFullAccess) return true;
       if (isViewer) return tab !== 'user_management' && tab !== 'app_branding';
       if (isExternalAuditor) return tab === 'findings' || tab === 'follow_ups';
-      return tab === 'dashboard' || tab === 'risk_register' || tab === 'follow_ups';
+      return (
+        tab === 'dashboard' ||
+        tab === 'risk_register' ||
+        tab === 'kpi_management' ||
+        tab === 'follow_ups'
+      );
     },
     [isFullAccess, isViewer, isExternalAuditor]
   );
@@ -186,6 +192,8 @@ const AppContent: React.FC = () => {
         return <RCSAModule />;
       case 'bpkp_assessment':
         return <SelfAssessmentBPKPModule />;
+      case 'kpi_management':
+        return <KPIModule />;
       case 'rka':
         return (
           <RKAModule

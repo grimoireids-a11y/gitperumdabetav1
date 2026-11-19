@@ -499,6 +499,81 @@
         "data": { "type": "string", "maxLength": 600000 }
       },
       "required": ["id", "reportId", "attachmentId", "chunkIndex", "data"]
+    },
+    "KPIItem": {
+      "title": "KPIItem",
+      "description": "Master KPI definition, dictionary metadata, and 5-level cascading hierarchy item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "code": { "type": "string", "maxLength": 32 },
+        "year": { "type": "number" },
+        "perspective": {
+          "type": "string",
+          "enum": ["Keuangan", "Pelanggan dan Pelayanan", "Operasional", "Proses Bisnis Internal", "Pembelajaran dan Pertumbuhan"]
+        },
+        "strategicObjective": { "type": "string", "maxLength": 256 },
+        "name": { "type": "string", "maxLength": 256 },
+        "level": { "type": "number" },
+        "parentKpiId": { "type": "string", "maxLength": 64 },
+        "unitName": { "type": "string", "maxLength": 128 },
+        "ownerRole": { "type": "string", "maxLength": 128 },
+        "picName": { "type": "string", "maxLength": 128 },
+        "polarity": { "type": "string", "enum": ["MAXIMIZE", "MINIMIZE", "STABILIZE", "ZERO_TARGET", "MILESTONE"] },
+        "accumulationType": { "type": "string", "enum": ["CUMULATIVE", "AVERAGE", "LAST_VALUE"] },
+        "baselineValue": { "type": "number" },
+        "targetValue": { "type": "number" },
+        "weight": { "type": "number" },
+        "capMaxPct": { "type": "number" },
+        "floorMinPct": { "type": "number" },
+        "approvalStatus": { "type": "string", "enum": ["Draft", "Diajukan", "Disahkan Kontrak Kinerja", "Direvisi"] }
+      },
+      "required": ["id", "code", "year", "perspective", "name", "level", "polarity", "targetValue", "weight"]
+    },
+    "KPIMeasurement": {
+      "title": "KPIMeasurement",
+      "description": "Periodic KPI realization, capped weighted score, SPI data verification, and corrective action plan",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "kpiId": { "type": "string", "maxLength": 64 },
+        "kpiCode": { "type": "string", "maxLength": 32 },
+        "year": { "type": "number" },
+        "periodType": { "type": "string", "enum": ["Bulanan", "Triwulanan", "Tahunan"] },
+        "periodIndex": { "type": "number" },
+        "realizationValue": { "type": "number" },
+        "cappedAchievementPct": { "type": "number" },
+        "weightedScore": { "type": "number" },
+        "trafficLight": { "type": "string", "enum": ["HIJAU", "KUNING", "MERAH"] },
+        "spiVerificationStatus": { "type": "string", "enum": ["Belum Diverifikasi", "Terverifikasi SPI", "Perlu Klarifikasi"] }
+      },
+      "required": ["id", "kpiId", "year", "periodType", "periodIndex", "realizationValue"]
+    },
+    "KPIChecklistItem": {
+      "title": "KPIChecklistItem",
+      "description": "17-component KPI system readiness checklist aligned with Appendix",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "itemNumber": { "type": "number" },
+        "componentName": { "type": "string", "maxLength": 256 },
+        "status": { "type": "string", "enum": ["Ada", "Sebagian", "Tidak"] }
+      },
+      "required": ["id", "year", "itemNumber", "componentName", "status"]
+    },
+    "KPISettings": {
+      "title": "KPISettings",
+      "description": "Annual KPI scoring rules, ceiling caps, gating policies, and perspective weights",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "defaultCapMaxPct": { "type": "number" },
+        "defaultFloorMinPct": { "type": "number" },
+        "enforceGatingCap": { "type": "boolean" }
+      },
+      "required": ["id", "year", "defaultCapMaxPct", "defaultFloorMinPct"]
     }
   },
   "firestore": {
@@ -585,6 +660,22 @@
     "/wbs_evidence_chunks/{chunkId}": {
       "schema": "WBSEvidenceChunk",
       "description": "Chunked binary evidence attachments up to 2 MB for WBS reports"
+    },
+    "/kpi_items/{kpiId}": {
+      "schema": "KPIItem",
+      "description": "Master KPI dictionary definitions and 5-level cascading hierarchy"
+    },
+    "/kpi_measurements/{measurementId}": {
+      "schema": "KPIMeasurement",
+      "description": "Periodic KPI realizations, capped scores, SPI verifications, and action plans"
+    },
+    "/kpi_checklist/{itemId}": {
+      "schema": "KPIChecklistItem",
+      "description": "17-component KPI system readiness checklist per year"
+    },
+    "/kpi_settings/{settingId}": {
+      "schema": "KPISettings",
+      "description": "Annual KPI scoring, ceiling cap, and gating governance rules"
     }
   }
 }

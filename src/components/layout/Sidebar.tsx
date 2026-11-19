@@ -22,6 +22,7 @@ import {
   ShieldAlert,
   FileBarChart2,
   Compass,
+  Target,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppBranding } from '../../context/AppBrandingContext';
@@ -36,6 +37,7 @@ export type ActiveTab =
   | 'risk_annual_report'
   | 'rcsa'
   | 'bpkp_assessment'
+  | 'kpi_management'
   | 'rka'
   | 'pkpt'
   | 'spi_programs'
@@ -142,6 +144,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             },
             { id: 'rcsa', label: 'Penilaian RCSA Unit', icon: ClipboardList },
             { id: 'bpkp_assessment', label: 'Self Assessment SPIP', icon: Award },
+            { id: 'kpi_management', label: 'KPI & Cascading Kinerja', icon: Target },
             { id: 'rka', label: 'Input RKA Manual', icon: Wallet },
             {
               id: 'audit_universe',
@@ -235,9 +238,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
-          title: 'Manajemen Risiko Korporat',
+          title: 'Manajemen Risiko & Kinerja KPI',
           items: [
             { id: 'risk_register', label: 'Register Risiko Korporat (5x5)', icon: AlertTriangle },
+            { id: 'kpi_management', label: 'KPI & Cascading Kinerja', icon: Target },
           ],
         },
         {
