@@ -8,7 +8,7 @@
         "uid": { "type": "string", "maxLength": 128 },
         "email": { "type": "string", "maxLength": 128 },
         "displayName": { "type": "string", "maxLength": 128 },
-        "role": { "type": "string", "enum": ["KEPALA_SPI", "AUDITOR", "DIREKTUR", "DEWAN_PENGAWAS", "AUDITEE", "ADMIN_SISTEM", "VIEWER"] },
+        "role": { "type": "string", "enum": ["KEPALA_SPI", "AUDITOR", "AUDITOR_EKSTERNAL", "DIREKTUR", "DEWAN_PENGAWAS", "AUDITEE", "ADMIN_SISTEM", "VIEWER"] },
         "unitId": { "type": "string", "maxLength": 64 },
         "unitName": { "type": "string", "maxLength": 128 },
         "nip": { "type": "string", "maxLength": 64 },
@@ -219,7 +219,11 @@
         "potentialLoss": { "type": "number" },
         "auditorAnalysis": { "type": "string", "maxLength": 3000 },
         "auditeeResponse": { "type": "string", "maxLength": 3000 },
-        "status": { "type": "string", "enum": ["Draft", "Disetujui", "Tindak Lanjut", "Selesai"] }
+        "status": { "type": "string", "enum": ["Draft", "Disetujui", "Tindak Lanjut", "Selesai"] },
+        "sourceType": { "type": "string", "enum": ["AUDIT_REGULER", "WBS", "LHA", "AUDITOR_EKSTERNAL"] },
+        "externalAuditorAgency": { "type": "string", "maxLength": 128 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdByRole": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "findingNumber", "year", "unitId", "title", "riskLevel", "status"]
     },
@@ -230,6 +234,9 @@
       "properties": {
         "id": { "type": "string", "maxLength": 64 },
         "findingId": { "type": "string", "maxLength": 64 },
+        "unitId": { "type": "string", "maxLength": 64 },
+        "unitName": { "type": "string", "maxLength": 128 },
+        "sourceType": { "type": "string", "enum": ["AUDIT_REGULER", "WBS", "LHA", "AUDITOR_EKSTERNAL"] },
         "recNumber": { "type": "string", "maxLength": 32 },
         "description": { "type": "string", "maxLength": 2000 },
         "pic": { "type": "string", "maxLength": 128 },

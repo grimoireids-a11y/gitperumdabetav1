@@ -1,6 +1,7 @@
 export type UserRole =
   | 'KEPALA_SPI'
   | 'AUDITOR'
+  | 'AUDITOR_EKSTERNAL'
   | 'DIREKTUR'
   | 'DEWAN_PENGAWAS'
   | 'AUDITEE'
@@ -300,7 +301,10 @@ export interface Finding {
   auditorAnalysis: string;
   auditeeResponse?: string;
   status: FindingStatus;
-  sourceType?: 'AUDIT_REGULER' | 'WBS' | 'LHA';
+  sourceType?: 'AUDIT_REGULER' | 'WBS' | 'LHA' | 'AUDITOR_EKSTERNAL';
+  externalAuditorAgency?: string;
+  createdBy?: string;
+  createdByRole?: UserRole;
   wbsReportId?: string;
   wbsTicketNumber?: string;
   wbsResultId?: string;
@@ -321,6 +325,7 @@ export interface Recommendation {
   findingTitle?: string;
   unitId?: string;
   unitName?: string;
+  sourceType?: 'AUDIT_REGULER' | 'WBS' | 'LHA' | 'AUDITOR_EKSTERNAL';
   recNumber: string;
   description: string;
   pic: string;

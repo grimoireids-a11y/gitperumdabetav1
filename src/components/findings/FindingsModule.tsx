@@ -22,10 +22,12 @@ import {
   ChevronUp,
   Printer,
   Clock,
+  ShieldCheck,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { db } from '../../lib/firebase';
 import { Finding, Unit, AuditAssignment, FindingRiskLevel, FindingStatus, Recommendation } from '../../types/audit';
+import { INITIAL_UNITS } from '../../data/initialData';
 import { useAuth } from '../../context/AuthContext';
 import { useFiscalYear } from '../../context/FiscalYearContext';
 import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
@@ -56,6 +58,7 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedYear, setSelectedYear] = useState<number>(activeYear);
   const [selectedLevel, setSelectedLevel] = useState<string>('ALL');
+  const [selectedSource, setSelectedSource] = useState<string>('ALL');
 
   useEffect(() => {
     setSelectedYear(activeYear);
@@ -86,6 +89,13 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
   const [formAuditorAnalysis, setFormAuditorAnalysis] = useState('');
   const [formAuditeeResponse, setFormAuditeeResponse] = useState('');
   const [formStatus, setFormStatus] = useState<FindingStatus>('Disetujui');
+  const [formExternalAgency, setFormExternalAgency] = useState('BPK / BPKP / KAP');
+
+  // Optional immediate recommendation when creating a new finding (ideal for directing finding to unit kerja)
+  const [formIncludeInitialRec, setFormIncludeInitialRec] = useState(false);
+  const [formInitialRecDesc, setFormInitialRecDesc] = useState('');
+  const [formInitialRecTargetDate, setFormInitialRecTargetDate] = useState('');
+  const [formInitialRecIndicator, setFormInitialRecIndicator] = useState('');
 
   // Form Recommendation states
   const [formRecNumber, setFormRecNumber] = useState('');
@@ -94,7 +104,14 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
   const [formRecTargetDate, setFormRecTargetDate] = useState('');
   const [formRecSuccessIndicator, setFormRecSuccessIndicator] = useState('');
 
-  const canManage = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
+  const isExternalAuditor = userProfile?.role === 'AUDITOR_EKSTERNAL';
+  const isInternalStaff = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
+  const canManage = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM', 'AUDITOR_EKSTERNAL']);
+
+  const canManageFindingRecord = (f: Finding) =>
+    isInternalStaff ||
+    (isExternalAuditor &&
+      (f.sourceType === 'AUDITOR_EKSTERNAL' || f.createdByRole === 'AUDITOR_EKSTERNAL'));
 
   useEffect(() => {
     const unsubFindings = onSnapshot(collection(db, 'findings'), (snap) => {
@@ -106,7 +123,12 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
     });
 
     const unsubUnits = onSnapshot(collection(db, 'units'), (snap) => {
-      setUnits(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Unit)));
+      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Unit));
+      if (docs.length > 0) {
+        setUnits(docs);
+      } else {
+        setUnits(INITIAL_UNITS.map((u, i) => ({ id: `init-unit-${i + 1}`, ...u })));
+      }
     });
 
     const unsubAssignments = onSnapshot(collection(db, 'audit_assignments'), (snap) => {
@@ -153,21 +175,51 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
     const targetYr = selectedYear === 0 ? activeYear : selectedYear;
     setEditingFinding(null);
     const count = findings.length + 1;
-    setFormFindingNumber(`TMN-${targetYr}-${String(count).padStart(3, '0')}`);
-    setFormYear(targetYr);
-    setFormAssignmentId(assignments[0]?.id || '');
-    setFormUnitId(units[0]?.id || '');
-    setFormTitle('Tingkat Kehilangan Air Fisik pada Jaringan Distribusi Melebihi Batas Toleransi Standar');
-    setFormCategory('Operasional & Efisiensi');
-    setFormRiskLevel('Tinggi');
-    setFormCondition('Tingkat kehilangan air fisik (NRW) pada triwulan berjalan mencapai 38,4%, melampaui batas toleransi yang ditetapkan maksimal 20%. Ditemukan kebocoran pipa transmisi yang tidak tertangani lebih dari 48 jam.');
-    setFormCriteria('Permendagri No. 23/2024 tentang BUMD Air Minum dan Standar Pelayanan Minimal (SPM) Perumda Tirta Saiyo pasal 14 mengenai kecepatan tanggap kebocoran pipa maksimal 12 jam.');
-    setFormCause('Kurangnya ketersediaan fitting pipa sambungan darurat pada gudang unit pelayanan dan pemantauan tekanan pipa berkala yang belum optimal.');
-    setFormConsequence('Kehilangan potensi pendapatan air bersih sebesar Rp 84.500.000,- per bulan dan terganggunya suplai air minum ke 350 pelanggan.');
-    setFormPotentialLoss(84500000);
-    setFormAuditorAnalysis('Kelemahan sistemik terletak pada koordinasi logistik tanggap darurat dan jadwal inspeksi jaringan distribusi TRC.');
-    setFormAuditeeResponse('Unit pelayanan berkomitmen melengkapi cadangan fitting pipa darurat dan meningkatkan patroli malam.');
-    setFormStatus('Disetujui');
+    const defaultTargetDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+
+    if (isExternalAuditor) {
+      setFormFindingNumber(`TMN-EKS-${targetYr}-${String(count).padStart(3, '0')}`);
+      setFormYear(targetYr);
+      setFormAssignmentId('');
+      setFormUnitId(units[0]?.id || '');
+      setFormTitle('');
+      setFormCategory('Keuangan & Pembukuan');
+      setFormRiskLevel('Tinggi');
+      setFormCondition('');
+      setFormCriteria('');
+      setFormCause('');
+      setFormConsequence('');
+      setFormPotentialLoss(0);
+      setFormAuditorAnalysis('');
+      setFormAuditeeResponse('');
+      setFormStatus('Tindak Lanjut');
+      setFormExternalAgency('BPK / BPKP / KAP');
+      setFormIncludeInitialRec(true);
+      setFormInitialRecDesc('');
+      setFormInitialRecTargetDate(defaultTargetDate);
+      setFormInitialRecIndicator('Dokumen penyelesaian tindak lanjut diverifikasi dan disetujui oleh Auditor Eksternal');
+    } else {
+      setFormFindingNumber(`TMN-${targetYr}-${String(count).padStart(3, '0')}`);
+      setFormYear(targetYr);
+      setFormAssignmentId(assignments[0]?.id || '');
+      setFormUnitId(units[0]?.id || '');
+      setFormTitle('Tingkat Kehilangan Air Fisik pada Jaringan Distribusi Melebihi Batas Toleransi Standar');
+      setFormCategory('Operasional & Efisiensi');
+      setFormRiskLevel('Tinggi');
+      setFormCondition('Tingkat kehilangan air fisik (NRW) pada triwulan berjalan mencapai 38,4%, melampaui batas toleransi yang ditetapkan maksimal 20%. Ditemukan kebocoran pipa transmisi yang tidak tertangani lebih dari 48 jam.');
+      setFormCriteria('Permendagri No. 23/2024 tentang BUMD Air Minum dan Standar Pelayanan Minimal (SPM) Perumda Tirta Saiyo pasal 14 mengenai kecepatan tanggap kebocoran pipa maksimal 12 jam.');
+      setFormCause('Kurangnya ketersediaan fitting pipa sambungan darurat pada gudang unit pelayanan dan pemantauan tekanan pipa berkala yang belum optimal.');
+      setFormConsequence('Kehilangan potensi pendapatan air bersih sebesar Rp 84.500.000,- per bulan dan terganggunya suplai air minum ke 350 pelanggan.');
+      setFormPotentialLoss(84500000);
+      setFormAuditorAnalysis('Kelemahan sistemik terletak pada koordinasi logistik tanggap darurat dan jadwal inspeksi jaringan distribusi TRC.');
+      setFormAuditeeResponse('Unit pelayanan berkomitmen melengkapi cadangan fitting pipa darurat dan meningkatkan patroli malam.');
+      setFormStatus('Disetujui');
+      setFormExternalAgency('');
+      setFormIncludeInitialRec(false);
+      setFormInitialRecDesc('');
+      setFormInitialRecTargetDate(defaultTargetDate);
+      setFormInitialRecIndicator('');
+    }
     setIsModalOpen(true);
   };
 
@@ -188,6 +240,8 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
     setFormAuditorAnalysis(f.auditorAnalysis);
     setFormAuditeeResponse(f.auditeeResponse || '');
     setFormStatus(f.status);
+    setFormExternalAgency(f.externalAuditorAgency || 'BPK / BPKP / KAP');
+    setFormIncludeInitialRec(false);
     setIsModalOpen(true);
   };
 
@@ -196,7 +250,14 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
     const selUnit = units.find((u) => u.id === formUnitId);
     const unitName = selUnit ? selUnit.name : 'Unit Pelayanan Pasaman';
     const selAssign = assignments.find((a) => a.id === formAssignmentId);
-    const assignmentTitle = selAssign ? selAssign.objectName : 'Audit Operasional';
+    const isExtSource =
+      editingFinding?.sourceType === 'AUDITOR_EKSTERNAL' ||
+      (!editingFinding && isExternalAuditor);
+    const assignmentTitle = isExtSource
+      ? formExternalAgency.trim() || 'Audit Eksternal'
+      : selAssign
+      ? selAssign.objectName
+      : 'Audit Operasional';
 
     const validYear = isNaN(formYear) ? activeYear : formYear;
     addCustomYear(validYear);
@@ -204,7 +265,7 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
     const findingData: Omit<Finding, 'id'> = {
       findingNumber: formFindingNumber,
       year: validYear,
-      assignmentId: formAssignmentId,
+      assignmentId: isExtSource ? '' : formAssignmentId,
       assignmentTitle,
       unitId: formUnitId,
       unitName,
@@ -215,10 +276,14 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
       criteria: formCriteria,
       cause: formCause,
       consequence: formConsequence,
-      potentialLoss: formPotentialLoss,
+      potentialLoss: isNaN(formPotentialLoss) ? 0 : formPotentialLoss,
       auditorAnalysis: formAuditorAnalysis,
       auditeeResponse: formAuditeeResponse,
       status: formStatus,
+      sourceType: editingFinding?.sourceType || (isExternalAuditor ? 'AUDITOR_EKSTERNAL' : 'AUDIT_REGULER'),
+      ...(isExtSource ? { externalAuditorAgency: formExternalAgency.trim() || 'Auditor Eksternal' } : {}),
+      createdBy: editingFinding?.createdBy || userProfile?.displayName || 'Auditor',
+      createdByRole: editingFinding?.createdByRole || userProfile?.role,
       createdAt: editingFinding?.createdAt || new Date().toISOString(),
     };
 
@@ -228,6 +293,28 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
       } else {
         const id = 'find-' + Date.now();
         await setDoc(doc(db, 'findings', id), { id, ...findingData });
+
+        if (formIncludeInitialRec && formInitialRecDesc.trim()) {
+          const recId = 'rec-' + (Date.now() + 1);
+          const recData: Recommendation = {
+            id: recId,
+            findingId: id,
+            findingNumber: formFindingNumber,
+            findingTitle: formTitle,
+            unitId: formUnitId,
+            unitName,
+            sourceType: findingData.sourceType,
+            recNumber: `REC-${formFindingNumber.replace(/^TMN-/, '')}.1`,
+            description: formInitialRecDesc.trim(),
+            pic: unitName,
+            targetDate: formInitialRecTargetDate || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10),
+            successIndicator:
+              formInitialRecIndicator.trim() ||
+              'Bukti fisik penyelesaian tindak lanjut diverifikasi oleh auditor.',
+            status: 'Belum Ditindaklanjuti',
+          };
+          await setDoc(doc(db, 'recommendations', recId), recData);
+        }
       }
       setIsModalOpen(false);
     } catch (err) {
@@ -267,6 +354,7 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
       findingTitle: targetFindingForRec.title,
       unitId: targetFindingForRec.unitId,
       unitName: targetFindingForRec.unitName,
+      sourceType: targetFindingForRec.sourceType || (isExternalAuditor ? 'AUDITOR_EKSTERNAL' : 'AUDIT_REGULER'),
       recNumber: formRecNumber,
       description: formRecDescription,
       pic: formRecPic,
@@ -315,7 +403,14 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
       f.unitName.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesYear = selectedYear === 0 || f.year === selectedYear;
     const matchesLevel = selectedLevel === 'ALL' || f.riskLevel === selectedLevel;
-    return matchesSearch && matchesYear && matchesLevel;
+    const matchesSource =
+      selectedSource === 'ALL' ||
+      (selectedSource === 'AUDITOR_EKSTERNAL' &&
+        (f.sourceType === 'AUDITOR_EKSTERNAL' || f.createdByRole === 'AUDITOR_EKSTERNAL')) ||
+      (selectedSource === 'INTERNAL' &&
+        f.sourceType !== 'AUDITOR_EKSTERNAL' &&
+        f.createdByRole !== 'AUDITOR_EKSTERNAL');
+    return matchesSearch && matchesYear && matchesLevel && matchesSource;
   });
 
   const totalPotensi = findings.reduce((acc, curr) => acc + (curr.potentialLoss || 0), 0);
@@ -392,6 +487,16 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
           </select>
 
           <select
+            value={selectedSource}
+            onChange={(e) => setSelectedSource(e.target.value)}
+            className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Sumber Temuan</option>
+            <option value="AUDITOR_EKSTERNAL">Khusus Auditor Eksternal</option>
+            <option value="INTERNAL">Temuan SPI / WBS Internal</option>
+          </select>
+
+          <select
             value={selectedLevel}
             onChange={(e) => setSelectedLevel(e.target.value)}
             className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-800"
@@ -451,6 +556,12 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
                           Sumber: WBS · {f.wbsTicketNumber || f.assignmentTitle}
                         </span>
                       )}
+                      {(f.sourceType === 'AUDITOR_EKSTERNAL' || f.createdByRole === 'AUDITOR_EKSTERNAL') && (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md bg-purple-50 text-purple-900 border border-purple-200">
+                          <ShieldCheck className="w-3 h-3 text-purple-700" />
+                          <span>Eksternal · {f.externalAuditorAgency || f.assignmentTitle || 'Auditor Eksternal'}</span>
+                        </span>
+                      )}
                       <span className="text-xs text-slate-400">· {f.category}</span>
                     </div>
 
@@ -486,7 +597,7 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
                       </button>
                     )}
 
-                    {onNavigateToLha && f.assignmentId && (
+                    {onNavigateToLha && f.assignmentId && !isExternalAuditor && (
                       <button
                         onClick={() => onNavigateToLha(f.assignmentId)}
                         className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 rounded-md border border-emerald-300 transition-colors"
@@ -501,14 +612,14 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
                       <button
                         onClick={() => onNavigateToFollowUp(f.id)}
                         className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-blue-800 bg-blue-50 hover:bg-blue-100 rounded-md border border-blue-200 transition-colors"
-                        title="Pantau Tindak Lanjut Rekomendasi (TLR)"
+                        title="Pantau & Verifikasi Tindak Lanjut Rekomendasi (TLR)"
                       >
                         <Clock className="w-3 h-3 text-blue-700" />
-                        <span>Pantau TLR</span>
+                        <span>{isExternalAuditor ? 'Verifikasi TLR' : 'Pantau TLR'}</span>
                       </button>
                     )}
 
-                    {canManage && (
+                    {canManageFindingRecord(f) && (
                       <button
                         onClick={() => openAddRecModal(f)}
                         className="flex items-center gap-1 px-2.5 py-1 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md shadow-2xs transition-colors"
@@ -610,7 +721,7 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
                         <span>Cetak Lembar 5C</span>
                       </button>
 
-                      {canManage && (
+                      {canManageFindingRecord(f) && (
                         <>
                           <button
                             onClick={() => openEditModal(f)}
@@ -694,9 +805,25 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
                 />
               </div>
 
+              {(isExternalAuditor || editingFinding?.sourceType === 'AUDITOR_EKSTERNAL') && (
+                <div>
+                  <label className="block font-semibold text-purple-900 mb-1">
+                    Instansi / Tim Pemeriksa Eksternal
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={formExternalAgency}
+                    onChange={(e) => setFormExternalAgency(e.target.value)}
+                    placeholder="Contoh: BPK RI / BPKP / KAP Independen / Inspektorat Daerah"
+                    className="w-full px-3 py-2 bg-purple-50/70 border border-purple-300 rounded-lg font-semibold text-purple-950"
+                  />
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Unit Kerja Yang Diperiksa</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Unit Kerja Tujuan / Yang Diperiksa</label>
                   <select
                     value={formUnitId}
                     onChange={(e) => setFormUnitId(e.target.value)}
@@ -791,6 +918,63 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
                 />
               </div>
+
+              {!editingFinding && (
+                <div className="p-3.5 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-3">
+                  <label className="flex items-center gap-2 font-bold text-emerald-950 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={formIncludeInitialRec}
+                      onChange={(e) => setFormIncludeInitialRec(e.target.checked)}
+                      className="rounded-xs border-emerald-400 text-emerald-700 focus:ring-emerald-600"
+                    />
+                    <span>Sekaligus Buat Rekomendasi Tindak Lanjut untuk Unit Kerja Tujuan</span>
+                  </label>
+                  {formIncludeInitialRec && (
+                    <div className="space-y-2.5 pl-6">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-emerald-900 mb-1">
+                          Uraian Rekomendasi Perbaikan <span className="text-rose-500">*</span>
+                        </label>
+                        <textarea
+                          rows={2}
+                          required={formIncludeInitialRec}
+                          value={formInitialRecDesc}
+                          onChange={(e) => setFormInitialRecDesc(e.target.value)}
+                          placeholder="Langkah perbaikan wajib yang harus ditindaklanjuti unit kerja..."
+                          className="w-full px-3 py-2 bg-white border border-emerald-300 rounded-lg"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        <div>
+                          <label className="block text-[11px] font-semibold text-emerald-900 mb-1">
+                            Batas Waktu Tindak Lanjut
+                          </label>
+                          <input
+                            type="date"
+                            required={formIncludeInitialRec}
+                            value={formInitialRecTargetDate}
+                            onChange={(e) => setFormInitialRecTargetDate(e.target.value)}
+                            className="w-full px-3 py-1.5 bg-white border border-emerald-300 rounded-lg"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-semibold text-emerald-900 mb-1">
+                            Indikator Bukti Penyelesaian
+                          </label>
+                          <input
+                            type="text"
+                            value={formInitialRecIndicator}
+                            onChange={(e) => setFormInitialRecIndicator(e.target.value)}
+                            placeholder="Bukti fisik / dokumen yang diverifikasi..."
+                            className="w-full px-3 py-1.5 bg-white border border-emerald-300 rounded-lg"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
 
               <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
                 <button

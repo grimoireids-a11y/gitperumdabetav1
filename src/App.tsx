@@ -63,22 +63,24 @@ const AppContent: React.FC = () => {
 
   const isFullAccess = userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
   const isViewer = userProfile?.role === 'VIEWER';
+  const isExternalAuditor = userProfile?.role === 'AUDITOR_EKSTERNAL';
 
   const canAccessTab = React.useCallback(
     (tab: ActiveTab) => {
       if (isFullAccess) return true;
       if (isViewer) return tab !== 'user_management' && tab !== 'app_branding';
+      if (isExternalAuditor) return tab === 'findings' || tab === 'follow_ups';
       return tab === 'dashboard' || tab === 'risk_register' || tab === 'follow_ups';
     },
-    [isFullAccess, isViewer]
+    [isFullAccess, isViewer, isExternalAuditor]
   );
 
-  // Guard routes: VIEWER can access all data modules except user_management & app_branding; other roles are restricted to dashboard, risk_register, follow_ups
+  // Guard routes per role
   React.useEffect(() => {
     if (!loading && userProfile && !canAccessTab(activeTab)) {
-      setActiveTab('dashboard');
+      setActiveTab(isExternalAuditor ? 'findings' : 'dashboard');
     }
-  }, [loading, userProfile, canAccessTab, activeTab]);
+  }, [loading, userProfile, canAccessTab, activeTab, isExternalAuditor]);
 
   if (loading) {
     return (

@@ -80,6 +80,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return 'Kepala SPI';
       case 'AUDITOR':
         return 'Auditor SPI';
+      case 'AUDITOR_EKSTERNAL':
+        return 'Auditor Eksternal';
       case 'DIREKTUR':
         return 'Direktur';
       case 'DEWAN_PENGAWAS':
@@ -110,6 +112,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const isFullAccess = userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
   const isViewer = userProfile?.role === 'VIEWER';
+  const isExternalAuditor = userProfile?.role === 'AUDITOR_EKSTERNAL';
   const canViewAllModules = isFullAccess || isViewer;
 
   const navSections: NavSection[] = canViewAllModules
@@ -211,6 +214,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
               label: 'Fitur Jabatan & TTD',
               icon: Award,
             },
+          ],
+        },
+      ]
+    : isExternalAuditor
+    ? [
+        {
+          title: 'Audit Eksternal & Verifikasi TLR',
+          items: [
+            { id: 'findings', label: 'Input & Matriks Temuan 5C', icon: AlertTriangle },
+            { id: 'follow_ups', label: 'Verifikasi Tindak Lanjut Unit', icon: FileCheck2 },
           ],
         },
       ]
@@ -395,7 +408,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>Manual Book (PDF)</span>
             </button>
           )}
-          {!isViewer && (
+          {isFullAccess && (
             <button
               onClick={() => {
                 if (setActiveTab) setActiveTab('user_management');

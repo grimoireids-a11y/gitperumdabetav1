@@ -545,6 +545,7 @@ export const UserManagementModule: React.FC = () => {
                       className="w-full px-2 py-1 text-xs bg-slate-50 border border-slate-300 rounded-md font-semibold text-slate-800"
                     >
                       <option value="AUDITOR">Auditor SPI</option>
+                      <option value="AUDITOR_EKSTERNAL">Auditor Eksternal (BPK / BPKP / KAP)</option>
                       <option value="KEPALA_SPI">Kepala SPI</option>
                       <option value="DIREKTUR">Direktur</option>
                       <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
@@ -667,6 +668,7 @@ export const UserManagementModule: React.FC = () => {
             <option value="ALL">Semua Peran</option>
             <option value="KEPALA_SPI">Kepala SPI</option>
             <option value="AUDITOR">Auditor SPI</option>
+            <option value="AUDITOR_EKSTERNAL">Auditor Eksternal</option>
             <option value="DIREKTUR">Direktur</option>
             <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
             <option value="AUDITEE">Auditee</option>
@@ -845,6 +847,7 @@ export const UserManagementModule: React.FC = () => {
                   >
                     <option value="KEPALA_SPI">Kepala SPI</option>
                     <option value="AUDITOR">Auditor SPI</option>
+                    <option value="AUDITOR_EKSTERNAL">Auditor Eksternal (BPK / BPKP / KAP)</option>
                     <option value="DIREKTUR">Direktur</option>
                     <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
                     <option value="AUDITEE">Unit Kerja / Auditee</option>
@@ -1059,6 +1062,7 @@ export const UserManagementModule: React.FC = () => {
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-900"
                   >
                     <option value="AUDITOR">Auditor SPI</option>
+                    <option value="AUDITOR_EKSTERNAL">Auditor Eksternal (BPK / BPKP / KAP)</option>
                     <option value="AUDITEE">Unit Kerja / Auditee</option>
                     <option value="KEPALA_SPI">Kepala SPI</option>
                     <option value="DIREKTUR">Direktur</option>

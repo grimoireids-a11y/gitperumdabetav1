@@ -236,6 +236,7 @@ export const LoginPage: React.FC = () => {
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-600 focus:bg-white font-semibold"
                   >
                     <option value="AUDITOR">Auditor / Pembantu SPI</option>
+                    <option value="AUDITOR_EKSTERNAL">Auditor Eksternal (BPK / BPKP / KAP)</option>
                     <option value="DIREKTUR">Direktur Perumda Tirta Saiyo</option>
                     <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
                     <option value="AUDITEE">Unit Kerja / Auditee</option>
