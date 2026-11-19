@@ -108,10 +108,26 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
   const isInternalStaff = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
   const canManage = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM', 'AUDITOR_EKSTERNAL']);
 
+  const isOwnedByCurrentExternalAccount = React.useCallback(
+    (f: Finding) => {
+      if (!userProfile) return false;
+      const isExternalRecord =
+        f.sourceType === 'AUDITOR_EKSTERNAL' || f.createdByRole === 'AUDITOR_EKSTERNAL';
+      if (!isExternalRecord) return false;
+      if (f.createdByUid) {
+        return f.createdByUid === userProfile.uid;
+      }
+      return Boolean(
+        (userProfile.displayName && f.createdBy === userProfile.displayName) ||
+          (userProfile.username && f.createdBy === userProfile.username) ||
+          (userProfile.email && f.createdBy === userProfile.email)
+      );
+    },
+    [userProfile]
+  );
+
   const canManageFindingRecord = (f: Finding) =>
-    isInternalStaff ||
-    (isExternalAuditor &&
-      (f.sourceType === 'AUDITOR_EKSTERNAL' || f.createdByRole === 'AUDITOR_EKSTERNAL'));
+    isInternalStaff || (isExternalAuditor && isOwnedByCurrentExternalAccount(f));
 
   useEffect(() => {
     const unsubFindings = onSnapshot(collection(db, 'findings'), (snap) => {
@@ -143,10 +159,15 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
     };
   }, []);
 
+  const scopedFindings = React.useMemo(
+    () => (isExternalAuditor ? findings.filter(isOwnedByCurrentExternalAccount) : findings),
+    [findings, isExternalAuditor, isOwnedByCurrentExternalAccount]
+  );
+
   const yearOptions = React.useMemo(() => {
-    const docYears = findings.map((f) => f.year).filter((y) => typeof y === 'number' && y > 0);
+    const docYears = scopedFindings.map((f) => f.year).filter((y) => typeof y === 'number' && y > 0);
     return Array.from(new Set([...availableYears, ...docYears])).sort((a, b) => b - a);
-  }, [availableYears, findings]);
+  }, [availableYears, scopedFindings]);
 
   // Handle prefill when an auditor raises a finding from KKA
   useEffect(() => {
@@ -174,7 +195,7 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
   const openAddModal = () => {
     const targetYr = selectedYear === 0 ? activeYear : selectedYear;
     setEditingFinding(null);
-    const count = findings.length + 1;
+    const count = (isExternalAuditor ? scopedFindings.length : findings.length) + 1;
     const defaultTargetDate = new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
 
     if (isExternalAuditor) {
@@ -282,7 +303,8 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
       status: formStatus,
       sourceType: editingFinding?.sourceType || (isExternalAuditor ? 'AUDITOR_EKSTERNAL' : 'AUDIT_REGULER'),
       ...(isExtSource ? { externalAuditorAgency: formExternalAgency.trim() || 'Auditor Eksternal' } : {}),
-      createdBy: editingFinding?.createdBy || userProfile?.displayName || 'Auditor',
+      createdBy: editingFinding?.createdBy || userProfile?.displayName || userProfile?.username || 'Auditor',
+      createdByUid: editingFinding?.createdByUid || userProfile?.uid || '',
       createdByRole: editingFinding?.createdByRole || userProfile?.role,
       createdAt: editingFinding?.createdAt || new Date().toISOString(),
     };
@@ -304,6 +326,7 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
             unitId: formUnitId,
             unitName,
             sourceType: findingData.sourceType,
+            createdByUid: userProfile?.uid || '',
             recNumber: `REC-${formFindingNumber.replace(/^TMN-/, '')}.1`,
             description: formInitialRecDesc.trim(),
             pic: unitName,
@@ -355,6 +378,7 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
       unitId: targetFindingForRec.unitId,
       unitName: targetFindingForRec.unitName,
       sourceType: targetFindingForRec.sourceType || (isExternalAuditor ? 'AUDITOR_EKSTERNAL' : 'AUDIT_REGULER'),
+      createdByUid: userProfile?.uid || '',
       recNumber: formRecNumber,
       description: formRecDescription,
       pic: formRecPic,
@@ -371,8 +395,26 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
     }
   };
 
+  const filteredFindings = scopedFindings.filter((f) => {
+    const matchesSearch =
+      f.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      f.findingNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      f.unitName.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesYear = selectedYear === 0 || f.year === selectedYear;
+    const matchesLevel = selectedLevel === 'ALL' || f.riskLevel === selectedLevel;
+    const matchesSource =
+      isExternalAuditor ||
+      selectedSource === 'ALL' ||
+      (selectedSource === 'AUDITOR_EKSTERNAL' &&
+        (f.sourceType === 'AUDITOR_EKSTERNAL' || f.createdByRole === 'AUDITOR_EKSTERNAL')) ||
+      (selectedSource === 'INTERNAL' &&
+        f.sourceType !== 'AUDITOR_EKSTERNAL' &&
+        f.createdByRole !== 'AUDITOR_EKSTERNAL');
+    return matchesSearch && matchesYear && matchesLevel && matchesSource;
+  });
+
   const exportToExcel = () => {
-    const dataToExport = findings.map((f, idx) => ({
+    const dataToExport = filteredFindings.map((f, idx) => ({
       No: idx + 1,
       'Nomor Temuan': f.findingNumber,
       Tahun: f.year,
@@ -393,30 +435,38 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
     const ws = XLSX.utils.json_to_sheet(dataToExport);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'Temuan 5C');
-    XLSX.writeFile(wb, `Temuan_Audit_SPI_Tirta_Saiyo_${selectedYear}.xlsx`);
+    XLSX.writeFile(wb, `Temuan_Audit_Tirta_Saiyo_${selectedYear === 0 ? 'Semua' : selectedYear}.xlsx`);
   };
 
-  const filteredFindings = findings.filter((f) => {
-    const matchesSearch =
-      f.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      f.findingNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      f.unitName.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesYear = selectedYear === 0 || f.year === selectedYear;
-    const matchesLevel = selectedLevel === 'ALL' || f.riskLevel === selectedLevel;
-    const matchesSource =
-      selectedSource === 'ALL' ||
-      (selectedSource === 'AUDITOR_EKSTERNAL' &&
-        (f.sourceType === 'AUDITOR_EKSTERNAL' || f.createdByRole === 'AUDITOR_EKSTERNAL')) ||
-      (selectedSource === 'INTERNAL' &&
-        f.sourceType !== 'AUDITOR_EKSTERNAL' &&
-        f.createdByRole !== 'AUDITOR_EKSTERNAL');
-    return matchesSearch && matchesYear && matchesLevel && matchesSource;
-  });
-
-  const totalPotensi = findings.reduce((acc, curr) => acc + (curr.potentialLoss || 0), 0);
+  const totalPotensi = filteredFindings.reduce((acc, curr) => acc + (curr.potentialLoss || 0), 0);
 
   return (
     <div className="space-y-6">
+      {isExternalAuditor && (
+        <div className="bg-gradient-to-r from-purple-950 via-indigo-950 to-slate-900 text-white p-4 rounded-xl shadow-xs border border-purple-700/50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-purple-500/20 border border-purple-400/30 flex items-center justify-center text-purple-200 shrink-0">
+              <ShieldCheck className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wider text-purple-300">
+                Ruang Kerja Terbatas · Auditor Eksternal
+              </p>
+              <h3 className="text-sm font-extrabold text-white">
+                {userProfile?.displayName || 'Auditor Eksternal'}
+              </h3>
+              <p className="text-[11px] text-purple-200/85 mt-0.5">
+                Anda hanya dapat melihat dan mengelola temuan 5C yang diinput oleh akun Anda sendiri. Temuan hasil audit internal SPI tidak ditampilkan.
+              </p>
+            </div>
+          </div>
+          <div className="px-3 py-1.5 bg-purple-900/70 rounded-lg text-center shrink-0 border border-purple-500/40">
+            <span className="text-[10px] text-purple-200 uppercase block font-semibold">Temuan Akun Anda</span>
+            <span className="text-base font-black text-white">{scopedFindings.length} Temuan</span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -486,15 +536,17 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
             <option value={0}>Semua Tahun</option>
           </select>
 
-          <select
-            value={selectedSource}
-            onChange={(e) => setSelectedSource(e.target.value)}
-            className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-800"
-          >
-            <option value="ALL">Semua Sumber Temuan</option>
-            <option value="AUDITOR_EKSTERNAL">Khusus Auditor Eksternal</option>
-            <option value="INTERNAL">Temuan SPI / WBS Internal</option>
-          </select>
+          {!isExternalAuditor && (
+            <select
+              value={selectedSource}
+              onChange={(e) => setSelectedSource(e.target.value)}
+              className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-800"
+            >
+              <option value="ALL">Semua Sumber Temuan</option>
+              <option value="AUDITOR_EKSTERNAL">Khusus Auditor Eksternal</option>
+              <option value="INTERNAL">Temuan SPI / WBS Internal</option>
+            </select>
+          )}
 
           <select
             value={selectedLevel}
@@ -519,7 +571,9 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
       <div className="space-y-4">
         {filteredFindings.length === 0 ? (
           <div className="py-12 text-center text-slate-400 bg-white rounded-xl border border-slate-200 text-xs">
-            Belum ada temuan audit 5C yang tercatat. Klik tombol "Input Temuan 5C Baru".
+            {isExternalAuditor
+              ? 'Belum ada temuan 5C yang diinput oleh akun Anda pada kriteria ini. Klik tombol "Input Temuan 5C Baru".'
+              : 'Belum ada temuan audit 5C yang tercatat. Klik tombol "Input Temuan 5C Baru".'}
           </div>
         ) : (
           filteredFindings.map((f) => {

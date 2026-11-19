@@ -223,6 +223,7 @@
         "sourceType": { "type": "string", "enum": ["AUDIT_REGULER", "WBS", "LHA", "AUDITOR_EKSTERNAL"] },
         "externalAuditorAgency": { "type": "string", "maxLength": 128 },
         "createdBy": { "type": "string", "maxLength": 128 },
+        "createdByUid": { "type": "string", "maxLength": 64 },
         "createdByRole": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "findingNumber", "year", "unitId", "title", "riskLevel", "status"]
@@ -237,6 +238,7 @@
         "unitId": { "type": "string", "maxLength": 64 },
         "unitName": { "type": "string", "maxLength": 128 },
         "sourceType": { "type": "string", "enum": ["AUDIT_REGULER", "WBS", "LHA", "AUDITOR_EKSTERNAL"] },
+        "createdByUid": { "type": "string", "maxLength": 64 },
         "recNumber": { "type": "string", "maxLength": 32 },
         "description": { "type": "string", "maxLength": 2000 },
         "pic": { "type": "string", "maxLength": 128 },

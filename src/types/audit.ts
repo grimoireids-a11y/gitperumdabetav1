@@ -304,6 +304,7 @@ export interface Finding {
   sourceType?: 'AUDIT_REGULER' | 'WBS' | 'LHA' | 'AUDITOR_EKSTERNAL';
   externalAuditorAgency?: string;
   createdBy?: string;
+  createdByUid?: string;
   createdByRole?: UserRole;
   wbsReportId?: string;
   wbsTicketNumber?: string;
@@ -326,6 +327,7 @@ export interface Recommendation {
   unitId?: string;
   unitName?: string;
   sourceType?: 'AUDIT_REGULER' | 'WBS' | 'LHA' | 'AUDITOR_EKSTERNAL';
+  createdByUid?: string;
   recNumber: string;
   description: string;
   pic: string;

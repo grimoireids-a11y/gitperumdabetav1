@@ -277,25 +277,54 @@ export const FollowUpModule: React.FC<FollowUpModuleProps> = ({ initialFindingId
     }
   };
 
-  // Distinct units for filter
-  const allUnits = useMemo(() => {
-    const map = new Map<string, string>();
-    recommendations.forEach((r) => {
-      if (r.unitName) map.set(r.unitName, r.unitName);
-      else if (r.unitId) map.set(r.unitId, r.unitId);
-    });
-    return Array.from(map.values());
-  }, [recommendations]);
-
   const findingsById = useMemo(() => {
     const map = new Map<string, Finding>();
     findings.forEach((f) => map.set(f.id, f));
     return map;
   }, [findings]);
 
-  // Strict Unit Filtering for Auditee
+  const isOwnedByCurrentExternalAccount = React.useCallback(
+    (f?: Finding) => {
+      if (!f || !userProfile) return false;
+      const isExternalRecord =
+        f.sourceType === 'AUDITOR_EKSTERNAL' || f.createdByRole === 'AUDITOR_EKSTERNAL';
+      if (!isExternalRecord) return false;
+      if (f.createdByUid) {
+        return f.createdByUid === userProfile.uid;
+      }
+      return Boolean(
+        (userProfile.displayName && f.createdBy === userProfile.displayName) ||
+          (userProfile.username && f.createdBy === userProfile.username) ||
+          (userProfile.email && f.createdBy === userProfile.email)
+      );
+    },
+    [userProfile]
+  );
+
+  // Scope base recommendations: AUDITOR_EKSTERNAL can only see recommendations from findings inputted by their own account
+  const scopedBaseRecs = useMemo(() => {
+    if (isExternalAuditor) {
+      return recommendations.filter((r) => {
+        const parentFinding = findingsById.get(r.findingId);
+        return isOwnedByCurrentExternalAccount(parentFinding);
+      });
+    }
+    return recommendations;
+  }, [recommendations, findingsById, isExternalAuditor, isOwnedByCurrentExternalAccount]);
+
+  // Distinct units for filter derived from visible recommendations
+  const allUnits = useMemo(() => {
+    const map = new Map<string, string>();
+    scopedBaseRecs.forEach((r) => {
+      if (r.unitName) map.set(r.unitName, r.unitName);
+      else if (r.unitId) map.set(r.unitId, r.unitId);
+    });
+    return Array.from(map.values());
+  }, [scopedBaseRecs]);
+
+  // Strict Unit Filtering for Auditee & External Auditor scoping
   const filteredRecs = useMemo(() => {
-    return recommendations.filter((r) => {
+    return scopedBaseRecs.filter((r) => {
       // If auditee, strictly restrict to their own unit
       if (isAuditee) {
         const matchesUnit =
@@ -314,8 +343,10 @@ export const FollowUpModule: React.FC<FollowUpModuleProps> = ({ initialFindingId
         r.sourceType === 'AUDITOR_EKSTERNAL' ||
         parentFinding?.sourceType === 'AUDITOR_EKSTERNAL' ||
         parentFinding?.createdByRole === 'AUDITOR_EKSTERNAL';
-      if (selectedSource === 'AUDITOR_EKSTERNAL' && !isExt) return false;
-      if (selectedSource === 'INTERNAL' && isExt) return false;
+      if (!isExternalAuditor) {
+        if (selectedSource === 'AUDITOR_EKSTERNAL' && !isExt) return false;
+        if (selectedSource === 'INTERNAL' && isExt) return false;
+      }
 
       const matchesSearch =
         r.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -327,7 +358,18 @@ export const FollowUpModule: React.FC<FollowUpModuleProps> = ({ initialFindingId
       const matchesStatus = selectedStatus === 'ALL' || r.status === selectedStatus;
       return matchesSearch && matchesStatus;
     });
-  }, [recommendations, findingsById, isAuditee, auditeeUnitId, auditeeUnitName, selectedUnit, selectedSource, searchTerm, selectedStatus]);
+  }, [
+    scopedBaseRecs,
+    findingsById,
+    isAuditee,
+    isExternalAuditor,
+    auditeeUnitId,
+    auditeeUnitName,
+    selectedUnit,
+    selectedSource,
+    searchTerm,
+    selectedStatus,
+  ]);
 
   return (
     <div className="space-y-6">
@@ -346,7 +388,7 @@ export const FollowUpModule: React.FC<FollowUpModuleProps> = ({ initialFindingId
                 {userProfile?.displayName || 'Auditor Eksternal'}
               </h3>
               <p className="text-[11px] text-purple-200/85 mt-0.5">
-                Anda dapat memeriksa bukti tindak lanjut dari unit kerja dan memberikan status verifikasi terhadap rekomendasi temuan yang diarahkan ke unit kerja.
+                Anda hanya dapat melihat dan memverifikasi tindak lanjut unit kerja atas temuan yang diinput oleh akun Anda sendiri. Temuan dan tindak lanjut internal SPI tidak ditampilkan.
               </p>
             </div>
           </div>
@@ -437,15 +479,17 @@ export const FollowUpModule: React.FC<FollowUpModuleProps> = ({ initialFindingId
                 ))}
               </select>
 
-              <select
-                value={selectedSource}
-                onChange={(e) => setSelectedSource(e.target.value)}
-                className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-medium"
-              >
-                <option value="ALL">Semua Sumber Temuan</option>
-                <option value="AUDITOR_EKSTERNAL">Khusus Temuan Auditor Eksternal</option>
-                <option value="INTERNAL">Khusus Temuan Internal SPI</option>
-              </select>
+              {!isExternalAuditor && (
+                <select
+                  value={selectedSource}
+                  onChange={(e) => setSelectedSource(e.target.value)}
+                  className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 font-medium"
+                >
+                  <option value="ALL">Semua Sumber Temuan</option>
+                  <option value="AUDITOR_EKSTERNAL">Khusus Temuan Auditor Eksternal</option>
+                  <option value="INTERNAL">Khusus Temuan Internal SPI</option>
+                </select>
+              )}
             </>
           )}
 
@@ -470,6 +514,8 @@ export const FollowUpModule: React.FC<FollowUpModuleProps> = ({ initialFindingId
           <div className="py-12 text-center text-slate-400 bg-white rounded-xl border border-slate-200 text-xs">
             {isAuditee
               ? `Belum ada rekomendasi yang tercatat untuk unit ${auditeeUnitName || 'Anda'}.`
+              : isExternalAuditor
+              ? 'Belum ada rekomendasi tindak lanjut dari temuan yang Anda input.'
               : 'Tidak ditemukan rekomendasi untuk kriteria pencarian ini.'}
           </div>
         ) : (
