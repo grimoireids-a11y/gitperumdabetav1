@@ -35,9 +35,11 @@ import {
   Calendar,
   Clock,
   AlertCircle,
+  MapPin,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
+import { INITIAL_UNITS } from '../../data/initialData';
 import {
   RKAItem,
   RKASubItem,
@@ -161,6 +163,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const [subFormCode, setSubFormCode] = useState('');
   const [subFormProgramName, setSubFormProgramName] = useState('');
   const [subFormExecutionMonth, setSubFormExecutionMonth] = useState<string>('Januari');
+  const [subFormLocationUnitId, setSubFormLocationUnitId] = useState<string>('');
   const [subFormAllocatedBudget, setSubFormAllocatedBudget] = useState<number>(0);
   const [subFormRealizationAmount, setSubFormRealizationAmount] = useState<number>(0);
   const [subFormRealizationDate, setSubFormRealizationDate] = useState<string>('');
@@ -308,6 +311,31 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     const docYears = rkaList.map((r) => r.year).filter((y) => typeof y === 'number' && y > 0);
     return Array.from(new Set([...availableYears, ...docYears])).sort((a, b) => b - a);
   }, [availableYears, rkaList]);
+
+  // Master Data Unit Pelayanan & Unit Kerja untuk pilihan Unit Lokasi Sub-Program
+  const effectiveUnits = useMemo(() => {
+    if (units.length > 0) return units;
+    return INITIAL_UNITS.map((u) => ({
+      id: u.code.toLowerCase().replace(/[^a-z0-9]/g, '-'),
+      ...u,
+    }));
+  }, [units]);
+
+  const serviceLocationUnits = useMemo(
+    () =>
+      effectiveUnits
+        .filter((u) => u.isActive !== false && u.category === 'UNIT_PELAYANAN')
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [effectiveUnits]
+  );
+
+  const otherLocationUnits = useMemo(
+    () =>
+      effectiveUnits
+        .filter((u) => u.isActive !== false && u.category !== 'UNIT_PELAYANAN')
+        .sort((a, b) => a.name.localeCompare(b.name)),
+    [effectiveUnits]
+  );
 
   const openAddModal = () => {
     const targetYr = selectedYear === 0 ? activeYear : selectedYear;
@@ -690,12 +718,14 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     const nextIdx = existing.length + 1;
     const allocatedSoFar = existing.reduce((s, c) => s + (c.allocatedBudget || 0), 0);
     const remaining = Math.max(0, (parent.budgetAmount || 0) - allocatedSoFar);
+    const parentIsServiceUnit = serviceLocationUnits.some((u) => u.id === parent.unitId);
 
     setSubParentItem(parent);
     setEditingSubItem(null);
     setSubFormCode(`${parent.code}.${String(nextIdx).padStart(2, '0')}`);
     setSubFormProgramName('');
     setSubFormExecutionMonth(resolveExecutionMonth(parent));
+    setSubFormLocationUnitId(parentIsServiceUnit ? parent.unitId : '');
     setSubFormAllocatedBudget(remaining > 0 ? remaining : 0);
     setSubFormRealizationAmount(0);
     setSubFormRealizationDate(getTodayIsoDate());
@@ -715,6 +745,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         ? sub.executionMonth
         : resolveExecutionMonth(parent)
     );
+    setSubFormLocationUnitId(sub.locationUnitId || '');
     setSubFormAllocatedBudget(sub.allocatedBudget || 0);
     setSubFormRealizationAmount(sub.realizationAmount || 0);
     setSubFormRealizationDate(sub.realizationDate || '');
@@ -727,12 +758,31 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const handleSaveSubItem = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!subParentItem || !subFormCode.trim() || !subFormProgramName.trim()) return;
+    if (serviceLocationUnits.length > 0 && !subFormLocationUnitId) {
+      alert('Silakan pilih Unit Lokasi dari Master Data Unit Pelayanan terlebih dahulu.');
+      return;
+    }
     setSubSaving(true);
     const nowIso = new Date().toISOString();
     const subId = editingSubItem ? editingSubItem.id : `rka-sub-${Date.now()}`;
     const realAmt = Number(subFormRealizationAmount) || 0;
     const resolvedRealDate =
       subFormRealizationDate.trim() || (realAmt > 0 ? getTodayIsoDate() : '');
+    const selectedLocUnit = effectiveUnits.find((u) => u.id === subFormLocationUnitId);
+    const resolvedLocUnitName = (
+      selectedLocUnit?.name ||
+      (subFormLocationUnitId === editingSubItem?.locationUnitId
+        ? editingSubItem?.locationUnitName
+        : '') ||
+      ''
+    ).slice(0, 128);
+    const resolvedLocName = (
+      selectedLocUnit?.location ||
+      (subFormLocationUnitId === editingSubItem?.locationUnitId
+        ? editingSubItem?.locationName
+        : '') ||
+      ''
+    ).slice(0, 128);
 
     const subPayload: RKASubItem = {
       id: subId,
@@ -742,6 +792,9 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       subCode: subFormCode.trim().toUpperCase(),
       programName: subFormProgramName.trim(),
       executionMonth: subFormExecutionMonth,
+      locationUnitId: (selectedLocUnit?.id || subFormLocationUnitId || '').slice(0, 64),
+      locationUnitName: resolvedLocUnitName,
+      locationName: resolvedLocName,
       allocatedBudget: Number(subFormAllocatedBudget) || 0,
       realizationAmount: realAmt,
       realizationDate: resolvedRealDate,
@@ -1031,7 +1084,10 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       const summary = getParentSummary(r);
       const matchYear = selectedYear === 0 || r.year === selectedYear;
       const matchCat = selectedCategory === 'ALL' || r.category === selectedCategory;
-      const matchUnit = selectedUnitId === 'ALL' || r.unitId === selectedUnitId;
+      const matchUnit =
+        selectedUnitId === 'ALL' ||
+        r.unitId === selectedUnitId ||
+        children.some((c) => c.locationUnitId === selectedUnitId);
       const matchPriority = selectedPriority === 'ALL' || r.strategicPriority === selectedPriority;
       const matchStatus = selectedStatus === 'ALL' || r.status === selectedStatus;
       const isLinked = linkedPkptMap.has(r.id);
@@ -1048,7 +1104,9 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         (c) =>
           c.subCode.toLowerCase().includes(q) ||
           c.programName.toLowerCase().includes(q) ||
-          (c.pic || '').toLowerCase().includes(q)
+          (c.pic || '').toLowerCase().includes(q) ||
+          (c.locationUnitName || '').toLowerCase().includes(q) ||
+          (c.locationName || '').toLowerCase().includes(q)
       );
       const matchSearch =
         !q ||
@@ -1251,6 +1309,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         'Kode Induk': r.code,
         'Kode Program': r.code,
         'Unit Kerja / Pemilik Risiko': r.unitName,
+        'Unit Lokasi (Unit Pelayanan)': '-',
         'Nama Program / Sub-Program': r.programName,
         'Bidang / Kategori': r.category,
         'Pagu / Alokasi Anggaran (Rp)': r.budgetAmount,
@@ -1278,6 +1337,11 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
           'Kode Induk': r.code,
           'Kode Program': sub.subCode,
           'Unit Kerja / Pemilik Risiko': r.unitName,
+          'Unit Lokasi (Unit Pelayanan)': sub.locationUnitName
+            ? sub.locationName && !sub.locationUnitName.toLowerCase().includes(sub.locationName.toLowerCase())
+              ? `${sub.locationUnitName} (${sub.locationName})`
+              : sub.locationUnitName
+            : '-',
           'Nama Program / Sub-Program': `   └ ${sub.programName}`,
           'Bidang / Kategori': r.category,
           'Pagu / Alokasi Anggaran (Rp)': sub.allocatedBudget,
@@ -1671,7 +1735,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
               type="text"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              placeholder="Cari kode, nama program, unit, PIC..."
+              placeholder="Cari kode, nama program, unit lokasi, PIC..."
               className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-600"
             />
           </div>
@@ -1720,8 +1784,8 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
             onChange={(e) => setSelectedUnitId(e.target.value)}
             className="px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
           >
-            <option value="ALL">Semua Pemilik Risiko / Unit</option>
-            {units.map((u) => (
+            <option value="ALL">Semua Unit / Lokasi Pelayanan</option>
+            {effectiveUnits.map((u) => (
               <option key={u.id} value={u.id}>
                 {u.name}
               </option>
@@ -2110,6 +2174,18 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                               </td>
 
                               <td className="py-2.5 px-4 align-top">
+                                {sub.locationUnitName && (
+                                  <p className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-800 mb-0.5">
+                                    <MapPin className="w-3 h-3 text-emerald-600 shrink-0" />
+                                    <span>
+                                      {sub.locationUnitName}
+                                      {sub.locationName &&
+                                      !sub.locationUnitName.toLowerCase().includes(sub.locationName.toLowerCase())
+                                        ? ` (${sub.locationName})`
+                                        : ''}
+                                    </span>
+                                  </p>
+                                )}
                                 <p className="text-[11px] font-medium text-slate-700">
                                   PIC: {sub.pic || item.pic || '-'}
                                 </p>
@@ -2579,6 +2655,60 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                 />
               </div>
 
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1.5">
+                  <MapPin className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Unit Lokasi (Master Data Unit Pelayanan)</span>
+                </label>
+                <select
+                  required={serviceLocationUnits.length > 0}
+                  value={subFormLocationUnitId}
+                  onChange={(e) => setSubFormLocationUnitId(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold text-slate-900"
+                >
+                  <option value="">-- Pilih Unit Lokasi Pelayanan --</option>
+                  {editingSubItem?.locationUnitId &&
+                    !effectiveUnits.some((u) => u.id === editingSubItem.locationUnitId) && (
+                      <option value={editingSubItem.locationUnitId}>
+                        {editingSubItem.locationUnitName || editingSubItem.locationUnitId}
+                      </option>
+                    )}
+                  {serviceLocationUnits.length > 0 && (
+                    <optgroup label="Master Data Unit Pelayanan">
+                      {serviceLocationUnits.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                          {u.location && !u.name.toLowerCase().includes(u.location.toLowerCase())
+                            ? ` — ${u.location}`
+                            : ''}{' '}
+                          ({u.code})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {otherLocationUnits.length > 0 && (
+                    <optgroup label="Kantor Pusat & Bidang Lainnya">
+                      {otherLocationUnits.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                          {u.location ? ` — ${u.location}` : ''} ({u.code})
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+                {(() => {
+                  const chosen = effectiveUnits.find((u) => u.id === subFormLocationUnitId);
+                  if (!chosen) return null;
+                  return (
+                    <p className="text-[10px] text-emerald-700 mt-1">
+                      Wilayah / Lokasi: <strong>{chosen.location || chosen.name}</strong> · Kepala Unit:{' '}
+                      {chosen.headName || '-'}
+                    </p>
+                  );
+                })()}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">
@@ -2704,6 +2834,12 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                     ? verifyTarget.sub.programName
                     : verifyTarget.parent.programName}
                 </p>
+                {verifyTarget.mode === 'sub' && verifyTarget.sub.locationUnitName && (
+                  <p className="text-[11px] font-semibold text-emerald-800 flex items-center gap-1">
+                    <MapPin className="w-3 h-3 shrink-0" />
+                    <span>{verifyTarget.sub.locationUnitName}</span>
+                  </p>
+                )}
                 <p className="text-[11px] text-slate-600 font-mono">
                   Pagu / Alokasi: Rp{' '}
                   {(verifyTarget.mode === 'sub'
@@ -2931,7 +3067,10 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                               {sub.executionMonth} {sub.year}
                             </td>
                             <td className="p-1.5 border border-slate-300 align-top text-slate-600">
-                              {sub.pic || '-'}
+                              {sub.locationUnitName && (
+                                <p className="font-semibold text-slate-800">{sub.locationUnitName}</p>
+                              )}
+                              <p>PIC: {sub.pic || '-'}</p>
                             </td>
                             <td className="p-1.5 border border-slate-300 text-right font-mono align-top">
                               Rp {(sub.allocatedBudget || 0).toLocaleString('id-ID')}

@@ -146,6 +146,9 @@ export interface RKASubItem {
   subCode: string;
   programName: string;
   executionMonth: string;
+  locationUnitId?: string;
+  locationUnitName?: string;
+  locationName?: string;
   allocatedBudget: number;
   realizationAmount: number;
   realizationDate?: string;
