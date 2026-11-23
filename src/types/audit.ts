@@ -125,7 +125,7 @@ export interface RKAItem {
   realizationDate?: string;
   strategicPriority: 'Tinggi' | 'Sedang' | 'Rendah';
   executionMonth?: string;
-  targetQuarter: 'Q1' | 'Q2' | 'Q3' | 'Q4';
+  targetQuarter?: 'Q1' | 'Q2' | 'Q3' | 'Q4';
   pic: string;
   notes?: string;
   status: RKAStatus;

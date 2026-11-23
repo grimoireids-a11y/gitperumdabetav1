@@ -55,8 +55,6 @@ import { useFiscalYear } from '../../context/FiscalYearContext';
 import {
   FISCAL_MONTHS,
   formatRkaExecutionSchedule,
-  getDefaultMonthForQuarter,
-  getQuarterFromMonth,
   resolveExecutionMonth,
 } from '../../lib/featureCatalog';
 import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
@@ -141,7 +139,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setSelectedYear(activeYear);
   }, [activeYear]);
 
-  // Form states (Parent Pos Induk)
+  // Form states (Parent Pos Induk — tanpa waktu pelaksanaan & realisasi)
   const [formYear, setFormYear] = useState<number>(activeYear);
   const [formCode, setFormCode] = useState('');
   const [formUnitId, setFormUnitId] = useState('');
@@ -151,10 +149,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const [formManualCategory, setFormManualCategory] = useState('');
   const [saveNewCategoryToMaster, setSaveNewCategoryToMaster] = useState(true);
   const [formBudgetAmount, setFormBudgetAmount] = useState<number>(100000000);
-  const [formRealizationAmount, setFormRealizationAmount] = useState<number>(0);
-  const [formRealizationDate, setFormRealizationDate] = useState<string>('');
   const [formStrategicPriority, setFormStrategicPriority] = useState<'Tinggi' | 'Sedang' | 'Rendah'>('Tinggi');
-  const [formExecutionMonth, setFormExecutionMonth] = useState<string>('Januari');
   const [formPic, setFormPic] = useState('');
   const [formStatus, setFormStatus] = useState<RKAStatus>('Disetujui RKAP');
   const [formNotes, setFormNotes] = useState('');
@@ -327,10 +322,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setFormManualCategory('');
     setSaveNewCategoryToMaster(true);
     setFormBudgetAmount(150000000);
-    setFormRealizationAmount(0);
-    setFormRealizationDate('');
     setFormStrategicPriority('Tinggi');
-    setFormExecutionMonth('Januari');
     setFormPic(units[0]?.headName || units[0]?.name || 'Kepala Unit Kerja');
     setFormStatus('Disetujui RKAP');
     setFormNotes('');
@@ -348,14 +340,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setFormManualCategory('');
     setSaveNewCategoryToMaster(true);
     setFormBudgetAmount(item.budgetAmount || 0);
-    setFormRealizationAmount(item.realizationAmount || 0);
-    setFormRealizationDate(item.realizationDate || '');
     setFormStrategicPriority(item.strategicPriority || 'Sedang');
-    setFormExecutionMonth(
-      item.executionMonth && FISCAL_MONTHS.includes(item.executionMonth as any)
-        ? item.executionMonth
-        : getDefaultMonthForQuarter(item.targetQuarter)
-    );
     setFormPic(item.pic || '');
     setFormStatus(item.status || 'Disetujui RKAP');
     setFormNotes(item.notes || '');
@@ -551,11 +536,6 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     const validYear = isNaN(formYear) ? activeYear : formYear;
     addCustomYear(validYear);
 
-    const resolvedMonth = FISCAL_MONTHS.includes(formExecutionMonth as any)
-      ? formExecutionMonth
-      : 'Januari';
-    const derivedQuarter = getQuarterFromMonth(resolvedMonth, 'Q1');
-
     const existingChildren = editingItem
       ? subItems.filter((s) => s.parentRkaId === editingItem.id)
       : [];
@@ -575,14 +555,11 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       realizationAmount:
         existingChildren.length > 0
           ? aggregatedChildRealization
-          : Number(formRealizationAmount) || 0,
-      realizationDate:
-        existingChildren.length > 0
-          ? editingItem?.realizationDate || ''
-          : formRealizationDate.trim(),
+          : editingItem?.realizationAmount ?? 0,
+      realizationDate: editingItem?.realizationDate || '',
       strategicPriority: formStrategicPriority,
-      executionMonth: resolvedMonth,
-      targetQuarter: derivedQuarter,
+      executionMonth: editingItem?.executionMonth || '',
+      ...(editingItem?.targetQuarter ? { targetQuarter: editingItem.targetQuarter } : {}),
       pic: formPic.trim() || unitName,
       notes: formNotes.trim(),
       status: formStatus,
@@ -1020,6 +997,30 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     };
   };
 
+  const formatParentScheduleLabel = (item: RKAItem, children: RKASubItem[]): string => {
+    if (children.length > 0) {
+      const monthSet = new Set(
+        children
+          .map((c) => (c.executionMonth || '').trim())
+          .filter((m) => FISCAL_MONTHS.includes(m as any))
+      );
+      const orderedMonths = FISCAL_MONTHS.filter((m) => monthSet.has(m));
+      if (orderedMonths.length === 1) {
+        return `${orderedMonths[0]} ${item.year}`;
+      }
+      if (orderedMonths.length === 2) {
+        return `${orderedMonths[0]}, ${orderedMonths[1]} ${item.year}`;
+      }
+      if (orderedMonths.length > 2) {
+        return `${orderedMonths[0].slice(0, 3)}–${orderedMonths[orderedMonths.length - 1].slice(0, 3)} ${item.year} (${orderedMonths.length} bln)`;
+      }
+    }
+    if ((item.executionMonth && item.executionMonth.trim()) || item.targetQuarter) {
+      return formatRkaExecutionSchedule(item);
+    }
+    return `TA ${item.year} · Menunggu Sub-Program`;
+  };
+
   const currentCalendarMonth = FISCAL_MONTHS[new Date().getMonth()];
 
   // Items matching all filters except month (used for the 12-Month Dashboard comparison)
@@ -1086,10 +1087,13 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       .filter((r) => {
         if (selectedMonth === 'ALL') return true;
         const children = subItemsByParentMap.get(r.id) || [];
-        return (
-          resolveExecutionMonth(r) === selectedMonth ||
-          children.some((c) => c.executionMonth === selectedMonth)
-        );
+        if (children.length > 0) {
+          return children.some((c) => c.executionMonth === selectedMonth);
+        }
+        if (Boolean(r.executionMonth?.trim() || r.targetQuarter)) {
+          return resolveExecutionMonth(r) === selectedMonth;
+        }
+        return false;
       })
       .sort((a, b) => (b.budgetAmount || 0) - (a.budgetAmount || 0));
   }, [rkaForDashboard, selectedMonth, subItemsByParentMap]);
@@ -1122,16 +1126,39 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       });
     });
 
+    let unscheduledParentCount = 0;
+
     rkaForDashboard.forEach((item) => {
-      const m = resolveExecutionMonth(item);
-      const entry = map.get(m);
-      if (!entry) return;
       const summary = getParentSummary(item);
-      entry.count += 1;
-      entry.budget += item.budgetAmount || 0;
-      entry.realization += summary.effectiveRealization;
-      if (item.strategicPriority === 'Tinggi') entry.highPriorityCount += 1;
-      if (linkedPkptMap.has(item.id)) entry.linkedCount += 1;
+      if (summary.hasChildren) {
+        const touchedMonths = new Set<string>();
+        summary.children.forEach((sub) => {
+          const m = resolveExecutionMonth({ executionMonth: sub.executionMonth });
+          const entry = map.get(m);
+          if (!entry) return;
+          entry.budget += sub.allocatedBudget || 0;
+          entry.realization += sub.realizationAmount || 0;
+          touchedMonths.add(m);
+        });
+        touchedMonths.forEach((m) => {
+          const entry = map.get(m);
+          if (!entry) return;
+          entry.count += 1;
+          if (item.strategicPriority === 'Tinggi') entry.highPriorityCount += 1;
+          if (linkedPkptMap.has(item.id)) entry.linkedCount += 1;
+        });
+      } else if (Boolean(item.executionMonth?.trim() || item.targetQuarter)) {
+        const m = resolveExecutionMonth(item);
+        const entry = map.get(m);
+        if (!entry) return;
+        entry.count += 1;
+        entry.budget += item.budgetAmount || 0;
+        entry.realization += summary.effectiveRealization;
+        if (item.strategicPriority === 'Tinggi') entry.highPriorityCount += 1;
+        if (linkedPkptMap.has(item.id)) entry.linkedCount += 1;
+      } else {
+        unscheduledParentCount += 1;
+      }
     });
 
     const list = Array.from(map.values()).map((entry) => ({
@@ -1147,7 +1174,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     );
     const activeMonthsCount = list.filter((m) => m.count > 0).length;
 
-    return { list, maxBudget, peakMonth, activeMonthsCount };
+    return { list, maxBudget, peakMonth, activeMonthsCount, unscheduledParentCount };
   }, [rkaForDashboard, linkedPkptMap, subItemsByParentMap]);
 
   const yearTotalForContext = useMemo(
@@ -1235,7 +1262,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         'Tanggal Verifikasi': formatDateId(summary.latestVerificationDate),
         'Diverifikasi Oleh': summary.latestVerifiedBy || '-',
         'Catatan Verifikasi': r.verificationNotes || '-',
-        'Waktu Pelaksanaan': formatRkaExecutionSchedule(r),
+        'Waktu Pelaksanaan': formatParentScheduleLabel(r, summary.children),
         'Prioritas Strategis': r.strategicPriority,
         'Bobot Materialitas RKA': calculateRkaWeightScore(r.budgetAmount, r.strategicPriority),
         Status: r.status,
@@ -1299,7 +1326,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
             <span>{getFeatureLabel('rka', 'Rencana Kerja dan Anggaran (RKA Manual) & Pengaruh PKPT')}</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Input manual program kerja, waktu pelaksanaan bulanan, dan pagu anggaran per unit kerja sebagai basis bobot materialitas penyusunan prioritas PKPT
+            Input pos anggaran induk (pagu), rincian sub-program kerja bulanan, realisasi, serta verifikasi Bidang Keuangan sebagai basis bobot materialitas PKPT
           </p>
         </div>
 
@@ -1442,6 +1469,14 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                   <strong className="text-slate-800">
                     {monthlyStats.peakMonth.month} (Rp {monthlyStats.peakMonth.budget.toLocaleString('id-ID')})
                   </strong>
+                </>
+              )}
+              {monthlyStats.unscheduledParentCount > 0 && (
+                <>
+                  {' · '}
+                  <span className="text-amber-700 font-medium">
+                    {monthlyStats.unscheduledParentCount} pos induk belum memiliki sub-program bulanan
+                  </span>
                 </>
               )}
             </p>
@@ -1833,7 +1868,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                                 {item.code}
                               </span>
                               <span className="text-[11px] font-semibold text-slate-500 block">
-                                {formatRkaExecutionSchedule(item)}
+                                {formatParentScheduleLabel(item, summary.children)}
                               </span>
                               {summary.hasChildren && (
                                 <button
@@ -2193,7 +2228,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
           <div className="w-full max-w-2xl max-h-[90vh] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
             <div className="px-6 py-4 bg-gradient-to-r from-[#0d3824] to-[#105234] text-white flex items-center justify-between">
               <h3 className="text-sm font-bold">
-                {editingItem ? 'Edit Item Program & Anggaran (RKA)' : 'Input Manual Rencana Kerja dan Anggaran (RKA)'}
+                {editingItem ? 'Edit Pos Anggaran Induk (RKA)' : 'Input Pos Anggaran Induk (RKA)'}
               </h3>
               <button onClick={() => setIsModalOpen(false)} className="text-emerald-200 hover:text-white cursor-pointer">
                 ✕
@@ -2201,7 +2236,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
             </div>
 
             <form onSubmit={handleSave} className="p-6 space-y-4 text-xs overflow-y-auto flex-1">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Tahun Anggaran</label>
                   <input
@@ -2215,7 +2250,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Kode Rekening / Program RKA</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Kode Rekening / Pos Induk RKA</label>
                   <input
                     type="text"
                     required
@@ -2224,20 +2259,6 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                     placeholder="Contoh: RKA-2027-001"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold uppercase"
                   />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Waktu Pelaksanaan</label>
-                  <select
-                    value={formExecutionMonth}
-                    onChange={(e) => setFormExecutionMonth(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
-                  >
-                    {FISCAL_MONTHS.map((month) => (
-                      <option key={month} value={month}>
-                        {month} {isNaN(formYear) ? activeYear : formYear}
-                      </option>
-                    ))}
-                  </select>
                 </div>
               </div>
 
@@ -2351,7 +2372,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Pagu Anggaran Induk (Rp)</label>
                   <input
@@ -2363,45 +2384,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold text-emerald-900"
                   />
                 </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Realisasi s.d. Saat Ini (Rp)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    disabled={Boolean(
-                      editingItem && (subItemsByParentMap.get(editingItem.id) || []).length > 0
-                    )}
-                    value={
-                      editingItem && (subItemsByParentMap.get(editingItem.id) || []).length > 0
-                        ? getParentSummary(editingItem).effectiveRealization
-                        : formRealizationAmount
-                    }
-                    onChange={(e) => setFormRealizationAmount(parseInt(e.target.value, 10) || 0)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono disabled:opacity-60"
-                  />
-                  {editingItem && (subItemsByParentMap.get(editingItem.id) || []).length > 0 && (
-                    <p className="text-[10px] text-emerald-700 mt-0.5">
-                      Otomatis diakumulasi dari Sub-Program Kerja.
-                    </p>
-                  )}
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Tanggal Realisasi</label>
-                  <input
-                    type="date"
-                    disabled={Boolean(
-                      editingItem && (subItemsByParentMap.get(editingItem.id) || []).length > 0
-                    )}
-                    value={formRealizationDate}
-                    onChange={(e) => setFormRealizationDate(e.target.value)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono disabled:opacity-60"
-                  />
-                </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block font-semibold text-slate-700 mb-1">Prioritas Strategis</label>
                   <select
@@ -2414,9 +2397,11 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                     <option value="Rendah">Rendah</option>
                   </select>
                 </div>
+              </div>
 
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Status RKA</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Status Pos Induk</label>
                   <select
                     value={formStatus}
                     onChange={(e) => setFormStatus(e.target.value as RKAStatus)}
@@ -2439,6 +2424,10 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                   />
                 </div>
               </div>
+
+              <p className="text-[11px] text-slate-600 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                Waktu pelaksanaan bulanan, alokasi sub-program kerja, dan realisasi anggaran (+ tanggal &amp; verifikasi Bidang Keuangan) diisi pada Sub-Program Kerja setelah Pos Induk tersimpan.
+              </p>
 
               <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-lg flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-emerald-900">
@@ -2472,7 +2461,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                   type="submit"
                   className="px-4 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm cursor-pointer"
                 >
-                  Simpan Data RKA
+                  Simpan Pos Anggaran Induk
                 </button>
               </div>
             </form>
@@ -2894,7 +2883,9 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                               {r.code} ({r.category}) · Bobot: {calculateRkaWeightScore(r.budgetAmount, r.strategicPriority)}
                             </p>
                           </td>
-                          <td className="p-2 border border-slate-300 align-top">{formatRkaExecutionSchedule(r)}</td>
+                          <td className="p-2 border border-slate-300 align-top">
+                            {formatParentScheduleLabel(r, summary.children)}
+                          </td>
                           <td className="p-2 border border-slate-300 align-top">
                             <p>{r.unitName}</p>
                             <p className="text-[9px] text-slate-500">PIC: {r.pic || '-'}</p>
