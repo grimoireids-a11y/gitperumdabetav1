@@ -6,6 +6,7 @@ import {
   setDoc,
   updateDoc,
   deleteDoc,
+  writeBatch,
 } from 'firebase/firestore';
 import {
   Wallet,
@@ -21,23 +22,34 @@ import {
   ArrowRight,
   TrendingUp,
   Tags,
+  Check,
+  X,
+  RotateCcw,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { db } from '../../lib/firebase';
-import { RKAItem, RKACategory, RKAStatus, Unit, PKPT, DEFAULT_RKA_CATEGORIES } from '../../types/audit';
+import {
+  RKAItem,
+  RKACategory,
+  RKACategoryItem,
+  RKAStatus,
+  Unit,
+  PKPT,
+  DEFAULT_RKA_CATEGORIES,
+} from '../../types/audit';
 import { useAuth } from '../../context/AuthContext';
+import { useAppBranding } from '../../context/AppBrandingContext';
 import { useFiscalYear } from '../../context/FiscalYearContext';
+import {
+  FISCAL_MONTHS,
+  formatRkaExecutionSchedule,
+  getDefaultMonthForQuarter,
+  getQuarterFromMonth,
+} from '../../lib/featureCatalog';
 import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
 
 interface RKAModuleProps {
   onNavigateToPkptWithRka?: (rkaItem: RKAItem) => void;
-}
-
-interface CustomRKACategoryDoc {
-  id: string;
-  name: string;
-  createdBy?: string;
-  createdAt?: string;
 }
 
 export const calculateRkaWeightScore = (
@@ -57,12 +69,15 @@ export const calculateRkaWeightScore = (
 
 export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka }) => {
   const { userProfile, hasRole } = useAuth();
+  const { getFeatureLabel } = useAppBranding();
   const { activeYear, availableYears, addCustomYear } = useFiscalYear();
 
   const [rkaList, setRkaList] = useState<RKAItem[]>([]);
   const [pkptList, setPkptList] = useState<PKPT[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
-  const [customCategories, setCustomCategories] = useState<CustomRKACategoryDoc[]>([]);
+  const [masterCategories, setMasterCategories] = useState<RKACategoryItem[]>([]);
+  const [hasLoadedCategories, setHasLoadedCategories] = useState(false);
+  const [categoriesMetaInitialized, setCategoriesMetaInitialized] = useState<boolean | null>(null);
 
   const [selectedYear, setSelectedYear] = useState<number>(activeYear);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
@@ -87,14 +102,20 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const [isManualCategoryMode, setIsManualCategoryMode] = useState(false);
   const [formManualCategory, setFormManualCategory] = useState('');
   const [saveNewCategoryToMaster, setSaveNewCategoryToMaster] = useState(true);
-  const [newMasterCategoryName, setNewMasterCategoryName] = useState('');
   const [formBudgetAmount, setFormBudgetAmount] = useState<number>(100000000);
   const [formRealizationAmount, setFormRealizationAmount] = useState<number>(0);
   const [formStrategicPriority, setFormStrategicPriority] = useState<'Tinggi' | 'Sedang' | 'Rendah'>('Tinggi');
-  const [formTargetQuarter, setFormTargetQuarter] = useState<'Q1' | 'Q2' | 'Q3' | 'Q4'>('Q1');
+  const [formExecutionMonth, setFormExecutionMonth] = useState<string>('Januari');
   const [formPic, setFormPic] = useState('');
   const [formStatus, setFormStatus] = useState<RKAStatus>('Disetujui RKAP');
   const [formNotes, setFormNotes] = useState('');
+
+  // Category CRUD modal states (Super User)
+  const [newMasterCategoryName, setNewMasterCategoryName] = useState('');
+  const [editingCatId, setEditingCatId] = useState<string | null>(null);
+  const [editingCatName, setEditingCatName] = useState('');
+  const [syncEditedCategoryToRka, setSyncEditedCategoryToRka] = useState(true);
+  const [catSaving, setCatSaving] = useState(false);
 
   const isSuperUser = hasRole(['KEPALA_SPI', 'ADMIN_SISTEM']);
   const canManage = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
@@ -110,9 +131,18 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       setUnits(snap.docs.map((d) => ({ id: d.id, ...d.data() } as Unit)));
     });
     const unsubCats = onSnapshot(collection(db, 'rka_categories'), (snap) => {
-      setCustomCategories(
-        snap.docs.map((d) => ({ id: d.id, ...d.data() } as CustomRKACategoryDoc))
-      );
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as RKACategoryItem))
+        .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name));
+      setMasterCategories(list);
+      setHasLoadedCategories(true);
+    });
+    const unsubMeta = onSnapshot(doc(db, 'app_settings', 'rka_categories_meta'), (snap) => {
+      if (snap.exists()) {
+        setCategoriesMetaInitialized(Boolean(snap.data()?.initialized));
+      } else {
+        setCategoriesMetaInitialized(false);
+      }
     });
 
     return () => {
@@ -120,19 +150,78 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       unsubPkpt();
       unsubUnits();
       unsubCats();
+      unsubMeta();
     };
   }, []);
 
+  // Auto-seed default RKA categories into Firestore once so Super User can freely Edit / Delete / Add all items
+  useEffect(() => {
+    if (!hasLoadedCategories || categoriesMetaInitialized !== false || !canManage) return;
+
+    let cancelled = false;
+    const seedDefaultsOnce = async () => {
+      try {
+        const batch = writeBatch(db);
+        const existingLower = new Set(masterCategories.map((c) => c.name.trim().toLowerCase()));
+        let addedAny = false;
+
+        DEFAULT_RKA_CATEGORIES.forEach((defName, idx) => {
+          if (!existingLower.has(defName.toLowerCase())) {
+            const catId = `rka-cat-def-${idx + 1}`;
+            batch.set(doc(db, 'rka_categories', catId), {
+              id: catId,
+              name: defName,
+              order: idx + 1,
+              isDefaultSeed: true,
+              createdBy: 'Sistem (Standar RKA)',
+              createdAt: new Date().toISOString(),
+            });
+            addedAny = true;
+          }
+        });
+
+        batch.set(
+          doc(db, 'app_settings', 'rka_categories_meta'),
+          {
+            initialized: true,
+            seededDefaultsCount: addedAny ? DEFAULT_RKA_CATEGORIES.length : 0,
+            updatedAt: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+
+        if (!cancelled) {
+          await batch.commit();
+        }
+      } catch (err) {
+        console.error('Error seeding default RKA categories:', err);
+      }
+    };
+
+    seedDefaultsOnce();
+    return () => {
+      cancelled = true;
+    };
+  }, [hasLoadedCategories, categoriesMetaInitialized, canManage, masterCategories]);
+
   const categoryOptions = useMemo(() => {
-    const merged = [
-      ...DEFAULT_RKA_CATEGORIES,
-      ...customCategories.map((c) => c.name),
-      ...rkaList.map((r) => r.category),
-    ]
-      .map((s) => (s || '').trim())
-      .filter(Boolean);
-    return Array.from(new Set(merged));
-  }, [customCategories, rkaList]);
+    if (masterCategories.length > 0 || categoriesMetaInitialized) {
+      return Array.from(
+        new Set(masterCategories.map((c) => (c.name || '').trim()).filter(Boolean))
+      );
+    }
+    return [...DEFAULT_RKA_CATEGORIES];
+  }, [masterCategories, categoriesMetaInitialized]);
+
+  // Usage count per category name for display in Category Manager
+  const categoryUsageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    rkaList.forEach((item) => {
+      const key = (item.category || '').trim().toLowerCase();
+      if (key) counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }, [rkaList]);
 
   const yearOptions = useMemo(() => {
     const docYears = rkaList.map((r) => r.year).filter((y) => typeof y === 'number' && y > 0);
@@ -147,14 +236,14 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setFormCode(`RKA-${targetYr}-${String(seq).padStart(3, '0')}`);
     setFormUnitId(units[0]?.id || '');
     setFormProgramName('');
-    setFormCategory(categoryOptions[1] || categoryOptions[0] || 'Distribusi & Pemeliharaan');
-    setIsManualCategoryMode(false);
+    setFormCategory(categoryOptions[0] || '');
+    setIsManualCategoryMode(categoryOptions.length === 0);
     setFormManualCategory('');
     setSaveNewCategoryToMaster(true);
     setFormBudgetAmount(150000000);
     setFormRealizationAmount(0);
     setFormStrategicPriority('Tinggi');
-    setFormTargetQuarter('Q1');
+    setFormExecutionMonth('Januari');
     setFormPic(units[0]?.headName || units[0]?.name || 'Kepala Unit Kerja');
     setFormStatus('Disetujui RKAP');
     setFormNotes('');
@@ -174,7 +263,11 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setFormBudgetAmount(item.budgetAmount || 0);
     setFormRealizationAmount(item.realizationAmount || 0);
     setFormStrategicPriority(item.strategicPriority || 'Sedang');
-    setFormTargetQuarter(item.targetQuarter || 'Q1');
+    setFormExecutionMonth(
+      item.executionMonth && FISCAL_MONTHS.includes(item.executionMonth as any)
+        ? item.executionMonth
+        : getDefaultMonthForQuarter(item.targetQuarter)
+    );
     setFormPic(item.pic || '');
     setFormStatus(item.status || 'Disetujui RKAP');
     setFormNotes(item.notes || '');
@@ -186,38 +279,169 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     if (!isSuperUser) return;
     const cleanName = newMasterCategoryName.trim();
     if (!cleanName) return;
-    const alreadyExists = categoryOptions.some(
-      (c) => c.toLowerCase() === cleanName.toLowerCase()
+    const alreadyExists = masterCategories.some(
+      (c) => c.name.trim().toLowerCase() === cleanName.toLowerCase()
     );
     if (alreadyExists) {
       alert('Bidang / kategori program ini sudah tersedia dalam daftar.');
       return;
     }
 
+    setCatSaving(true);
     try {
       const catId = 'rka-cat-' + Date.now();
+      const nextOrder =
+        masterCategories.reduce((max, c) => Math.max(max, c.order ?? 0), 0) + 1;
       await setDoc(doc(db, 'rka_categories', catId), {
         id: catId,
         name: cleanName,
+        order: nextOrder,
+        isDefaultSeed: false,
         createdBy: userProfile?.displayName || 'Super User',
         createdAt: new Date().toISOString(),
       });
+      await setDoc(
+        doc(db, 'app_settings', 'rka_categories_meta'),
+        { initialized: true, updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
       setNewMasterCategoryName('');
     } catch (err) {
       console.error('Error adding RKA category:', err);
       alert('Gagal menambahkan bidang / kategori baru.');
+    } finally {
+      setCatSaving(false);
     }
   };
 
-  const handleDeleteMasterCategory = async (cat: CustomRKACategoryDoc) => {
+  const startEditCategory = (cat: RKACategoryItem) => {
+    setEditingCatId(cat.id);
+    setEditingCatName(cat.name);
+  };
+
+  const handleSaveEditCategory = async (cat: RKACategoryItem) => {
     if (!isSuperUser) return;
-    if (!window.confirm(`Hapus kategori "${cat.name}" dari daftar pilihan? (Data RKA yang sudah memakai kategori ini tidak akan berubah.)`)) {
+    const newName = editingCatName.trim();
+    if (!newName) {
+      alert('Nama Bidang / Kategori Program tidak boleh kosong.');
       return;
     }
+    if (newName === cat.name.trim()) {
+      setEditingCatId(null);
+      setEditingCatName('');
+      return;
+    }
+    const duplicate = masterCategories.some(
+      (c) => c.id !== cat.id && c.name.trim().toLowerCase() === newName.toLowerCase()
+    );
+    if (duplicate) {
+      alert(`Bidang / kategori "${newName}" sudah terdaftar.`);
+      return;
+    }
+
+    setCatSaving(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'rka_categories', cat.id), {
+        name: newName,
+        updatedBy: userProfile?.displayName || 'Super User',
+        updatedAt: nowIso,
+      });
+
+      if (syncEditedCategoryToRka) {
+        rkaList.forEach((item) => {
+          if ((item.category || '').trim().toLowerCase() === cat.name.trim().toLowerCase()) {
+            batch.update(doc(db, 'rka_items', item.id), {
+              category: newName,
+              updatedAt: nowIso,
+            });
+          }
+        });
+      }
+
+      await batch.commit();
+      if (selectedCategory === cat.name) {
+        setSelectedCategory(newName);
+      }
+      if (formCategory === cat.name) {
+        setFormCategory(newName);
+      }
+      setEditingCatId(null);
+      setEditingCatName('');
+    } catch (err) {
+      console.error('Error updating RKA category:', err);
+      alert('Gagal memperbarui nama bidang / kategori.');
+    } finally {
+      setCatSaving(false);
+    }
+  };
+
+  const handleDeleteMasterCategory = async (cat: RKACategoryItem) => {
+    if (!isSuperUser) return;
+    const usedCount = categoryUsageCounts.get(cat.name.trim().toLowerCase()) || 0;
+    const confirmMsg =
+      usedCount > 0
+        ? `Hapus bidang / kategori "${cat.name}" dari daftar pilihan?\n(${usedCount} program RKA yang sudah ada tetap menyimpan label lamanya hingga Anda mengubahnya.)`
+        : `Hapus bidang / kategori "${cat.name}" dari daftar pilihan?`;
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    setCatSaving(true);
     try {
       await deleteDoc(doc(db, 'rka_categories', cat.id));
+      await setDoc(
+        doc(db, 'app_settings', 'rka_categories_meta'),
+        { initialized: true, updatedAt: new Date().toISOString() },
+        { merge: true }
+      );
+      if (selectedCategory === cat.name) {
+        setSelectedCategory('ALL');
+      }
+      if (formCategory === cat.name) {
+        const remaining = masterCategories.filter((c) => c.id !== cat.id);
+        setFormCategory(remaining[0]?.name || '');
+      }
     } catch (err) {
       console.error('Error deleting RKA category:', err);
+      alert('Gagal menghapus bidang / kategori.');
+    } finally {
+      setCatSaving(false);
+    }
+  };
+
+  const handleRestoreDefaultCategories = async () => {
+    if (!isSuperUser) return;
+    const existingLower = new Set(masterCategories.map((c) => c.name.trim().toLowerCase()));
+    const missing = DEFAULT_RKA_CATEGORIES.filter((d) => !existingLower.has(d.toLowerCase()));
+    if (missing.length === 0) {
+      alert('Seluruh 6 Bidang / Kategori Program standar sudah tersedia dalam daftar.');
+      return;
+    }
+
+    setCatSaving(true);
+    try {
+      const batch = writeBatch(db);
+      let maxOrder = masterCategories.reduce((max, c) => Math.max(max, c.order ?? 0), 0);
+      missing.forEach((name) => {
+        maxOrder += 1;
+        const catId = `rka-cat-restore-${Date.now()}-${maxOrder}`;
+        batch.set(doc(db, 'rka_categories', catId), {
+          id: catId,
+          name,
+          order: maxOrder,
+          isDefaultSeed: true,
+          createdBy: userProfile?.displayName || 'Super User',
+          createdAt: new Date().toISOString(),
+        });
+      });
+      await batch.commit();
+    } catch (err) {
+      console.error('Error restoring default RKA categories:', err);
+      alert('Gagal memulihkan daftar bidang standar.');
+    } finally {
+      setCatSaving(false);
     }
   };
 
@@ -239,6 +463,11 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     const validYear = isNaN(formYear) ? activeYear : formYear;
     addCustomYear(validYear);
 
+    const resolvedMonth = FISCAL_MONTHS.includes(formExecutionMonth as any)
+      ? formExecutionMonth
+      : 'Januari';
+    const derivedQuarter = getQuarterFromMonth(resolvedMonth, 'Q1');
+
     const payload: Omit<RKAItem, 'id'> = {
       year: validYear,
       code: formCode.trim().toUpperCase(),
@@ -249,7 +478,8 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       budgetAmount: Number(formBudgetAmount) || 0,
       realizationAmount: Number(formRealizationAmount) || 0,
       strategicPriority: formStrategicPriority,
-      targetQuarter: formTargetQuarter,
+      executionMonth: resolvedMonth,
+      targetQuarter: derivedQuarter,
       pic: formPic.trim() || unitName,
       notes: formNotes.trim(),
       status: formStatus,
@@ -264,12 +494,16 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         isSuperUser &&
         isManualCategoryMode &&
         saveNewCategoryToMaster &&
-        !categoryOptions.some((c) => c.toLowerCase() === chosenCategory.toLowerCase())
+        !masterCategories.some((c) => c.name.trim().toLowerCase() === chosenCategory.toLowerCase())
       ) {
         const catId = 'rka-cat-' + Date.now();
+        const nextOrder =
+          masterCategories.reduce((max, c) => Math.max(max, c.order ?? 0), 0) + 1;
         await setDoc(doc(db, 'rka_categories', catId), {
           id: catId,
           name: chosenCategory,
+          order: nextOrder,
+          isDefaultSeed: false,
           createdBy: userProfile?.displayName || 'Super User',
           createdAt: new Date().toISOString(),
         });
@@ -333,12 +567,12 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       'Kode RKA': r.code,
       'Unit Kerja / Pemilik Risiko': r.unitName,
       'Nama Program / Kegiatan RKA': r.programName,
-      Kategori: r.category,
+      'Bidang / Kategori': r.category,
       'Pagu Anggaran (Rp)': r.budgetAmount,
       'Realisasi (Rp)': r.realizationAmount || 0,
       'Prioritas Strategis': r.strategicPriority,
       'Bobot Materialitas RKA': calculateRkaWeightScore(r.budgetAmount, r.strategicPriority),
-      'Target Triwulan': r.targetQuarter,
+      'Waktu Pelaksanaan': formatRkaExecutionSchedule(r),
       Status: r.status,
       'Masuk PKPT': linkedPkptMap.has(r.id) ? 'Sudah Masuk PKPT' : 'Belum Dijadwalkan',
     }));
@@ -348,6 +582,20 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     XLSX.writeFile(wb, `RKA_Tirta_Saiyo_${selectedYear === 0 ? 'Semua' : selectedYear}.xlsx`);
   };
 
+  // Ensure editing category stays visible in dropdown even if deleted from master later
+  const modalCategoryOptions = useMemo(() => {
+    if (
+      editingItem &&
+      editingItem.category &&
+      !categoryOptions.some(
+        (c) => c.toLowerCase() === editingItem.category.trim().toLowerCase()
+      )
+    ) {
+      return [...categoryOptions, editingItem.category.trim()];
+    }
+    return categoryOptions;
+  }, [categoryOptions, editingItem]);
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -355,17 +603,17 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         <div>
           <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
             <Wallet className="w-5 h-5 text-emerald-700" />
-            Rencana Kerja dan Anggaran (RKA Manual) & Pengaruh PKPT
+            <span>{getFeatureLabel('rka', 'Rencana Kerja dan Anggaran (RKA Manual) & Pengaruh PKPT')}</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
-            Input manual program kerja dan pagu anggaran per unit kerja sebagai basis bobot materialitas dalam penyusunan prioritas PKPT
+            Input manual program kerja, waktu pelaksanaan bulanan, dan pagu anggaran per unit kerja sebagai basis bobot materialitas penyusunan prioritas PKPT
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setIsPrintModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors shadow-2xs whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Printer className="w-3.5 h-3.5 text-emerald-700" />
             <span>Cetak RKA</span>
@@ -373,7 +621,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
 
           <button
             onClick={exportToExcel}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
           >
             <Download className="w-3.5 h-3.5 text-emerald-700" />
             <span>Ekspor Excel</span>
@@ -382,8 +630,8 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
           {isSuperUser && (
             <button
               onClick={() => setIsCategoryModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors"
-              title="Tambah atau kelola daftar Bidang / Kategori Program RKA secara manual"
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              title="Tambah, edit, atau hapus daftar Bidang / Kategori Program RKA"
             >
               <Tags className="w-3.5 h-3.5 text-emerald-700" />
               <span>Kelola Bidang / Kategori</span>
@@ -393,7 +641,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
           {canManage && (
             <button
               onClick={openAddModal}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Input RKA Manual</span>
@@ -411,7 +659,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
           </p>
           <p className="text-[11px] text-emerald-900 leading-relaxed">
             Setiap item RKA yang diinput menghasilkan <strong>Skor Materialitas Anggaran & Prioritas Strategis (0–100)</strong>. Saat menyusun PKPT, skor prioritas audit dihitung dari gabungan{' '}
-            <strong>60% Profil Risiko Unit + 40% Bobot Materialitas RKA</strong>, atau klik <strong>“Masukkan ke PKPT”</strong> langsung pada baris program RKA.
+            <strong>60% Profil Risiko Unit + 40% Bobot Materialitas RKA</strong>, atau klik <strong>“Ke PKPT”</strong> langsung pada baris program RKA.
           </p>
         </div>
       </div>
@@ -501,7 +749,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                <th className="py-3 px-4 w-28">Kode & Tahun</th>
+                <th className="py-3 px-4 w-36">Kode & Pelaksanaan</th>
                 <th className="py-3 px-4">Program Kerja & Anggaran (RKA)</th>
                 <th className="py-3 px-4">Pemilik Risiko / Unit</th>
                 <th className="py-3 px-4 text-right">Pagu Anggaran</th>
@@ -526,8 +774,8 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                     <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
                       <td className="py-3 px-4 align-top">
                         <span className="font-mono font-bold text-emerald-800 block">{item.code}</span>
-                        <span className="text-[10px] font-semibold text-slate-500">
-                          TA {item.year} · {item.targetQuarter}
+                        <span className="text-[11px] font-semibold text-slate-500">
+                          {formatRkaExecutionSchedule(item)}
                         </span>
                       </td>
 
@@ -594,7 +842,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                           {onNavigateToPkptWithRka && !linkedPkpt && (
                             <button
                               onClick={() => onNavigateToPkptWithRka(item)}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors cursor-pointer"
                               title="Jadikan objek pengawasan dalam PKPT"
                             >
                               <CalendarCheck className="w-3 h-3" />
@@ -607,14 +855,14 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                             <>
                               <button
                                 onClick={() => openEditModal(item)}
-                                className="p-1 text-slate-500 hover:text-emerald-700 rounded-md transition-colors"
+                                className="p-1 text-slate-500 hover:text-emerald-700 rounded-md transition-colors cursor-pointer"
                                 title="Edit RKA"
                               >
                                 <Edit2 className="w-3.5 h-3.5" />
                               </button>
                               <button
                                 onClick={() => handleDelete(item.id)}
-                                className="p-1 text-slate-500 hover:text-rose-600 rounded-md transition-colors"
+                                className="p-1 text-slate-500 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
                                 title="Hapus RKA"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
@@ -640,7 +888,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
               <h3 className="text-sm font-bold">
                 {editingItem ? 'Edit Item Program & Anggaran (RKA)' : 'Input Manual Rencana Kerja dan Anggaran (RKA)'}
               </h3>
-              <button onClick={() => setIsModalOpen(false)} className="text-emerald-200 hover:text-white">
+              <button onClick={() => setIsModalOpen(false)} className="text-emerald-200 hover:text-white cursor-pointer">
                 ✕
               </button>
             </div>
@@ -671,16 +919,17 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Target Triwulan</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Waktu Pelaksanaan</label>
                   <select
-                    value={formTargetQuarter}
-                    onChange={(e) => setFormTargetQuarter(e.target.value as any)}
+                    value={formExecutionMonth}
+                    onChange={(e) => setFormExecutionMonth(e.target.value)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
                   >
-                    <option value="Q1">Triwulan I (Q1)</option>
-                    <option value="Q2">Triwulan II (Q2)</option>
-                    <option value="Q3">Triwulan III (Q3)</option>
-                    <option value="Q4">Triwulan IV (Q4)</option>
+                    {FISCAL_MONTHS.map((month) => (
+                      <option key={month} value={month}>
+                        {month} {isNaN(formYear) ? activeYear : formYear}
+                      </option>
+                    ))}
                   </select>
                 </div>
               </div>
@@ -719,22 +968,33 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                 </div>
 
                 <div>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex items-center justify-between gap-2 mb-1">
                     <label className="block font-semibold text-slate-700">Bidang / Kategori Program</label>
                     {isSuperUser && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const nextMode = !isManualCategoryMode;
-                          setIsManualCategoryMode(nextMode);
-                          if (nextMode && !formManualCategory) {
-                            setFormManualCategory('');
-                          }
-                        }}
-                        className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 underline cursor-pointer"
-                      >
-                        {isManualCategoryMode ? 'Pilih dari Daftar' : '+ Input Manual'}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsCategoryModalOpen(true)}
+                          className="text-[11px] font-semibold text-slate-600 hover:text-emerald-800 underline cursor-pointer"
+                          title="Tambah, edit, atau hapus daftar Bidang / Kategori"
+                        >
+                          Kelola Daftar
+                        </button>
+                        <span className="text-slate-300">·</span>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nextMode = !isManualCategoryMode;
+                            setIsManualCategoryMode(nextMode);
+                            if (nextMode && !formManualCategory) {
+                              setFormManualCategory('');
+                            }
+                          }}
+                          className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 underline cursor-pointer"
+                        >
+                          {isManualCategoryMode ? 'Pilih dari Daftar' : '+ Input Manual'}
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -771,7 +1031,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                       }}
                       className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
                     >
-                      {categoryOptions.map((cat) => (
+                      {modalCategoryOptions.map((cat) => (
                         <option key={cat} value={cat}>
                           {cat}
                         </option>
@@ -871,13 +1131,13 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg"
+                  className="px-4 py-2 font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
                 >
                   Batal
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm"
+                  className="px-4 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm cursor-pointer"
                 >
                   Simpan Data RKA
                 </button>
@@ -921,6 +1181,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                   <tr className="bg-slate-100 font-bold text-slate-800">
                     <th className="p-2 border border-slate-300 w-8 text-center">No</th>
                     <th className="p-2 border border-slate-300">Kode & Program RKA</th>
+                    <th className="p-2 border border-slate-300">Waktu Pelaksanaan</th>
                     <th className="p-2 border border-slate-300">Pemilik Risiko / Unit</th>
                     <th className="p-2 border border-slate-300 text-right">Pagu Anggaran</th>
                     <th className="p-2 border border-slate-300 text-center">Prioritas</th>
@@ -935,6 +1196,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                         <p className="font-bold text-slate-900">{r.programName}</p>
                         <p className="text-[10px] text-slate-500 font-mono">{r.code} ({r.category})</p>
                       </td>
+                      <td className="p-2 border border-slate-300">{formatRkaExecutionSchedule(r)}</td>
                       <td className="p-2 border border-slate-300">{r.unitName}</td>
                       <td className="p-2 border border-slate-300 text-right font-mono font-semibold">
                         Rp {(r.budgetAmount || 0).toLocaleString('id-ID')}
@@ -952,27 +1214,31 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         </DocumentPrintPreviewModal>
       )}
 
-      {/* Modal Kelola Bidang / Kategori Program (Super User) */}
+      {/* Modal Kelola Bidang / Kategori Program (Full CRUD Super User) */}
       {isCategoryModalOpen && isSuperUser && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-          <div className="w-full max-w-lg max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
+          <div className="w-full max-w-xl max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
             <div className="px-6 py-4 bg-gradient-to-r from-[#0d3824] to-[#105234] text-white flex items-center justify-between">
               <h3 className="text-sm font-bold flex items-center gap-2">
                 <Tags className="w-4 h-4 text-amber-300" />
                 <span>Kelola Bidang / Kategori Program RKA (Super User)</span>
               </h3>
               <button
-                onClick={() => setIsCategoryModalOpen(false)}
-                className="text-emerald-200 hover:text-white"
+                onClick={() => {
+                  setIsCategoryModalOpen(false);
+                  setEditingCatId(null);
+                }}
+                className="text-emerald-200 hover:text-white cursor-pointer"
               >
                 ✕
               </button>
             </div>
 
             <div className="p-6 space-y-5 text-xs overflow-y-auto flex-1">
+              {/* Tambah Bidang Baru */}
               <form onSubmit={handleAddMasterCategory} className="space-y-2">
                 <label className="block font-semibold text-slate-700">
-                  Tambah Bidang / Kategori Program Baru secara Manual
+                  Tambah Bidang / Kategori Program Baru
                 </label>
                 <div className="flex items-center gap-2">
                   <input
@@ -985,66 +1251,144 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                   />
                   <button
                     type="submit"
-                    className="px-3.5 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shrink-0"
+                    disabled={catSaving}
+                    className="px-3.5 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shrink-0 cursor-pointer disabled:opacity-60"
                   >
                     + Tambah
                   </button>
                 </div>
               </form>
 
-              <div className="space-y-2">
-                <p className="font-semibold text-slate-700">
-                  Bidang / Kategori Tambahan (Input Manual Super User)
-                </p>
-                {customCategories.length === 0 ? (
-                  <p className="p-3 bg-slate-50 border border-slate-200 rounded-lg text-slate-400 italic">
-                    Belum ada kategori tambahan manual. Gunakan form di atas atau ketik langsung saat input RKA.
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-slate-100 border border-slate-200 rounded-lg overflow-hidden">
-                    {customCategories.map((cat) => (
-                      <li
-                        key={cat.id}
-                        className="px-3 py-2 bg-white flex items-center justify-between gap-2"
-                      >
-                        <div>
-                          <p className="font-semibold text-slate-800">{cat.name}</p>
-                          <p className="text-[10px] text-slate-400">
-                            Ditambahkan oleh {cat.createdBy || 'Super User'}
-                          </p>
-                        </div>
-                        <button
-                          onClick={() => handleDeleteMasterCategory(cat)}
-                          className="p-1 text-slate-400 hover:text-rose-600 rounded-md transition-colors"
-                          title="Hapus kategori tambahan"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
+              {/* Opsi Sinkronisasi Rename */}
+              <div className="flex items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                <label className="flex items-center gap-2 text-[11px] text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={syncEditedCategoryToRka}
+                    onChange={(e) => setSyncEditedCategoryToRka(e.target.checked)}
+                    className="rounded-xs text-emerald-700 focus:ring-emerald-600"
+                  />
+                  <span>Saat mengubah (Edit) nama bidang, perbarui juga data RKA yang memakai bidang tersebut</span>
+                </label>
               </div>
 
-              <div className="space-y-1.5">
-                <p className="font-semibold text-slate-600 text-[11px]">Bidang Standar Sistem</p>
-                <div className="flex flex-wrap gap-1.5">
-                  {DEFAULT_RKA_CATEGORIES.map((defCat) => (
-                    <span
-                      key={defCat}
-                      className="px-2 py-1 text-[11px] bg-slate-100 text-slate-700 border border-slate-200 rounded-md"
-                    >
-                      {defCat}
-                    </span>
-                  ))}
+              {/* Daftar Lengkap Bidang (Bisa Edit & Hapus Semua) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold text-slate-700">
+                    Daftar Seluruh Bidang / Kategori Program ({masterCategories.length})
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleRestoreDefaultCategories}
+                    disabled={catSaving}
+                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-700 hover:text-emerald-900 cursor-pointer"
+                    title="Tambahkan kembali bidang standar awal yang terhapus"
+                  >
+                    <RotateCcw className="w-3 h-3" />
+                    <span>Pulihkan Standar</span>
+                  </button>
                 </div>
+
+                {masterCategories.length === 0 ? (
+                  <p className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 text-center">
+                    Belum ada Bidang / Kategori Program. Tambahkan melalui formulir di atas atau klik &ldquo;Pulihkan Standar&rdquo;.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+                    {masterCategories.map((cat) => {
+                      const isEditing = editingCatId === cat.id;
+                      const usageCount = categoryUsageCounts.get(cat.name.trim().toLowerCase()) || 0;
+
+                      return (
+                        <li
+                          key={cat.id}
+                          className="px-3.5 py-2.5 bg-white flex items-center justify-between gap-2 hover:bg-slate-50/70"
+                        >
+                          {isEditing ? (
+                            <div className="flex-1 flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={editingCatName}
+                                onChange={(e) => setEditingCatName(e.target.value)}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSaveEditCategory(cat);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingCatId(null);
+                                  }
+                                }}
+                                className="flex-1 px-2.5 py-1.5 text-xs font-semibold bg-emerald-50/60 border border-emerald-400 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-600"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEditCategory(cat)}
+                                disabled={catSaving}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md cursor-pointer"
+                                title="Simpan perubahan nama bidang"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Simpan</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingCatId(null)}
+                                className="p-1.5 text-slate-500 hover:text-slate-800 bg-slate-100 rounded-md cursor-pointer"
+                                title="Batal edit"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-semibold text-slate-800 truncate">{cat.name}</p>
+                                <p className="text-[10px] text-slate-400">
+                                  Dipakai oleh <strong className="font-mono text-slate-600">{usageCount}</strong> program RKA ·{' '}
+                                  {cat.updatedBy
+                                    ? `Diubah oleh ${cat.updatedBy}`
+                                    : `Sumber: ${cat.createdBy || 'Super User'}`}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => startEditCategory(cat)}
+                                  disabled={catSaving}
+                                  className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-md transition-colors cursor-pointer"
+                                  title="Edit nama bidang / kategori"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteMasterCategory(cat)}
+                                  disabled={catSaving}
+                                  className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                                  title="Hapus bidang / kategori"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
             </div>
 
             <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
               <button
-                onClick={() => setIsCategoryModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg"
+                onClick={() => {
+                  setIsCategoryModalOpen(false);
+                  setEditingCatId(null);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg cursor-pointer"
               >
                 Tutup
               </button>

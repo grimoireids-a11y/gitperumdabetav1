@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
+import { useAppBranding } from '../../context/AppBrandingContext';
 import { useFiscalYear } from '../../context/FiscalYearContext';
 import { PKPT, Finding, Recommendation, RiskRegister, Unit, AuditAssignment } from '../../types/audit';
 import { RiskRegisterManualBookModal } from '../risk/RiskRegisterManualBookModal';
@@ -41,6 +42,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onOpenAiAssistant,
 }) => {
   const { userProfile } = useAuth();
+  const { getFeatureLabel } = useAppBranding();
   const { activeYear, availableYears } = useFiscalYear();
   const isFullAccess = userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
   const isViewer = userProfile?.role === 'VIEWER';
@@ -801,7 +803,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             title="Kelola Laporan Hasil Audit (LHA) dengan Asistensi AI"
           >
             <FileText className="w-3.5 h-3.5 text-emerald-700" />
-            <span>Laporan Hasil Audit (LHA)</span>
+            <span>{getFeatureLabel('audit_reports', 'Laporan Hasil Audit (LHA)')}</span>
           </button>
 
           <button
@@ -810,7 +812,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             title="Self Assessment Kinerja BUMD Air Minum & Maturitas SPIP Terpadu"
           >
             <Award className="w-3.5 h-3.5 text-emerald-800" />
-            <span>Self Assessment SPIP</span>
+            <span>{getFeatureLabel('bpkp_assessment', 'Self Assessment SPIP')}</span>
           </button>
 
           <button

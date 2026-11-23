@@ -73,8 +73,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenManualBook,
   onOpenDatabaseBackup,
 }) => {
-  const { userProfile, logout, hasRole } = useAuth();
-  const { branding } = useAppBranding();
+  const { userProfile, logout } = useAuth();
+  const { branding, getFeatureLabel, getSectionTitle } = useAppBranding();
 
   const getRoleBadgeLabel = (role?: UserRole) => {
     switch (role) {
@@ -108,6 +108,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   }
 
   interface NavSection {
+    sectionKey: string;
     title: string;
     items: NavItem[];
   }
@@ -120,12 +121,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const navSections: NavSection[] = canViewAllModules
     ? [
         {
+          sectionKey: 'pusat_komando',
           title: 'Pusat Komando',
           items: [
             { id: 'dashboard', label: 'Dashboard Pengawasan', icon: LayoutDashboard },
           ],
         },
         {
+          sectionKey: 'perencanaan_risiko',
           title: 'Perencanaan Berbasis Risiko',
           items: [
             { id: 'risk_universe', label: 'Pemilik Risiko', icon: Building2 },
@@ -157,6 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
+          sectionKey: 'pelaksanaan_audit',
           title: 'Pelaksanaan Audit',
           items: [
             { id: 'audit_assignments', label: 'Surat Tugas & Tim', icon: FileCheck2 },
@@ -167,6 +171,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
+          sectionKey: 'temuan_tl',
           title: 'Temuan & Tindak Lanjut',
           items: [
             { id: 'findings', label: 'Temuan Audit (5C)', icon: AlertTriangle },
@@ -174,6 +179,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
+          sectionKey: 'investigasi_regulasi',
           title: 'Investigasi & Regulasi',
           items: [
             {
@@ -192,11 +198,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
+          sectionKey: 'tata_kelola',
           title: 'Tata Kelola Sistem',
           items: [
             {
               id: 'app_branding',
-              label: 'Logo & Identitas Kantor',
+              label: 'Logo, Nama Fitur & Identitas',
               icon: Palette,
               roles: ['KEPALA_SPI', 'ADMIN_SISTEM'],
             },
@@ -223,6 +230,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     : isExternalAuditor
     ? [
         {
+          sectionKey: 'temuan_tl',
           title: 'Audit Eksternal & Verifikasi TLR',
           items: [
             { id: 'findings', label: 'Input & Matriks Temuan 5C', icon: AlertTriangle },
@@ -232,12 +240,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
       ]
     : [
         {
+          sectionKey: 'pusat_komando',
           title: 'Pusat Kendali Pengawasan',
           items: [
             { id: 'dashboard', label: 'Peta Risiko Korporat (5x5 Heat Map)', icon: LayoutDashboard },
           ],
         },
         {
+          sectionKey: 'perencanaan_risiko',
           title: 'Manajemen Risiko & Kinerja KPI',
           items: [
             { id: 'risk_register', label: 'Register Risiko Korporat (5x5)', icon: AlertTriangle },
@@ -245,6 +255,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
+          sectionKey: 'temuan_tl',
           title: 'Pemantauan & Tindak Lanjut',
           items: [
             { id: 'follow_ups', label: 'Tindak Lanjut Rekomendasi (Unit Kerja)', icon: FileCheck2 },
@@ -336,13 +347,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             if (filteredItems.length === 0) return null;
 
             return (
-              <div key={sec.title} className="space-y-1">
+              <div key={sec.sectionKey + sec.title} className="space-y-1">
                 <h3 className="px-3 text-[11px] font-semibold tracking-wider text-emerald-400/70 uppercase">
-                  {sec.title}
+                  {getSectionTitle(sec.sectionKey, sec.title)}
                 </h3>
                 {filteredItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = activeTab === item.id;
+                  const resolvedLabel = getFeatureLabel(item.id, item.label);
                   return (
                     <button
                       key={item.id}
@@ -358,7 +370,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     >
                       <div className="flex items-center gap-2.5 truncate">
                         <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-amber-300' : 'text-emerald-400/80'}`} />
-                        <span className="truncate">{item.label}</span>
+                        <span className="truncate" title={resolvedLabel}>{resolvedLabel}</span>
                       </div>
                       {isActive && <ChevronRight className="w-3.5 h-3.5 text-emerald-200" />}
                     </button>

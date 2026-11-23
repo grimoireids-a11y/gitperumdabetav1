@@ -24,7 +24,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNavigateToTab,
 }) => {
   const { userProfile } = useAuth();
-  const { branding } = useAppBranding();
+  const { branding, getFeatureTitle } = useAppBranding();
   const { activeYear, setActiveYear, availableYears, addCustomYear } = useFiscalYear();
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0);
@@ -42,57 +42,57 @@ export const Navbar: React.FC<NavbarProps> = ({
   const getTabTitle = (tab: ActiveTab) => {
     switch (tab) {
       case 'dashboard':
-        return 'Pusat Kendali Pengawasan (Dashboard SPI)';
+        return getFeatureTitle('dashboard', 'Pusat Kendali Pengawasan (Dashboard SPI)');
       case 'risk_universe':
-        return 'Pemilik Risiko & Struktur Proses BUMD';
+        return getFeatureTitle('risk_universe', 'Pemilik Risiko & Struktur Proses BUMD');
       case 'audit_universe':
-        return 'Audit Universe & Pemetaan Objek Audit (Berbasis Risiko)';
+        return getFeatureTitle('audit_universe', 'Audit Universe & Pemetaan Objek Audit (Berbasis Risiko)');
       case 'risk_register':
-        return 'Register Risiko Korporat (Matriks 5x5)';
+        return getFeatureTitle('risk_register', 'Register Risiko Korporat (Matriks 5x5)');
       case 'risk_profile':
-        return 'Profil Risiko Korporat & Selera Risiko (Khusus Kepala SPI / Super User)';
+        return getFeatureTitle('risk_profile', 'Profil Risiko Korporat & Selera Risiko (Khusus Kepala SPI / Super User)');
       case 'risk_annual_report':
-        return 'Laporan Tahunan Manajemen Risiko (Khusus Kepala SPI / Super User)';
+        return getFeatureTitle('risk_annual_report', 'Laporan Tahunan Manajemen Risiko (Khusus Kepala SPI / Super User)');
       case 'rcsa':
-        return 'Penilaian Sendiri Risiko Unit (RCSA)';
+        return getFeatureTitle('rcsa', 'Penilaian Sendiri Risiko Unit (RCSA)');
       case 'bpkp_assessment':
-        return 'Self Assessment Kinerja & Maturitas SPIP Terpadu';
+        return getFeatureTitle('bpkp_assessment', 'Self Assessment Kinerja & Maturitas SPIP Terpadu');
       case 'kpi_management':
-        return 'Sistem Manajemen KPI, Cascading 5 Tingkat & Kamus Kinerja';
+        return getFeatureTitle('kpi_management', 'Sistem Manajemen KPI, Cascading 5 Tingkat & Kamus Kinerja');
       case 'rka':
-        return 'Rencana Kerja dan Anggaran (Input Manual RKA)';
+        return getFeatureTitle('rka', 'Rencana Kerja dan Anggaran (Input Manual RKA)');
       case 'pkpt':
-        return 'Penyusunan Program Kerja Pengawasan Tahunan (PKPT)';
+        return getFeatureTitle('pkpt', 'Penyusunan Program Kerja Pengawasan Tahunan (PKPT)');
       case 'spi_programs':
-        return 'Program Kerja Tahunan Kapabilitas SPI';
+        return getFeatureTitle('spi_programs', 'Program Kerja Tahunan Kapabilitas SPI');
       case 'audit_assignments':
-        return 'Penugasan & Penerbitan Surat Tugas Audit';
+        return getFeatureTitle('audit_assignments', 'Penugasan & Penerbitan Surat Tugas Audit');
       case 'audit_program':
-        return 'Program Kerja Pemeriksaan (PKA)';
+        return getFeatureTitle('audit_program', 'Program Kerja Pemeriksaan (PKA)');
       case 'work_papers':
-        return 'Kertas Kerja Audit (KKA) & Pengujian Substantif';
+        return getFeatureTitle('work_papers', 'Kertas Kerja Audit (KKA) & Pengujian Substantif');
       case 'audit_reports':
-        return 'Laporan Hasil Audit (LHA) & Pengawasan SPI (Asistensi AI)';
+        return getFeatureTitle('audit_reports', 'Laporan Hasil Audit (LHA) & Pengawasan SPI (Asistensi AI)');
       case 'spi_periodic_reports':
-        return 'Laporan Pengawasan SPI (Bulanan & Tahunan)';
+        return getFeatureTitle('spi_periodic_reports', 'Laporan Pengawasan SPI (Bulanan & Tahunan)');
       case 'findings':
-        return 'Matriks Temuan Audit 5C & Potensi Kerugian';
+        return getFeatureTitle('findings', 'Matriks Temuan Audit 5C & Potensi Kerugian');
       case 'follow_ups':
-        return 'Pemantauan & Verifikasi Tindak Lanjut Rekomendasi';
+        return getFeatureTitle('follow_ups', 'Pemantauan & Verifikasi Tindak Lanjut Rekomendasi');
       case 'wbs_management':
-        return 'Manajemen Whistleblowing System (WBS) & Konversi Temuan 5C';
+        return getFeatureTitle('wbs_management', 'Manajemen Whistleblowing System (WBS) & Konversi Temuan 5C');
       case 'investigations':
-        return 'Audit Investigatif & Penanganan Indikasi Fraud';
+        return getFeatureTitle('investigations', 'Audit Investigatif & Penanganan Indikasi Fraud');
       case 'regulations':
-        return 'Basis Data Peraturan & Review Kepatuhan Hukum';
+        return getFeatureTitle('regulations', 'Basis Data Peraturan & Review Kepatuhan Hukum');
       case 'user_management':
-        return 'Manajemen Pengguna & Otorisasi RBAC';
+        return getFeatureTitle('user_management', 'Manajemen Pengguna & Otorisasi RBAC');
       case 'master_units':
-        return 'Master Data Unit Kerja & Wilayah Pelayanan';
+        return getFeatureTitle('master_units', 'Master Data Unit Kerja & Wilayah Pelayanan');
       case 'signatories':
-        return 'Fitur Jabatan & Pejabat Penandatangan Dokumen';
+        return getFeatureTitle('signatories', 'Fitur Jabatan & Pejabat Penandatangan Dokumen');
       case 'app_branding':
-        return 'Pengaturan Logo, Nama Aplikasi & Identitas Kantor';
+        return getFeatureTitle('app_branding', 'Pengaturan Logo, Nama Aplikasi, Fitur & Identitas Kantor');
       default:
         return `Sistem Informasi ${branding.appName || 'SPI SMART'}`;
     }
@@ -191,10 +191,10 @@ export const Navbar: React.FC<NavbarProps> = ({
                   ? 'bg-emerald-800 text-white border-emerald-900 ring-2 ring-emerald-500/30'
                   : 'bg-white hover:bg-emerald-50 text-emerald-950 border-emerald-300'
               }`}
-              title="Ganti Logo, Nama Aplikasi & Nama Kantor (Khusus Kepala SPI & Admin)"
+              title="Ganti Logo, Nama Aplikasi, Nama Fitur & Identitas Kantor (Khusus Kepala SPI & Admin)"
             >
               <Palette className="w-3.5 h-3.5 text-emerald-600" />
-              <span className="hidden sm:inline">Logo & Identitas</span>
+              <span className="hidden sm:inline">Identitas & Fitur</span>
             </button>
           )}
 

@@ -27,6 +27,7 @@ import { useFiscalYear } from '../../context/FiscalYearContext';
 import { AUDIT_TYPES } from '../../data/initialData';
 import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
 import { calculateRkaWeightScore } from './RKAModule';
+import { getQuarterFromMonth, formatRkaExecutionSchedule } from '../../lib/featureCatalog';
 import {
   isEntityScheduledInPkpt,
   mapCompositeToUnitRiskScore25,
@@ -167,7 +168,9 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
         `Pengujian pertanggungjawaban RKA ${initialPrefillFromRka.code}, pencapaian output unit ${initialPrefillFromRka.unitName}, serta kepatuhan SOP pengadaan & keuangan.`
       );
       setFormEstimatedDays(initialPrefillFromRka.strategicPriority === 'Tinggi' ? 14 : 10);
-      setFormQuarter(initialPrefillFromRka.targetQuarter || 'Q1');
+      setFormQuarter(
+        getQuarterFromMonth(initialPrefillFromRka.executionMonth, initialPrefillFromRka.targetQuarter || 'Q1')
+      );
       setFormStatus('Rencana');
       setFormApprovalStatus(isKepalaSPI ? 'Disetujui' : 'Draft');
       setFormRiskScore(maxRisk);
@@ -353,7 +356,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
 
     if (!editingPkpt) {
       setFormUnitId(rka.unitId || formUnitId);
-      setFormQuarter(rka.targetQuarter || formQuarter);
+      setFormQuarter(getQuarterFromMonth(rka.executionMonth, rka.targetQuarter || formQuarter));
       setFormBusinessProcess(rka.category || formBusinessProcess);
       setFormTitle(`Audit Pelaksanaan & Anggaran: ${rka.programName}`);
       setFormObjective(
@@ -403,7 +406,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
           objective: `Evaluasi realisasi anggaran Rp ${(rka.budgetAmount || 0).toLocaleString('id-ID')} dan kepatuhan pelaksanaan ${rka.programName} (${rka.code}).`,
           scope: `Pertanggungjawaban RKA ${rka.code}, efisiensi penggunaan dana, dan kesesuaian fisik/administrasi pada ${rka.unitName}.`,
           estimatedDays: rka.strategicPriority === 'Tinggi' ? 14 : 10,
-          quarter: rka.targetQuarter || 'Q1',
+          quarter: getQuarterFromMonth(rka.executionMonth, rka.targetQuarter || 'Q1'),
           status: 'Rencana',
           approvalStatus: isKepalaSPI ? 'Disetujui' : 'Draft',
           approvedBy: isKepalaSPI ? userProfile?.displayName || 'Kepala SPI' : undefined,
@@ -884,6 +887,10 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
                 </select>
                 {selectedRkaObj && (
                   <div className="flex flex-wrap items-center gap-3 text-[11px] text-emerald-900 pt-1">
+                    <span>
+                      Waktu Pelaksanaan: <strong>{formatRkaExecutionSchedule(selectedRkaObj)}</strong>
+                    </span>
+                    <span>·</span>
                     <span>
                       Pagu RKA: <strong className="font-mono">Rp {(selectedRkaObj.budgetAmount || 0).toLocaleString('id-ID')}</strong>
                     </span>

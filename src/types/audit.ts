@@ -93,6 +93,17 @@ export const DEFAULT_RKA_CATEGORIES = [
   'Pengembangan SDM & Tata Kelola',
 ] as const;
 
+export interface RKACategoryItem {
+  id: string;
+  name: string;
+  order?: number;
+  isDefaultSeed?: boolean;
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
 export type RKAStatus = 'Usulan' | 'Disetujui RKAP' | 'Berjalan' | 'Selesai';
 
 export interface RKAItem {
@@ -106,6 +117,7 @@ export interface RKAItem {
   budgetAmount: number;
   realizationAmount?: number;
   strategicPriority: 'Tinggi' | 'Sedang' | 'Rendah';
+  executionMonth?: string;
   targetQuarter: 'Q1' | 'Q2' | 'Q3' | 'Q4';
   pic: string;
   notes?: string;

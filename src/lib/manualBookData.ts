@@ -201,18 +201,18 @@ export const MANUAL_BOOK_CHAPTERS: ManualChapter[] = [
           'Modul "Input RKA Manual" memungkinkan pencatatan program kerja beserta pagu anggaran dan realisasinya per Pemilik Risiko / Unit Kerja untuk setiap tahun anggaran.',
         ],
         bullets: [
-          'Klik "Input RKA Manual" untuk mengisi Tahun Anggaran, Kode Rekening/Program (misal RKA-2027-001), Target Triwulan (Q1-Q4), Nama Program, Pemilik Risiko/Unit, Bidang/Kategori Program, Pagu Anggaran (Rp), Realisasi (Rp), Prioritas Strategis (Tinggi/Sedang/Rendah), Status RKA, dan PIC.',
+          'Klik "Input RKA Manual" untuk mengisi Tahun Anggaran, Kode Rekening/Program (misal RKA-2027-001), Waktu Pelaksanaan (pilihan bulan Januari s.d. Desember pada tahun anggaran), Nama Program, Pemilik Risiko/Unit, Bidang/Kategori Program, Pagu Anggaran (Rp), Realisasi (Rp), Prioritas Strategis (Tinggi/Sedang/Rendah), Status RKA, dan PIC.',
           'Ekspor & Cetak: Tersedia tombol "Ekspor Excel" dan "Cetak RKA" untuk dokumentasi anggaran resmi.',
         ],
       },
       {
-        title: '5.2 Fitur Khusus Super User: Input Bidang / Kategori Program Manual',
+        title: '5.2 Fitur Khusus Super User: Tambah, Edit & Hapus Bidang / Kategori Program',
         paragraphs: [
-          'Super User (KEPALA_SPI / ADMIN_SISTEM) memiliki kewenangan penuh untuk menambahkan Bidang / Kategori Program secara manual di luar 6 kategori standar bawaan sistem, melalui dua cara:',
+          'Super User (KEPALA_SPI / ADMIN_SISTEM) memiliki kewenangan penuh untuk menambah, mengubah (edit), dan menghapus seluruh daftar Bidang / Kategori Program RKA di Firestore (rka_categories) melalui dua cara:',
         ],
         bullets: [
-          'Cara 1 — Langsung Saat Input/Edit RKA: Di sebelah label "Bidang / Kategori Program" pada modal RKA, klik "+ Input Manual" (atau pilih "+ Input Bidang / Kategori Manual..." di dropdown). Ketikkan nama bidang baru sesuai kebutuhan (misal: "Digitalisasi Layanan & IT"). Centang opsi "Simpan bidang ini ke daftar pilihan RKA" agar tersimpan permanen di Firestore (rka_categories) dan muncul pada dropdown maupun filter di masa mendatang.',
-          'Cara 2 — Modal "Kelola Bidang / Kategori": Klik tombol "Kelola Bidang / Kategori" di bagian header modul RKA. Di sini Super User dapat menambah beberapa kategori baru sekaligus maupun menghapus kategori tambahan yang tidak lagi dipakai tanpa merusak data RKA yang sudah ada.',
+          'Cara 1 — Langsung Saat Input/Edit RKA: Di sebelah label "Bidang / Kategori Program" pada modal RKA, klik "Kelola Daftar" atau "+ Input Manual". Ketikkan nama bidang baru sesuai kebutuhan dan centang opsi "Simpan bidang ini ke daftar pilihan RKA".',
+          'Cara 2 — Modal "Kelola Bidang / Kategori": Klik tombol "Kelola Bidang / Kategori" di bagian header modul RKA. Di sini Super User dapat menambah kategori baru, mengedit nama kategori yang sudah ada (beserta opsi sinkronisasi otomatis ke data RKA terkait), menghapus kategori yang tidak terpakai, atau memulihkan 6 daftar standar.',
         ],
       },
       {
@@ -351,13 +351,14 @@ export const MANUAL_BOOK_CHAPTERS: ManualChapter[] = [
       'Pengaturan logo dan identitas instansi, manajemen pengguna, master unit kerja, pengelolaan pejabat & tanda tangan digital, serta opsi cetak dokumen resmi.',
     subsections: [
       {
-        title: '9.1 Logo & Identitas Kantor (Branding Aplikasi)',
+        title: '9.1 Logo, Identitas Kantor & Ubah Nama Semua Fitur',
         paragraphs: [
-          'Melalui menu "Logo & Identitas Kantor" (atau tombol cepat "Logo & Identitas" di Navbar), Kepala SPI / Admin Sistem dapat menyesuaikan identitas aplikasi agar sesuai dengan instansi pengguna:',
+          'Melalui menu "Logo, Nama Fitur & Identitas" (atau tombol cepat "Identitas & Fitur" di Navbar), Kepala SPI / Admin Sistem dapat menyesuaikan identitas aplikasi serta mengubah nama seluruh fitur agar sesuai dengan tata kelola instansi:',
         ],
         bullets: [
           'Unggah logo resmi instansi (PNG/JPG/SVG/WebP maksimal 2 MB) atau gunakan ikon perisai dengan pilihan warna tema.',
           'Ubah Nama Aplikasi, Tagline, Nama Lengkap Instansi, Nama Singkat, Alamat, Telepon, Email, dan Website yang otomatis tampil di Sidebar, halaman Login, dan Kop Surat Cetak Digital.',
+          'Tab "Ubah Nama Semua Fitur": Super User dapat mengganti nama menu Sidebar, kelompok menu, dan judul header Navbar untuk seluruh 26 fitur aplikasi secara real-time maupun mengembalikannya ke bawaan awal.',
         ],
       },
       {

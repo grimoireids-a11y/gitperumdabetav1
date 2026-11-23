@@ -574,6 +574,53 @@
         "enforceGatingCap": { "type": "boolean" }
       },
       "required": ["id", "year", "defaultCapMaxPct", "defaultFloorMinPct"]
+    },
+    "RKAItem": {
+      "title": "RKAItem",
+      "description": "Manual annual RKA work and budget item with monthly execution schedule",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "code": { "type": "string", "maxLength": 64 },
+        "unitId": { "type": "string", "maxLength": 64 },
+        "unitName": { "type": "string", "maxLength": 128 },
+        "programName": { "type": "string", "maxLength": 256 },
+        "category": { "type": "string", "maxLength": 128 },
+        "budgetAmount": { "type": "number" },
+        "realizationAmount": { "type": "number" },
+        "strategicPriority": { "type": "string", "enum": ["Tinggi", "Sedang", "Rendah"] },
+        "executionMonth": { "type": "string", "maxLength": 32 },
+        "targetQuarter": { "type": "string", "enum": ["Q1", "Q2", "Q3", "Q4"] },
+        "pic": { "type": "string", "maxLength": 128 },
+        "status": { "type": "string", "enum": ["Usulan", "Disetujui RKAP", "Berjalan", "Selesai"] }
+      },
+      "required": ["id", "year", "code", "programName", "category", "budgetAmount", "status"]
+    },
+    "RKACategoryItem": {
+      "title": "RKACategoryItem",
+      "description": "Editable master Bidang / Kategori Program list for RKA managed by Super User",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 128 },
+        "order": { "type": "number" },
+        "isDefaultSeed": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "updatedBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "name"]
+    },
+    "AppSettings": {
+      "title": "AppSettings",
+      "description": "Application branding, custom feature names, and metadata configuration",
+      "type": "object",
+      "properties": {
+        "appName": { "type": "string", "maxLength": 64 },
+        "appTagline": { "type": "string", "maxLength": 32 },
+        "institutionName": { "type": "string", "maxLength": 256 },
+        "initialized": { "type": "boolean" }
+      }
     }
   },
   "firestore": {
@@ -676,6 +723,18 @@
     "/kpi_settings/{settingId}": {
       "schema": "KPISettings",
       "description": "Annual KPI scoring, ceiling cap, and gating governance rules"
+    },
+    "/rka_items/{rkaId}": {
+      "schema": "RKAItem",
+      "description": "Manual RKA program and budget items with monthly execution schedule"
+    },
+    "/rka_categories/{catId}": {
+      "schema": "RKACategoryItem",
+      "description": "Editable Bidang / Kategori Program options managed by Super User"
+    },
+    "/app_settings/{settingId}": {
+      "schema": "AppSettings",
+      "description": "Application branding, custom feature names, and initialization metadata"
     }
   }
 }

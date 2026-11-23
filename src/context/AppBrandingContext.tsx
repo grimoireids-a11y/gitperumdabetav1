@@ -1,7 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { useAuthOptional } from './AuthContext';
+import { AppFeatureId, FEATURE_CATALOG_MAP } from '../lib/featureCatalog';
 
 export interface AppBrandingConfig {
   appName: string;              // e.g. "SPI SMART"
@@ -20,6 +21,9 @@ export interface AppBrandingConfig {
   officeAddress?: string;       // Alias for address
   officePhone?: string;         // Alias for phone
   officeEmail?: string;         // Alias for email
+  featureNames?: Record<string, string>;
+  featureTitles?: Record<string, string>;
+  sectionNames?: Record<string, string>;
   updatedAt?: string;
   updatedBy?: string;
 }
@@ -37,6 +41,9 @@ export const DEFAULT_BRANDING: AppBrandingConfig = {
   logoType: 'default',
   logoUrl: '',
   logoThemeColor: '#10b981',
+  featureNames: {},
+  featureTitles: {},
+  sectionNames: {},
 };
 
 interface AppBrandingContextType {
@@ -44,6 +51,9 @@ interface AppBrandingContextType {
   loading: boolean;
   updateBranding: (newConfig: Partial<AppBrandingConfig>) => Promise<void>;
   resetBranding: () => Promise<void>;
+  getFeatureLabel: (featureId: AppFeatureId, fallback?: string) => string;
+  getFeatureTitle: (featureId: AppFeatureId, fallback?: string) => string;
+  getSectionTitle: (sectionKey: string, fallback: string) => string;
   canEditBranding: boolean;
 }
 
@@ -55,7 +65,7 @@ export const AppBrandingProvider: React.FC<{ children: React.ReactNode }> = ({ c
   const [branding, setBranding] = useState<AppBrandingConfig>(DEFAULT_BRANDING);
   const [loading, setLoading] = useState(true);
 
-  // Kepala SPI and Admin Sistem are authorized to change branding
+  // Kepala SPI and Admin Sistem are authorized to change branding & feature names
   const canEditBranding = userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
 
   useEffect(() => {
@@ -67,6 +77,9 @@ export const AppBrandingProvider: React.FC<{ children: React.ReactNode }> = ({ c
           const merged: AppBrandingConfig = {
             ...DEFAULT_BRANDING,
             ...data,
+            featureNames: data.featureNames || {},
+            featureTitles: data.featureTitles || {},
+            sectionNames: data.sectionNames || {},
           };
           setBranding(merged);
 
@@ -94,6 +107,9 @@ export const AppBrandingProvider: React.FC<{ children: React.ReactNode }> = ({ c
       const payload: AppBrandingConfig = {
         ...branding,
         ...newConfig,
+        featureNames: newConfig.featureNames !== undefined ? newConfig.featureNames : (branding.featureNames || {}),
+        featureTitles: newConfig.featureTitles !== undefined ? newConfig.featureTitles : (branding.featureTitles || {}),
+        sectionNames: newConfig.sectionNames !== undefined ? newConfig.sectionNames : (branding.sectionNames || {}),
         updatedAt: new Date().toISOString(),
         updatedBy: userProfile?.displayName || userProfile?.email || 'Kepala SPI',
       };
@@ -122,6 +138,36 @@ export const AppBrandingProvider: React.FC<{ children: React.ReactNode }> = ({ c
     }
   };
 
+  const getFeatureLabel = useCallback(
+    (featureId: AppFeatureId, fallback?: string) => {
+      const custom = branding.featureNames?.[featureId]?.trim();
+      if (custom) return custom;
+      if (fallback) return fallback;
+      return FEATURE_CATALOG_MAP[featureId]?.defaultLabel || featureId;
+    },
+    [branding.featureNames]
+  );
+
+  const getFeatureTitle = useCallback(
+    (featureId: AppFeatureId, fallback?: string) => {
+      const customTitle = branding.featureTitles?.[featureId]?.trim();
+      if (customTitle) return customTitle;
+      const customName = branding.featureNames?.[featureId]?.trim();
+      if (customName) return customName;
+      if (fallback) return fallback;
+      return FEATURE_CATALOG_MAP[featureId]?.defaultNavbarTitle || featureId;
+    },
+    [branding.featureTitles, branding.featureNames]
+  );
+
+  const getSectionTitle = useCallback(
+    (sectionKey: string, fallback: string) => {
+      const custom = branding.sectionNames?.[sectionKey]?.trim();
+      return custom || fallback;
+    },
+    [branding.sectionNames]
+  );
+
   return (
     <AppBrandingContext.Provider
       value={{
@@ -129,6 +175,9 @@ export const AppBrandingProvider: React.FC<{ children: React.ReactNode }> = ({ c
         loading,
         updateBranding,
         resetBranding,
+        getFeatureLabel,
+        getFeatureTitle,
+        getSectionTitle,
         canEditBranding,
       }}
     >

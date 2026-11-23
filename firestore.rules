@@ -133,6 +133,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /app_settings/{settingId} {
+      allow read, write: if true;
+    }
+
     // Catch-all
     match /{document=**} {
       allow read, write: if true;
