@@ -36,6 +36,9 @@ import {
   Clock,
   AlertCircle,
   MapPin,
+  Eye,
+  EyeOff,
+  FolderKanban,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
@@ -46,6 +49,7 @@ import {
   RKAVerificationStatus,
   RKACategory,
   RKACategoryItem,
+  RKAGroupCategoryItem,
   RKAStatus,
   Unit,
   PKPT,
@@ -116,10 +120,12 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const [pkptList, setPkptList] = useState<PKPT[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [masterCategories, setMasterCategories] = useState<RKACategoryItem[]>([]);
+  const [masterGroupCategories, setMasterGroupCategories] = useState<RKAGroupCategoryItem[]>([]);
   const [hasLoadedCategories, setHasLoadedCategories] = useState(false);
   const [categoriesMetaInitialized, setCategoriesMetaInitialized] = useState<boolean | null>(null);
 
   const [selectedYear, setSelectedYear] = useState<number>(activeYear);
+  const [selectedGroupCategory, setSelectedGroupCategory] = useState<string>('ALL');
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
   const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
   const [selectedUnitId, setSelectedUnitId] = useState<string>('ALL');
@@ -130,10 +136,12 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const [showMonthlyDashboard, setShowMonthlyDashboard] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedParentIds, setExpandedParentIds] = useState<Record<string, boolean>>({});
+  const [hiddenGroupCategories, setHiddenGroupCategories] = useState<Record<string, boolean>>({});
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
+  const [isGroupCategoryModalOpen, setIsGroupCategoryModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<RKAItem | null>(null);
 
   // Sync module filter with navbar activeYear change
@@ -144,6 +152,10 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   // Form states (Parent Pos Induk — tanpa waktu pelaksanaan & realisasi)
   const [formYear, setFormYear] = useState<number>(activeYear);
   const [formCode, setFormCode] = useState('');
+  const [formParentCategory, setFormParentCategory] = useState('');
+  const [isManualGroupCategoryMode, setIsManualGroupCategoryMode] = useState(false);
+  const [formManualGroupCategory, setFormManualGroupCategory] = useState('');
+  const [saveNewGroupCategoryToMaster, setSaveNewGroupCategoryToMaster] = useState(true);
   const [formUnitId, setFormUnitId] = useState('');
   const [formProgramName, setFormProgramName] = useState('');
   const [formCategory, setFormCategory] = useState<RKACategory>('Operasional & Produksi');
@@ -194,6 +206,13 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const [syncEditedCategoryToRka, setSyncEditedCategoryToRka] = useState(true);
   const [catSaving, setCatSaving] = useState(false);
 
+  // Top-level Parent Kategori CRUD modal states
+  const [newGroupCategoryName, setNewGroupCategoryName] = useState('');
+  const [editingGroupCatId, setEditingGroupCatId] = useState<string | null>(null);
+  const [editingGroupCatName, setEditingGroupCatName] = useState('');
+  const [syncEditedGroupCatToRka, setSyncEditedGroupCatToRka] = useState(true);
+  const [groupCatSaving, setGroupCatSaving] = useState(false);
+
   const isSuperUser = hasRole(['KEPALA_SPI', 'ADMIN_SISTEM']);
   const canManage = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
   const isBidangKeuangan = hasRole(['BIDANG_KEUANGAN']);
@@ -220,6 +239,12 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       setMasterCategories(list);
       setHasLoadedCategories(true);
     });
+    const unsubGroupCats = onSnapshot(collection(db, 'rka_group_categories'), (snap) => {
+      const list = snap.docs
+        .map((d) => ({ id: d.id, ...d.data() } as RKAGroupCategoryItem))
+        .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.name.localeCompare(b.name));
+      setMasterGroupCategories(list);
+    });
     const unsubMeta = onSnapshot(doc(db, 'app_settings', 'rka_categories_meta'), (snap) => {
       if (snap.exists()) {
         setCategoriesMetaInitialized(Boolean(snap.data()?.initialized));
@@ -234,6 +259,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       unsubPkpt();
       unsubUnits();
       unsubCats();
+      unsubGroupCats();
       unsubMeta();
     };
   }, []);
@@ -307,6 +333,36 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     return counts;
   }, [rkaList]);
 
+  // Top-level Parent Kategori options & usage counts
+  const groupCategoryOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered: string[] = [];
+    masterGroupCategories.forEach((g) => {
+      const name = (g.name || '').trim();
+      if (name && !seen.has(name.toLowerCase())) {
+        seen.add(name.toLowerCase());
+        ordered.push(name);
+      }
+    });
+    rkaList.forEach((item) => {
+      const name = (item.parentCategory || '').trim();
+      if (name && !seen.has(name.toLowerCase())) {
+        seen.add(name.toLowerCase());
+        ordered.push(name);
+      }
+    });
+    return ordered;
+  }, [masterGroupCategories, rkaList]);
+
+  const groupCategoryUsageCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    rkaList.forEach((item) => {
+      const key = (item.parentCategory || '').trim().toLowerCase();
+      if (key) counts.set(key, (counts.get(key) || 0) + 1);
+    });
+    return counts;
+  }, [rkaList]);
+
   const yearOptions = useMemo(() => {
     const docYears = rkaList.map((r) => r.year).filter((y) => typeof y === 'number' && y > 0);
     return Array.from(new Set([...availableYears, ...docYears])).sort((a, b) => b - a);
@@ -343,6 +399,10 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setEditingItem(null);
     setFormYear(targetYr);
     setFormCode(`RKA-${targetYr}-${String(seq).padStart(3, '0')}`);
+    setFormParentCategory(groupCategoryOptions[0] || '');
+    setIsManualGroupCategoryMode(false);
+    setFormManualGroupCategory('');
+    setSaveNewGroupCategoryToMaster(true);
     setFormUnitId(units[0]?.id || '');
     setFormProgramName('');
     setFormCategory(categoryOptions[0] || '');
@@ -361,6 +421,10 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setEditingItem(item);
     setFormYear(item.year);
     setFormCode(item.code);
+    setFormParentCategory((item.parentCategory || '').trim());
+    setIsManualGroupCategoryMode(false);
+    setFormManualGroupCategory('');
+    setSaveNewGroupCategoryToMaster(true);
     setFormUnitId(item.unitId);
     setFormProgramName(item.programName);
     setFormCategory(item.category);
@@ -546,6 +610,124 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     }
   };
 
+  const handleAddGroupCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canManage) return;
+    const cleanName = newGroupCategoryName.trim().slice(0, 128);
+    if (!cleanName) return;
+    const alreadyExists = masterGroupCategories.some(
+      (c) => c.name.trim().toLowerCase() === cleanName.toLowerCase()
+    );
+    if (alreadyExists) {
+      alert('Kategori ini sudah tersedia dalam daftar.');
+      return;
+    }
+
+    setGroupCatSaving(true);
+    try {
+      const groupId = 'rka-grp-' + Date.now();
+      const nextOrder =
+        masterGroupCategories.reduce((max, c) => Math.max(max, c.order ?? 0), 0) + 1;
+      await setDoc(doc(db, 'rka_group_categories', groupId), {
+        id: groupId,
+        name: cleanName,
+        order: nextOrder,
+        createdBy: userProfile?.displayName || 'SPI',
+        createdAt: new Date().toISOString(),
+      });
+      setNewGroupCategoryName('');
+    } catch (err) {
+      console.error('Error adding RKA group category:', err);
+      alert('Gagal menambahkan kategori baru.');
+    } finally {
+      setGroupCatSaving(false);
+    }
+  };
+
+  const handleSaveEditGroupCategory = async (cat: RKAGroupCategoryItem) => {
+    if (!canManage) return;
+    const newName = editingGroupCatName.trim().slice(0, 128);
+    if (!newName) {
+      alert('Nama Kategori tidak boleh kosong.');
+      return;
+    }
+    if (newName === cat.name.trim()) {
+      setEditingGroupCatId(null);
+      setEditingGroupCatName('');
+      return;
+    }
+    const duplicate = masterGroupCategories.some(
+      (c) => c.id !== cat.id && c.name.trim().toLowerCase() === newName.toLowerCase()
+    );
+    if (duplicate) {
+      alert(`Kategori "${newName}" sudah terdaftar.`);
+      return;
+    }
+
+    setGroupCatSaving(true);
+    try {
+      const nowIso = new Date().toISOString();
+      const batch = writeBatch(db);
+      batch.update(doc(db, 'rka_group_categories', cat.id), {
+        name: newName,
+        updatedBy: userProfile?.displayName || 'SPI',
+        updatedAt: nowIso,
+      });
+
+      if (syncEditedGroupCatToRka) {
+        rkaList.forEach((item) => {
+          if ((item.parentCategory || '').trim().toLowerCase() === cat.name.trim().toLowerCase()) {
+            batch.update(doc(db, 'rka_items', item.id), {
+              parentCategory: newName,
+              updatedAt: nowIso,
+            });
+          }
+        });
+      }
+
+      await batch.commit();
+      if (selectedGroupCategory === cat.name) {
+        setSelectedGroupCategory(newName);
+      }
+      if (formParentCategory === cat.name) {
+        setFormParentCategory(newName);
+      }
+      setEditingGroupCatId(null);
+      setEditingGroupCatName('');
+    } catch (err) {
+      console.error('Error updating RKA group category:', err);
+      alert('Gagal memperbarui nama kategori.');
+    } finally {
+      setGroupCatSaving(false);
+    }
+  };
+
+  const handleDeleteGroupCategory = async (cat: RKAGroupCategoryItem) => {
+    if (!canManage) return;
+    const usedCount = groupCategoryUsageCounts.get(cat.name.trim().toLowerCase()) || 0;
+    const confirmMsg =
+      usedCount > 0
+        ? `Hapus kategori "${cat.name}" dari daftar pilihan?\n(${usedCount} pos induk RKA tetap menyimpan label kategori lamanya hingga Anda mengubahnya.)`
+        : `Hapus kategori "${cat.name}" dari daftar pilihan?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setGroupCatSaving(true);
+    try {
+      await deleteDoc(doc(db, 'rka_group_categories', cat.id));
+      if (selectedGroupCategory === cat.name) {
+        setSelectedGroupCategory('ALL');
+      }
+      if (formParentCategory === cat.name) {
+        setFormParentCategory('');
+      }
+    } catch (err) {
+      console.error('Error deleting RKA group category:', err);
+      alert('Gagal menghapus kategori.');
+    } finally {
+      setGroupCatSaving(false);
+    }
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formProgramName.trim() || !formCode.trim()) return;
@@ -558,6 +740,12 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       alert('Silakan pilih atau ketik Bidang / Kategori Program terlebih dahulu.');
       return;
     }
+
+    const chosenGroupCategory = (
+      isManualGroupCategoryMode ? formManualGroupCategory : formParentCategory
+    )
+      .trim()
+      .slice(0, 128);
 
     const selUnit = units.find((u) => u.id === formUnitId);
     const unitName = selUnit ? selUnit.name : 'Unit Kerja Tirta Saiyo';
@@ -575,6 +763,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     const payload: Record<string, unknown> = {
       year: validYear,
       code: formCode.trim().toUpperCase(),
+      parentCategory: chosenGroupCategory,
       unitId: formUnitId,
       unitName,
       programName: formProgramName.trim(),
@@ -601,6 +790,27 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     };
 
     try {
+      // Save custom parent Kategori to master list if user typed a new one
+      if (
+        isManualGroupCategoryMode &&
+        saveNewGroupCategoryToMaster &&
+        chosenGroupCategory &&
+        !masterGroupCategories.some(
+          (c) => c.name.trim().toLowerCase() === chosenGroupCategory.toLowerCase()
+        )
+      ) {
+        const groupId = 'rka-grp-' + Date.now();
+        const nextOrder =
+          masterGroupCategories.reduce((max, c) => Math.max(max, c.order ?? 0), 0) + 1;
+        await setDoc(doc(db, 'rka_group_categories', groupId), {
+          id: groupId,
+          name: chosenGroupCategory,
+          order: nextOrder,
+          createdBy: userProfile?.displayName || 'SPI',
+          createdAt: new Date().toISOString(),
+        });
+      }
+
       // Save custom category to master list if Super User typed a new one
       if (
         isSuperUser &&
@@ -1083,6 +1293,10 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       const children = subItemsByParentMap.get(r.id) || [];
       const summary = getParentSummary(r);
       const matchYear = selectedYear === 0 || r.year === selectedYear;
+      const parentGroupName = (r.parentCategory || '').trim() || 'Tanpa Kategori';
+      const matchGroupCat =
+        selectedGroupCategory === 'ALL' ||
+        parentGroupName.toLowerCase() === selectedGroupCategory.toLowerCase();
       const matchCat = selectedCategory === 'ALL' || r.category === selectedCategory;
       const matchUnit =
         selectedUnitId === 'ALL' ||
@@ -1112,11 +1326,13 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         !q ||
         r.programName.toLowerCase().includes(q) ||
         r.code.toLowerCase().includes(q) ||
+        (r.parentCategory || '').toLowerCase().includes(q) ||
         r.unitName.toLowerCase().includes(q) ||
         (r.pic || '').toLowerCase().includes(q) ||
         matchChildSearch;
       return (
         matchYear &&
+        matchGroupCat &&
         matchCat &&
         matchUnit &&
         matchPriority &&
@@ -1130,6 +1346,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     rkaList,
     subItemsByParentMap,
     selectedYear,
+    selectedGroupCategory,
     selectedCategory,
     selectedUnitId,
     selectedPriority,
@@ -1145,17 +1362,12 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       .filter((r) => {
         if (selectedMonth === 'ALL') return true;
         const children = subItemsByParentMap.get(r.id) || [];
-        if (children.length > 0) {
-          return children.some((c) => c.executionMonth === selectedMonth);
-        }
-        if (Boolean(r.executionMonth?.trim() || r.targetQuarter)) {
-          return resolveExecutionMonth(r) === selectedMonth;
-        }
-        return false;
+        return children.some((c) => c.executionMonth === selectedMonth);
       })
       .sort((a, b) => (b.budgetAmount || 0) - (a.budgetAmount || 0));
   }, [rkaForDashboard, selectedMonth, subItemsByParentMap]);
 
+  // 12-Month Dashboard aggregates strictly from Sub-Program Kerja (NOT Pos Induk)
   const monthlyStats = useMemo(() => {
     const map = new Map<
       string,
@@ -1189,31 +1401,16 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     rkaForDashboard.forEach((item) => {
       const summary = getParentSummary(item);
       if (summary.hasChildren) {
-        const touchedMonths = new Set<string>();
         summary.children.forEach((sub) => {
           const m = resolveExecutionMonth({ executionMonth: sub.executionMonth });
           const entry = map.get(m);
           if (!entry) return;
+          entry.count += 1;
           entry.budget += sub.allocatedBudget || 0;
           entry.realization += sub.realizationAmount || 0;
-          touchedMonths.add(m);
-        });
-        touchedMonths.forEach((m) => {
-          const entry = map.get(m);
-          if (!entry) return;
-          entry.count += 1;
           if (item.strategicPriority === 'Tinggi') entry.highPriorityCount += 1;
           if (linkedPkptMap.has(item.id)) entry.linkedCount += 1;
         });
-      } else if (Boolean(item.executionMonth?.trim() || item.targetQuarter)) {
-        const m = resolveExecutionMonth(item);
-        const entry = map.get(m);
-        if (!entry) return;
-        entry.count += 1;
-        entry.budget += item.budgetAmount || 0;
-        entry.realization += summary.effectiveRealization;
-        if (item.strategicPriority === 'Tinggi') entry.highPriorityCount += 1;
-        if (linkedPkptMap.has(item.id)) entry.linkedCount += 1;
       } else {
         unscheduledParentCount += 1;
       }
@@ -1235,12 +1432,32 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     return { list, maxBudget, peakMonth, activeMonthsCount, unscheduledParentCount };
   }, [rkaForDashboard, linkedPkptMap, subItemsByParentMap]);
 
+  const handleSelectMonthCard = (month: string) => {
+    const nextMonth = selectedMonth === month ? 'ALL' : month;
+    setSelectedMonth(nextMonth);
+    if (nextMonth !== 'ALL') {
+      const expandIds: Record<string, boolean> = { ...expandedParentIds };
+      const unhideGroups: Record<string, boolean> = { ...hiddenGroupCategories };
+      rkaForDashboard.forEach((parent) => {
+        const children = subItemsByParentMap.get(parent.id) || [];
+        if (children.some((c) => c.executionMonth === nextMonth)) {
+          expandIds[parent.id] = true;
+          const grpKey = ((parent.parentCategory || '').trim() || 'Tanpa Kategori').toLowerCase();
+          unhideGroups[grpKey] = false;
+        }
+      });
+      setExpandedParentIds(expandIds);
+      setHiddenGroupCategories(unhideGroups);
+    }
+  };
+
   const yearTotalForContext = useMemo(
     () => rkaList.filter((r) => selectedYear === 0 || r.year === selectedYear).length,
     [rkaList, selectedYear]
   );
 
   const hasActiveFilters =
+    selectedGroupCategory !== 'ALL' ||
     selectedCategory !== 'ALL' ||
     selectedMonth !== 'ALL' ||
     selectedUnitId !== 'ALL' ||
@@ -1252,6 +1469,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
 
   const resetAllFilters = () => {
     setSearchTerm('');
+    setSelectedGroupCategory('ALL');
     setSelectedCategory('ALL');
     setSelectedMonth('ALL');
     setSelectedUnitId('ALL');
@@ -1276,6 +1494,55 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const highPriorityCount = filteredRka.filter((r) => r.strategicPriority === 'Tinggi').length;
   const linkedToPkptCount = filteredRka.filter((r) => linkedPkptMap.has(r.id)).length;
 
+  // Group filtered Pos Induk items by Kategori (top-level hierarchy)
+  const groupedRkaByCategory = useMemo(() => {
+    const orderMap = new Map<string, number>();
+    masterGroupCategories.forEach((g, idx) => {
+      orderMap.set(g.name.trim().toLowerCase(), g.order ?? idx + 1);
+    });
+    const groups = new Map<string, { categoryName: string; items: RKAItem[] }>();
+    filteredRka.forEach((item) => {
+      const categoryName = (item.parentCategory || '').trim() || 'Tanpa Kategori';
+      const key = categoryName.toLowerCase();
+      if (!groups.has(key)) {
+        groups.set(key, { categoryName, items: [] });
+      }
+      groups.get(key)!.items.push(item);
+    });
+    return Array.from(groups.values()).sort((a, b) => {
+      if (a.categoryName === 'Tanpa Kategori') return 1;
+      if (b.categoryName === 'Tanpa Kategori') return -1;
+      const oa = orderMap.get(a.categoryName.toLowerCase()) ?? 9999;
+      const ob = orderMap.get(b.categoryName.toLowerCase()) ?? 9999;
+      if (oa !== ob) return oa - ob;
+      return a.categoryName.localeCompare(b.categoryName);
+    });
+  }, [filteredRka, masterGroupCategories]);
+
+  const toggleGroupVisibility = (categoryName: string) => {
+    const key = categoryName.toLowerCase();
+    setHiddenGroupCategories((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  const areAllGroupsHidden =
+    groupedRkaByCategory.length > 0 &&
+    groupedRkaByCategory.every((g) => Boolean(hiddenGroupCategories[g.categoryName.toLowerCase()]));
+
+  const toggleAllGroupsVisibility = () => {
+    if (areAllGroupsHidden) {
+      setHiddenGroupCategories({});
+    } else {
+      const next: Record<string, boolean> = {};
+      groupedRkaByCategory.forEach((g) => {
+        next[g.categoryName.toLowerCase()] = true;
+      });
+      setHiddenGroupCategories(next);
+    }
+  };
+
   const allExpandableIds = useMemo(
     () => filteredRka.filter((r) => (subItemsByParentMap.get(r.id) || []).length > 0).map((r) => r.id),
     [filteredRka, subItemsByParentMap]
@@ -1299,63 +1566,67 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     const rows: Record<string, unknown>[] = [];
     let rowIdx = 0;
 
-    filteredRka.forEach((r) => {
-      rowIdx += 1;
-      const summary = getParentSummary(r);
-      rows.push({
-        No: rowIdx,
-        Tingkat: 'Pos Anggaran Induk',
-        Tahun: r.year,
-        'Kode Induk': r.code,
-        'Kode Program': r.code,
-        'Unit Kerja / Pemilik Risiko': r.unitName,
-        'Unit Lokasi (Unit Pelayanan)': '-',
-        'Nama Program / Sub-Program': r.programName,
-        'Bidang / Kategori': r.category,
-        'Pagu / Alokasi Anggaran (Rp)': r.budgetAmount,
-        'Realisasi (Rp)': summary.effectiveRealization,
-        'Tanggal Realisasi': formatDateId(summary.latestRealizationDate),
-        'Status Verifikasi Keuangan': summary.hasChildren
-          ? `${summary.effectiveVerificationStatus} (${summary.verifiedCount}/${summary.children.length})`
-          : summary.effectiveVerificationStatus,
-        'Tanggal Verifikasi': formatDateId(summary.latestVerificationDate),
-        'Diverifikasi Oleh': summary.latestVerifiedBy || '-',
-        'Catatan Verifikasi': r.verificationNotes || '-',
-        'Waktu Pelaksanaan': formatParentScheduleLabel(r, summary.children),
-        'Prioritas Strategis': r.strategicPriority,
-        'Bobot Materialitas RKA': calculateRkaWeightScore(r.budgetAmount, r.strategicPriority),
-        Status: r.status,
-        'Masuk PKPT': linkedPkptMap.has(r.id) ? 'Sudah Masuk PKPT' : 'Belum Dijadwalkan',
-      });
-
-      summary.children.forEach((sub) => {
+    groupedRkaByCategory.forEach((group) => {
+      group.items.forEach((r) => {
         rowIdx += 1;
+        const summary = getParentSummary(r);
         rows.push({
           No: rowIdx,
-          Tingkat: 'Sub-Program Kerja',
-          Tahun: sub.year,
+          Kategori: group.categoryName,
+          Tingkat: 'Pos Anggaran Induk',
+          Tahun: r.year,
           'Kode Induk': r.code,
-          'Kode Program': sub.subCode,
+          'Kode Program': r.code,
           'Unit Kerja / Pemilik Risiko': r.unitName,
-          'Unit Lokasi (Unit Pelayanan)': sub.locationUnitName
-            ? sub.locationName && !sub.locationUnitName.toLowerCase().includes(sub.locationName.toLowerCase())
-              ? `${sub.locationUnitName} (${sub.locationName})`
-              : sub.locationUnitName
-            : '-',
-          'Nama Program / Sub-Program': `   └ ${sub.programName}`,
-          'Bidang / Kategori': r.category,
-          'Pagu / Alokasi Anggaran (Rp)': sub.allocatedBudget,
-          'Realisasi (Rp)': sub.realizationAmount || 0,
-          'Tanggal Realisasi': formatDateId(sub.realizationDate),
-          'Status Verifikasi Keuangan': sub.verificationStatus || 'Menunggu Verifikasi',
-          'Tanggal Verifikasi': formatDateId(sub.verifiedAt),
-          'Diverifikasi Oleh': sub.verifiedBy || '-',
-          'Catatan Verifikasi': sub.verificationNotes || '-',
-          'Waktu Pelaksanaan': `${sub.executionMonth} ${sub.year}`,
+          'Unit Lokasi (Unit Pelayanan)': '-',
+          'Nama Program / Sub-Program': r.programName,
+          'Bidang / Kategori Program': r.category,
+          'Pagu / Alokasi Anggaran (Rp)': r.budgetAmount,
+          'Realisasi (Rp)': summary.effectiveRealization,
+          'Tanggal Realisasi': formatDateId(summary.latestRealizationDate),
+          'Status Verifikasi Keuangan': summary.hasChildren
+            ? `${summary.effectiveVerificationStatus} (${summary.verifiedCount}/${summary.children.length})`
+            : summary.effectiveVerificationStatus,
+          'Tanggal Verifikasi': formatDateId(summary.latestVerificationDate),
+          'Diverifikasi Oleh': summary.latestVerifiedBy || '-',
+          'Catatan Verifikasi': r.verificationNotes || '-',
+          'Waktu Pelaksanaan': formatParentScheduleLabel(r, summary.children),
           'Prioritas Strategis': r.strategicPriority,
-          'Bobot Materialitas RKA': '-',
-          Status: sub.status,
-          'Masuk PKPT': '-',
+          'Bobot Materialitas RKA': calculateRkaWeightScore(r.budgetAmount, r.strategicPriority),
+          Status: r.status,
+          'Masuk PKPT': linkedPkptMap.has(r.id) ? 'Sudah Masuk PKPT' : 'Belum Dijadwalkan',
+        });
+
+        summary.children.forEach((sub) => {
+          rowIdx += 1;
+          rows.push({
+            No: rowIdx,
+            Kategori: group.categoryName,
+            Tingkat: 'Sub-Program Kerja',
+            Tahun: sub.year,
+            'Kode Induk': r.code,
+            'Kode Program': sub.subCode,
+            'Unit Kerja / Pemilik Risiko': r.unitName,
+            'Unit Lokasi (Unit Pelayanan)': sub.locationUnitName
+              ? sub.locationName && !sub.locationUnitName.toLowerCase().includes(sub.locationName.toLowerCase())
+                ? `${sub.locationUnitName} (${sub.locationName})`
+                : sub.locationUnitName
+              : '-',
+            'Nama Program / Sub-Program': `   └ ${sub.programName}`,
+            'Bidang / Kategori Program': r.category,
+            'Pagu / Alokasi Anggaran (Rp)': sub.allocatedBudget,
+            'Realisasi (Rp)': sub.realizationAmount || 0,
+            'Tanggal Realisasi': formatDateId(sub.realizationDate),
+            'Status Verifikasi Keuangan': sub.verificationStatus || 'Menunggu Verifikasi',
+            'Tanggal Verifikasi': formatDateId(sub.verifiedAt),
+            'Diverifikasi Oleh': sub.verifiedBy || '-',
+            'Catatan Verifikasi': sub.verificationNotes || '-',
+            'Waktu Pelaksanaan': `${sub.executionMonth} ${sub.year}`,
+            'Prioritas Strategis': r.strategicPriority,
+            'Bobot Materialitas RKA': '-',
+            Status: sub.status,
+            'Masuk PKPT': '-',
+          });
         });
       });
     });
@@ -1522,14 +1793,14 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
               <BarChart3 className="w-4 h-4 text-emerald-700 shrink-0" />
               <span>Dashboard Bulanan (Januari – Desember {selectedYear === 0 ? 'Semua Tahun' : selectedYear})</span>
             </h3>
-            <p className="text-[11px] text-slate-500 mt-0.5">
+              <p className="text-[11px] text-slate-500 mt-0.5">
               Bulan Berjalan: <strong className="text-emerald-800">{currentCalendarMonth}</strong>
               {' · '}
-              {monthlyStats.activeMonthsCount}/12 bulan terjadwal
+              {monthlyStats.activeMonthsCount}/12 bulan terdapat sub-program
               {monthlyStats.peakMonth && monthlyStats.peakMonth.budget > 0 && (
                 <>
                   {' · '}
-                  Pagu tertinggi:{' '}
+                  Alokasi sub-program tertinggi:{' '}
                   <strong className="text-slate-800">
                     {monthlyStats.peakMonth.month} (Rp {monthlyStats.peakMonth.budget.toLocaleString('id-ID')})
                   </strong>
@@ -1539,7 +1810,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                 <>
                   {' · '}
                   <span className="text-amber-700 font-medium">
-                    {monthlyStats.unscheduledParentCount} pos induk belum memiliki sub-program bulanan
+                    {monthlyStats.unscheduledParentCount} pos induk belum memiliki sub-program
                   </span>
                 </>
               )}
@@ -1573,12 +1844,12 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
             <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-4">
               <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                 <span className="text-[11px] font-semibold text-slate-600">
-                  Distribusi Pagu Anggaran vs Realisasi per Bulan (klik bulan untuk memfilter list)
+                  Distribusi Alokasi Anggaran &amp; Realisasi Sub-Program Kerja per Bulan (klik bulan untuk memfilter list)
                 </span>
                 <div className="flex items-center gap-3 text-[11px] text-slate-600">
                   <span className="inline-flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-xs bg-emerald-200 border border-emerald-400" />
-                    Pagu Anggaran
+                    Alokasi Sub-Program
                   </span>
                   <span className="inline-flex items-center gap-1.5">
                     <span className="w-2.5 h-2.5 rounded-xs bg-emerald-700" />
@@ -1604,8 +1875,8 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                     <button
                       key={m.month}
                       type="button"
-                      onClick={() => setSelectedMonth(isSelected ? 'ALL' : m.month)}
-                      title={`${m.month}: ${m.count} program | Pagu Rp ${m.budget.toLocaleString('id-ID')} | Realisasi Rp ${m.realization.toLocaleString('id-ID')} (${m.absorptionPct}%)`}
+                      onClick={() => handleSelectMonthCard(m.month)}
+                      title={`${m.month}: ${m.count} sub-program | Alokasi Rp ${m.budget.toLocaleString('id-ID')} | Realisasi Rp ${m.realization.toLocaleString('id-ID')} (${m.absorptionPct}%)`}
                       className={`group flex flex-col items-center h-full justify-end rounded-lg p-1 transition-colors cursor-pointer ${
                         isSelected
                           ? 'bg-emerald-100/80 ring-1 ring-emerald-600'
@@ -1650,7 +1921,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
               </div>
             </div>
 
-            {/* 12-Month Breakdown Grid */}
+            {/* 12-Month Breakdown Grid (Sub-Program Counts) */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2.5">
               {monthlyStats.list.map((m) => {
                 const isSelected = selectedMonth === m.month;
@@ -1660,7 +1931,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                   <button
                     key={m.month}
                     type="button"
-                    onClick={() => setSelectedMonth(isSelected ? 'ALL' : m.month)}
+                    onClick={() => handleSelectMonthCard(m.month)}
                     className={`text-left p-3 rounded-xl border transition-colors cursor-pointer ${
                       isSelected
                         ? 'bg-emerald-50 border-emerald-600 ring-1 ring-emerald-600'
@@ -1681,7 +1952,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                       Rp {m.budget.toLocaleString('id-ID')}
                     </p>
                     <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1 tabular-nums">
-                      <span>{m.count} program</span>
+                      <span>{m.count} sub-program</span>
                       <span className="font-mono font-semibold text-slate-700">{m.absorptionPct}%</span>
                     </div>
                     <div className="mt-1.5 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
@@ -1767,11 +2038,27 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
           </select>
 
           <select
+            value={selectedGroupCategory}
+            onChange={(e) => setSelectedGroupCategory(e.target.value)}
+            className="px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Kategori Pos Induk</option>
+            {groupCategoryOptions.map((gc) => (
+              <option key={gc} value={gc}>
+                Kategori: {gc}
+              </option>
+            ))}
+            {rkaList.some((r) => !(r.parentCategory || '').trim()) && (
+              <option value="Tanpa Kategori">Tanpa Kategori</option>
+            )}
+          </select>
+
+          <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
             className="px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
           >
-            <option value="ALL">Semua Bidang / Kategori</option>
+            <option value="ALL">Semua Bidang / Kategori Program</option>
             {categoryOptions.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
@@ -1839,39 +2126,75 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         </div>
       </div>
 
-      {/* Hierarchical RKA Table */}
+      {/* Hierarchical RKA Table (Kategori -> Pos Induk -> Sub-Program Kerja) */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         <div className="px-4 py-2.5 bg-slate-50/70 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
           <div className="flex items-center gap-2 text-slate-700 font-semibold">
             <GitBranch className="w-3.5 h-3.5 text-emerald-700" />
-            <span>Daftar Anggaran Berjenjang (Pos Induk &amp; Sub-Program Kerja)</span>
+            <span>Daftar Anggaran Berjenjang (Kategori · Pos Induk · Sub-Program Kerja)</span>
           </div>
 
-          {allExpandableIds.length > 0 && (
-            <button
-              type="button"
-              onClick={toggleExpandAll}
-              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-            >
-              {areAllExpanded ? (
-                <>
-                  <ChevronUp className="w-3.5 h-3.5" />
-                  <span>Tutup Semua Sub-Program</span>
-                </>
-              ) : (
-                <>
-                  <ChevronDown className="w-3.5 h-3.5" />
-                  <span>Buka Semua Sub-Program ({totalSubProgramsCount})</span>
-                </>
-              )}
-            </button>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => setIsGroupCategoryModalOpen(true)}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                title="Tambah, edit, atau hapus daftar Kategori Pos Induk"
+              >
+                <FolderKanban className="w-3.5 h-3.5 text-emerald-700" />
+                <span>Kelola Kategori</span>
+              </button>
+            )}
+
+            {groupedRkaByCategory.length > 0 && (
+              <button
+                type="button"
+                onClick={toggleAllGroupsVisibility}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                title="Sembunyikan atau tampilkan seluruh hierarki kategori"
+              >
+                {areAllGroupsHidden ? (
+                  <>
+                    <Eye className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Show Semua Kategori ({groupedRkaByCategory.length})</span>
+                  </>
+                ) : (
+                  <>
+                    <EyeOff className="w-3.5 h-3.5 text-slate-500" />
+                    <span>Hide Semua Kategori</span>
+                  </>
+                )}
+              </button>
+            )}
+
+            {allExpandableIds.length > 0 && (
+              <button
+                type="button"
+                onClick={toggleExpandAll}
+                className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                {areAllExpanded ? (
+                  <>
+                    <ChevronUp className="w-3.5 h-3.5" />
+                    <span>Tutup Semua Sub-Program</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronDown className="w-3.5 h-3.5" />
+                    <span>Buka Semua Sub-Program ({totalSubProgramsCount})</span>
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
+                <th className="py-3 px-4 w-44">Kategori</th>
                 <th className="py-3 px-4 w-44">Kode &amp; Pelaksanaan</th>
                 <th className="py-3 px-4">Program Kerja &amp; Anggaran (Induk / Sub)</th>
                 <th className="py-3 px-4">Unit / PIC</th>
@@ -1885,293 +2208,444 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
             <tbody className="divide-y divide-slate-100 text-slate-800">
               {filteredRka.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-10 text-center text-slate-400">
+                  <td colSpan={9} className="py-10 text-center text-slate-400">
                     Belum ada data RKA yang sesuai filter untuk tahun ini.
                   </td>
                 </tr>
               ) : (
-                filteredRka.map((item) => {
-                  const weight = calculateRkaWeightScore(item.budgetAmount, item.strategicPriority);
-                  const linkedPkpt = linkedPkptMap.get(item.id);
-                  const summary = getParentSummary(item);
-                  const isExpanded = Boolean(expandedParentIds[item.id]);
-                  const parentAbsorptionPct =
-                    (item.budgetAmount || 0) > 0
-                      ? Math.round((summary.effectiveRealization / item.budgetAmount) * 100)
+                groupedRkaByCategory.map((group) => {
+                  const isHidden = Boolean(hiddenGroupCategories[group.categoryName.toLowerCase()]);
+                  const groupTotalBudget = group.items.reduce(
+                    (sum, it) => sum + (it.budgetAmount || 0),
+                    0
+                  );
+                  const groupTotalSub = group.items.reduce(
+                    (sum, it) => sum + getParentSummary(it).children.length,
+                    0
+                  );
+                  const groupTotalRealization = group.items.reduce(
+                    (sum, it) => sum + getParentSummary(it).effectiveRealization,
+                    0
+                  );
+                  const groupAbsPct =
+                    groupTotalBudget > 0
+                      ? Math.round((groupTotalRealization / groupTotalBudget) * 100)
                       : 0;
 
                   return (
-                    <React.Fragment key={item.id}>
-                      {/* PARENT ROW (POS ANGGARAN INDUK) */}
-                      <tr className="hover:bg-slate-50/80 transition-colors bg-white">
-                        <td className="py-3 px-4 align-top">
-                          <div className="flex items-start gap-1.5">
-                            {summary.hasChildren ? (
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  setExpandedParentIds((prev) => ({
-                                    ...prev,
-                                    [item.id]: !prev[item.id],
-                                  }))
-                                }
-                                className="mt-0.5 p-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-colors cursor-pointer shrink-0"
-                                title={isExpanded ? 'Tutup sub-program' : 'Lihat sub-program berjenjang'}
-                              >
-                                {isExpanded ? (
-                                  <ChevronDown className="w-3.5 h-3.5" />
-                                ) : (
-                                  <ChevronRight className="w-3.5 h-3.5" />
-                                )}
-                              </button>
+                    <React.Fragment key={group.categoryName}>
+                      {/* TOP-LEVEL KATEGORI HIERARCHY ROW WITH HIDE / SHOW */}
+                      <tr className="bg-slate-100/90 hover:bg-slate-100 border-t-2 border-slate-200">
+                        <td className="py-2.5 px-4 align-middle">
+                          <button
+                            type="button"
+                            onClick={() => toggleGroupVisibility(group.categoryName)}
+                            className="inline-flex items-center gap-1.5 font-bold text-slate-900 hover:text-emerald-800 cursor-pointer text-left"
+                            title={
+                              isHidden
+                                ? `Tampilkan seluruh hierarki kategori ${group.categoryName}`
+                                : `Sembunyikan seluruh hierarki kategori ${group.categoryName}`
+                            }
+                          >
+                            {isHidden ? (
+                              <ChevronRight className="w-4 h-4 text-slate-500 shrink-0" />
                             ) : (
-                              <span className="w-5 shrink-0" />
+                              <ChevronDown className="w-4 h-4 text-emerald-700 shrink-0" />
                             )}
-                            <div className="min-w-0">
-                              <span className="font-mono font-bold text-emerald-800 block whitespace-nowrap">
-                                {item.code}
-                              </span>
-                              <span className="text-[11px] font-semibold text-slate-500 block">
-                                {formatParentScheduleLabel(item, summary.children)}
-                              </span>
-                              {summary.hasChildren && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setExpandedParentIds((prev) => ({
-                                      ...prev,
-                                      [item.id]: !prev[item.id],
-                                    }))
-                                  }
-                                  className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 hover:underline cursor-pointer whitespace-nowrap"
-                                >
-                                  <GitBranch className="w-3 h-3" />
-                                  <span>{summary.children.length} Sub-Program</span>
-                                </button>
-                              )}
-                            </div>
-                          </div>
+                            <span>{group.categoryName}</span>
+                          </button>
                         </td>
 
-                        <td className="py-3 px-4 align-top">
-                          <div className="flex items-center gap-1.5 flex-wrap">
-                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
-                              Pos Induk
+                        <td colSpan={3} className="py-2.5 px-4 align-middle text-[11px] text-slate-600">
+                          <span className="font-semibold text-slate-800">
+                            {group.items.length} Pos Induk
+                          </span>
+                          {' · '}
+                          <span>{groupTotalSub} Sub-Program</span>
+                          {isHidden && (
+                            <span className="ml-2 text-amber-800 font-semibold">
+                              · Hierarki disembunyikan
                             </span>
-                            <span className="text-slate-300">·</span>
-                            <span className="text-[11px] text-slate-500">{item.category}</span>
-                          </div>
-                          <p className="font-bold text-slate-900 mt-0.5">{item.programName}</p>
-                          {item.notes && (
-                            <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">{item.notes}</p>
                           )}
                         </td>
 
-                        <td className="py-3 px-4 align-top">
-                          <p className="font-semibold text-slate-800">{item.unitName}</p>
-                          <p className="text-[10px] text-slate-500">PIC: {item.pic || '-'}</p>
+                        <td className="py-2.5 px-4 align-middle text-right font-mono tabular-nums font-bold text-slate-900 whitespace-nowrap">
+                          Rp {groupTotalBudget.toLocaleString('id-ID')}
                         </td>
 
-                        <td className="py-3 px-4 align-top text-right font-mono tabular-nums">
-                          <p className="font-bold text-slate-900 whitespace-nowrap">
-                            Rp {(item.budgetAmount || 0).toLocaleString('id-ID')}
-                          </p>
-                          {summary.hasChildren && (
-                            <div className="mt-1 space-y-0.5 text-[10px]">
-                              <p className="text-slate-600 whitespace-nowrap">
-                                Sub-Alokasi: Rp {summary.totalAllocatedSub.toLocaleString('id-ID')}
-                              </p>
-                              <p
-                                className={`font-semibold whitespace-nowrap ${
-                                  summary.isOverCeiling ? 'text-rose-600' : 'text-emerald-700'
-                                }`}
-                              >
-                                {summary.isOverCeiling
-                                  ? `Melebihi pagu Rp ${Math.abs(summary.remainingCeiling).toLocaleString('id-ID')}`
-                                  : `Sisa pagu: Rp ${summary.remainingCeiling.toLocaleString('id-ID')}`}
-                              </p>
-                            </div>
-                          )}
+                        <td className="py-2.5 px-4 align-middle text-right font-mono tabular-nums whitespace-nowrap">
+                          <span className="font-bold text-emerald-800">
+                            Rp {groupTotalRealization.toLocaleString('id-ID')}
+                          </span>
+                          <span className="block text-[10px] text-slate-500">
+                            Serapan {groupAbsPct}%
+                          </span>
                         </td>
 
-                        <td className="py-3 px-4 align-top text-right font-mono tabular-nums">
-                          <p className="font-bold text-emerald-800 whitespace-nowrap">
-                            Rp {summary.effectiveRealization.toLocaleString('id-ID')}
-                          </p>
-                          <p className="text-[10px] text-slate-500">
-                            Serapan {parentAbsorptionPct}%
-                          </p>
-                          <p className="text-[10px] text-slate-600 mt-0.5 whitespace-nowrap">
-                            Tgl: {formatDateId(summary.latestRealizationDate)}
-                          </p>
-                        </td>
-
-                        <td className="py-3 px-4 align-top text-center">
-                          <span
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md whitespace-nowrap ${
-                              summary.effectiveVerificationStatus === 'Terverifikasi Keuangan'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : summary.effectiveVerificationStatus === 'Perlu Revisi'
-                                ? 'bg-rose-100 text-rose-800'
-                                : 'bg-amber-50 text-amber-800 border border-amber-200'
+                        <td colSpan={3} className="py-2.5 px-4 align-middle text-right">
+                          <button
+                            type="button"
+                            onClick={() => toggleGroupVisibility(group.categoryName)}
+                            className={`inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold rounded-md border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                              isHidden
+                                ? 'bg-emerald-50 text-emerald-800 border-emerald-300 hover:bg-emerald-100'
+                                : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
                             }`}
                           >
-                            {summary.effectiveVerificationStatus === 'Terverifikasi Keuangan' ? (
-                              <CheckCircle2 className="w-3 h-3" />
-                            ) : summary.effectiveVerificationStatus === 'Perlu Revisi' ? (
-                              <AlertCircle className="w-3 h-3" />
-                            ) : (
-                              <Clock className="w-3 h-3" />
-                            )}
-                            <span>
-                              {summary.hasChildren
-                                ? `${summary.verifiedCount}/${summary.children.length} Terverifikasi`
-                                : summary.effectiveVerificationStatus}
-                            </span>
-                          </span>
-                          <p className="text-[10px] font-mono text-slate-500 mt-1 tabular-nums whitespace-nowrap">
-                            Tgl Verif: {formatDateId(summary.latestVerificationDate)}
-                          </p>
-                          {summary.latestVerifiedBy && (
-                            <p className="text-[10px] text-slate-400 truncate max-w-[140px] mx-auto" title={summary.latestVerifiedBy}>
-                              {summary.latestVerifiedBy}
-                            </p>
-                          )}
-                        </td>
-
-                        <td className="py-3 px-4 align-top text-center">
-                          <div className="flex flex-col items-center gap-1">
-                            <span
-                              className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-md ${
-                                item.strategicPriority === 'Tinggi'
-                                  ? 'bg-rose-100 text-rose-800'
-                                  : item.strategicPriority === 'Sedang'
-                                  ? 'bg-amber-100 text-amber-800'
-                                  : 'bg-slate-100 text-slate-700'
-                              }`}
-                            >
-                              {item.strategicPriority} · {weight}
-                            </span>
-                            {linkedPkpt ? (
-                              <span
-                                className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700"
-                                title={linkedPkpt.title}
-                              >
-                                <CheckCircle2 className="w-3 h-3" /> PKPT ({linkedPkpt.priorityScore})
-                              </span>
-                            ) : (
-                              <span className="text-[10px] text-slate-400">Belum PKPT</span>
-                            )}
-                          </div>
-                        </td>
-
-                        <td className="py-3 px-4 align-top text-center">
-                          <div className="flex items-center justify-center gap-1 flex-wrap">
-                            {canManageSub && (
-                              <button
-                                type="button"
-                                onClick={() => openAddSubModal(item)}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                                title="Tambah Sub-Program Kerja & Realisasi di bawah Pos Induk ini"
-                              >
-                                <Plus className="w-3 h-3" />
-                                <span>Sub-Program</span>
-                              </button>
-                            )}
-
-                            {canVerifyFinance && !summary.hasChildren && (
-                              <button
-                                type="button"
-                                onClick={() => openVerifyParentModal(item)}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                                title="Isi Realisasi & Verifikasi Bidang Keuangan"
-                              >
-                                <ShieldCheck className="w-3 h-3" />
-                                <span>Verifikasi</span>
-                              </button>
-                            )}
-
-                            {onNavigateToPkptWithRka && !linkedPkpt && (
-                              <button
-                                onClick={() => onNavigateToPkptWithRka(item)}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
-                                title="Jadikan objek pengawasan dalam PKPT"
-                              >
-                                <CalendarCheck className="w-3 h-3 text-emerald-700" />
-                                <span>PKPT</span>
-                                <ArrowRight className="w-3 h-3" />
-                              </button>
-                            )}
-
-                            {canManage && (
+                            {isHidden ? (
                               <>
-                                <button
-                                  onClick={() => openEditModal(item)}
-                                  className="p-1 text-slate-500 hover:text-emerald-700 rounded-md transition-colors cursor-pointer"
-                                  title="Edit Pos Induk RKA"
-                                >
-                                  <Edit2 className="w-3.5 h-3.5" />
-                                </button>
-                                <button
-                                  onClick={() => handleDelete(item.id)}
-                                  className="p-1 text-slate-500 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
-                                  title="Hapus Pos Induk RKA"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
+                                <Eye className="w-3.5 h-3.5" />
+                                <span>Show ({group.items.length})</span>
+                              </>
+                            ) : (
+                              <>
+                                <EyeOff className="w-3.5 h-3.5" />
+                                <span>Hide</span>
                               </>
                             )}
-                          </div>
+                          </button>
                         </td>
                       </tr>
 
-                      {/* CHILD SUB-PROGRAM ROWS (BERJENJANG) */}
-                      {isExpanded &&
-                        summary.children.map((sub) => {
-                          const subAbsPct =
-                            sub.allocatedBudget > 0
-                              ? Math.round(((sub.realizationAmount || 0) / sub.allocatedBudget) * 100)
-                              : 0;
-                          const shareOfParentPct =
+                      {/* POS INDUK & SUB-PROGRAM HIERARCHY UNDER KATEGORI */}
+                      {!isHidden &&
+                        group.items.map((item) => {
+                          const weight = calculateRkaWeightScore(
+                            item.budgetAmount,
+                            item.strategicPriority
+                          );
+                          const linkedPkpt = linkedPkptMap.get(item.id);
+                          const summary = getParentSummary(item);
+                          const isExpanded = Boolean(expandedParentIds[item.id]);
+                          const parentAbsorptionPct =
                             (item.budgetAmount || 0) > 0
-                              ? Math.round(((sub.allocatedBudget || 0) / item.budgetAmount) * 100)
+                              ? Math.round((summary.effectiveRealization / item.budgetAmount) * 100)
                               : 0;
-                          const canDeleteThisSub =
-                            canManage ||
-                            (isBidangKeuangan && sub.verificationStatus !== 'Terverifikasi Keuangan');
 
                           return (
-                            <tr
-                              key={sub.id}
-                              className="bg-emerald-50/25 hover:bg-emerald-50/50 transition-colors border-t border-slate-100"
-                            >
-                              <td className="py-2.5 pl-8 pr-4 align-top">
-                                <div className="flex items-start gap-1.5">
-                                  <span className="text-emerald-600 font-mono font-bold select-none">
-                                    └
+                            <React.Fragment key={item.id}>
+                              {/* PARENT ROW (POS ANGGARAN INDUK) */}
+                              <tr className="hover:bg-slate-50/80 transition-colors bg-white">
+                                <td className="py-3 px-4 align-top">
+                                  <span className="inline-block text-[11px] font-semibold text-slate-700">
+                                    {(item.parentCategory || '').trim() || 'Tanpa Kategori'}
                                   </span>
-                                  <div>
-                                    <span className="font-mono font-bold text-slate-800 block whitespace-nowrap">
-                                      {sub.subCode}
+                                </td>
+
+                                <td className="py-3 px-4 align-top">
+                                  <div className="flex items-start gap-1.5">
+                                    {summary.hasChildren ? (
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setExpandedParentIds((prev) => ({
+                                            ...prev,
+                                            [item.id]: !prev[item.id],
+                                          }))
+                                        }
+                                        className="mt-0.5 p-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-colors cursor-pointer shrink-0"
+                                        title={
+                                          isExpanded
+                                            ? 'Tutup sub-program'
+                                            : 'Lihat sub-program berjenjang'
+                                        }
+                                      >
+                                        {isExpanded ? (
+                                          <ChevronDown className="w-3.5 h-3.5" />
+                                        ) : (
+                                          <ChevronRight className="w-3.5 h-3.5" />
+                                        )}
+                                      </button>
+                                    ) : (
+                                      <span className="w-5 shrink-0" />
+                                    )}
+                                    <div className="min-w-0">
+                                      <span className="font-mono font-bold text-emerald-800 block whitespace-nowrap">
+                                        {item.code}
+                                      </span>
+                                      <span className="text-[11px] font-semibold text-slate-500 block">
+                                        {formatParentScheduleLabel(item, summary.children)}
+                                      </span>
+                                      {summary.hasChildren && (
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            setExpandedParentIds((prev) => ({
+                                              ...prev,
+                                              [item.id]: !prev[item.id],
+                                            }))
+                                          }
+                                          className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 hover:underline cursor-pointer whitespace-nowrap"
+                                        >
+                                          <GitBranch className="w-3 h-3" />
+                                          <span>{summary.children.length} Sub-Program</span>
+                                        </button>
+                                      )}
+                                    </div>
+                                  </div>
+                                </td>
+
+                                <td className="py-3 px-4 align-top">
+                                  <div className="flex items-center gap-1.5 flex-wrap">
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                                      Pos Induk
                                     </span>
-                                    <span className="text-[10px] font-medium text-slate-500">
-                                      {sub.executionMonth} {sub.year}
+                                    <span className="text-slate-300">·</span>
+                                    <span className="text-[11px] text-slate-500">
+                                      {item.category}
                                     </span>
                                   </div>
-                                </div>
-                              </td>
+                                  <p className="font-bold text-slate-900 mt-0.5">
+                                    {item.programName}
+                                  </p>
+                                  {item.notes && (
+                                    <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">
+                                      {item.notes}
+                                    </p>
+                                  )}
+                                </td>
 
-                              <td className="py-2.5 px-4 align-top">
-                                <div className="flex items-center gap-1.5 text-[10px] text-emerald-800 font-semibold">
-                                  <span>Sub-Program dari {item.code}</span>
-                                  <span className="text-slate-300">·</span>
-                                  <span className="text-slate-500">{sub.status}</span>
-                                </div>
-                                <p className="font-semibold text-slate-900 mt-0.5">{sub.programName}</p>
-                                {sub.notes && (
-                                  <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{sub.notes}</p>
-                                )}
-                              </td>
+                                <td className="py-3 px-4 align-top">
+                                  <p className="font-semibold text-slate-800">{item.unitName}</p>
+                                  <p className="text-[10px] text-slate-500">
+                                    PIC: {item.pic || '-'}
+                                  </p>
+                                </td>
+
+                                <td className="py-3 px-4 align-top text-right font-mono tabular-nums">
+                                  <p className="font-bold text-slate-900 whitespace-nowrap">
+                                    Rp {(item.budgetAmount || 0).toLocaleString('id-ID')}
+                                  </p>
+                                  {summary.hasChildren && (
+                                    <div className="mt-1 space-y-0.5 text-[10px]">
+                                      <p className="text-slate-600 whitespace-nowrap">
+                                        Sub-Alokasi: Rp{' '}
+                                        {summary.totalAllocatedSub.toLocaleString('id-ID')}
+                                      </p>
+                                      <p
+                                        className={`font-semibold whitespace-nowrap ${
+                                          summary.isOverCeiling
+                                            ? 'text-rose-600'
+                                            : 'text-emerald-700'
+                                        }`}
+                                      >
+                                        {summary.isOverCeiling
+                                          ? `Melebihi pagu Rp ${Math.abs(
+                                              summary.remainingCeiling
+                                            ).toLocaleString('id-ID')}`
+                                          : `Sisa pagu: Rp ${summary.remainingCeiling.toLocaleString(
+                                              'id-ID'
+                                            )}`}
+                                      </p>
+                                    </div>
+                                  )}
+                                </td>
+
+                                <td className="py-3 px-4 align-top text-right font-mono tabular-nums">
+                                  <p className="font-bold text-emerald-800 whitespace-nowrap">
+                                    Rp {summary.effectiveRealization.toLocaleString('id-ID')}
+                                  </p>
+                                  <p className="text-[10px] text-slate-500">
+                                    Serapan {parentAbsorptionPct}%
+                                  </p>
+                                  <p className="text-[10px] text-slate-600 mt-0.5 whitespace-nowrap">
+                                    Tgl: {formatDateId(summary.latestRealizationDate)}
+                                  </p>
+                                </td>
+
+                                <td className="py-3 px-4 align-top text-center">
+                                  <span
+                                    className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md whitespace-nowrap ${
+                                      summary.effectiveVerificationStatus ===
+                                      'Terverifikasi Keuangan'
+                                        ? 'bg-emerald-100 text-emerald-800'
+                                        : summary.effectiveVerificationStatus === 'Perlu Revisi'
+                                        ? 'bg-rose-100 text-rose-800'
+                                        : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                    }`}
+                                  >
+                                    {summary.effectiveVerificationStatus ===
+                                    'Terverifikasi Keuangan' ? (
+                                      <CheckCircle2 className="w-3 h-3" />
+                                    ) : summary.effectiveVerificationStatus === 'Perlu Revisi' ? (
+                                      <AlertCircle className="w-3 h-3" />
+                                    ) : (
+                                      <Clock className="w-3 h-3" />
+                                    )}
+                                    <span>
+                                      {summary.hasChildren
+                                        ? `${summary.verifiedCount}/${summary.children.length} Terverifikasi`
+                                        : summary.effectiveVerificationStatus}
+                                    </span>
+                                  </span>
+                                  <p className="text-[10px] font-mono text-slate-500 mt-1 tabular-nums whitespace-nowrap">
+                                    Tgl Verif: {formatDateId(summary.latestVerificationDate)}
+                                  </p>
+                                  {summary.latestVerifiedBy && (
+                                    <p
+                                      className="text-[10px] text-slate-400 truncate max-w-[140px] mx-auto"
+                                      title={summary.latestVerifiedBy}
+                                    >
+                                      {summary.latestVerifiedBy}
+                                    </p>
+                                  )}
+                                </td>
+
+                                <td className="py-3 px-4 align-top text-center">
+                                  <div className="flex flex-col items-center gap-1">
+                                    <span
+                                      className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-md ${
+                                        item.strategicPriority === 'Tinggi'
+                                          ? 'bg-rose-100 text-rose-800'
+                                          : item.strategicPriority === 'Sedang'
+                                          ? 'bg-amber-100 text-amber-800'
+                                          : 'bg-slate-100 text-slate-700'
+                                      }`}
+                                    >
+                                      {item.strategicPriority} · {weight}
+                                    </span>
+                                    {linkedPkpt ? (
+                                      <span
+                                        className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700"
+                                        title={linkedPkpt.title}
+                                      >
+                                        <CheckCircle2 className="w-3 h-3" /> PKPT (
+                                        {linkedPkpt.priorityScore})
+                                      </span>
+                                    ) : (
+                                      <span className="text-[10px] text-slate-400">Belum PKPT</span>
+                                    )}
+                                  </div>
+                                </td>
+
+                                <td className="py-3 px-4 align-top text-center">
+                                  <div className="flex items-center justify-center gap-1 flex-wrap">
+                                    {canManageSub && (
+                                      <button
+                                        type="button"
+                                        onClick={() => openAddSubModal(item)}
+                                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                                        title="Tambah Sub-Program Kerja & Realisasi di bawah Pos Induk ini"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                        <span>Sub-Program</span>
+                                      </button>
+                                    )}
+
+                                    {canVerifyFinance && !summary.hasChildren && (
+                                      <button
+                                        type="button"
+                                        onClick={() => openVerifyParentModal(item)}
+                                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                                        title="Isi Realisasi & Verifikasi Bidang Keuangan"
+                                      >
+                                        <ShieldCheck className="w-3 h-3" />
+                                        <span>Verifikasi</span>
+                                      </button>
+                                    )}
+
+                                    {onNavigateToPkptWithRka && !linkedPkpt && (
+                                      <button
+                                        onClick={() => onNavigateToPkptWithRka(item)}
+                                        className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                                        title="Jadikan objek pengawasan dalam PKPT"
+                                      >
+                                        <CalendarCheck className="w-3 h-3 text-emerald-700" />
+                                        <span>PKPT</span>
+                                        <ArrowRight className="w-3 h-3" />
+                                      </button>
+                                    )}
+
+                                    {canManage && (
+                                      <>
+                                        <button
+                                          onClick={() => openEditModal(item)}
+                                          className="p-1 text-slate-500 hover:text-emerald-700 rounded-md transition-colors cursor-pointer"
+                                          title="Edit Pos Induk RKA"
+                                        >
+                                          <Edit2 className="w-3.5 h-3.5" />
+                                        </button>
+                                        <button
+                                          onClick={() => handleDelete(item.id)}
+                                          className="p-1 text-slate-500 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
+                                          title="Hapus Pos Induk RKA"
+                                        >
+                                          <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                      </>
+                                    )}
+                                  </div>
+                                </td>
+                              </tr>
+
+                              {/* CHILD SUB-PROGRAM ROWS (BERJENJANG) */}
+                              {isExpanded &&
+                                summary.children.map((sub) => {
+                                  const subAbsPct =
+                                    sub.allocatedBudget > 0
+                                      ? Math.round(
+                                          ((sub.realizationAmount || 0) / sub.allocatedBudget) * 100
+                                        )
+                                      : 0;
+                                  const shareOfParentPct =
+                                    (item.budgetAmount || 0) > 0
+                                      ? Math.round(
+                                          ((sub.allocatedBudget || 0) / item.budgetAmount) * 100
+                                        )
+                                      : 0;
+                                  const canDeleteThisSub =
+                                    canManage ||
+                                    (isBidangKeuangan &&
+                                      sub.verificationStatus !== 'Terverifikasi Keuangan');
+                                  const isMonthMatch =
+                                    selectedMonth !== 'ALL' && sub.executionMonth === selectedMonth;
+
+                                  return (
+                                    <tr
+                                      key={sub.id}
+                                      className={`${
+                                        isMonthMatch
+                                          ? 'bg-emerald-100/60 hover:bg-emerald-100/80'
+                                          : 'bg-emerald-50/25 hover:bg-emerald-50/50'
+                                      } transition-colors border-t border-slate-100`}
+                                    >
+                                      <td className="py-2.5 pl-6 pr-4 align-top">
+                                        <span className="text-[10px] font-medium text-slate-400">
+                                          └ {group.categoryName}
+                                        </span>
+                                      </td>
+
+                                      <td className="py-2.5 pl-6 pr-4 align-top">
+                                        <div className="flex items-start gap-1.5">
+                                          <span className="text-emerald-600 font-mono font-bold select-none">
+                                            └
+                                          </span>
+                                          <div>
+                                            <span className="font-mono font-bold text-slate-800 block whitespace-nowrap">
+                                              {sub.subCode}
+                                            </span>
+                                            <span className="text-[10px] font-medium text-slate-500">
+                                              {sub.executionMonth} {sub.year}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </td>
+
+                                      <td className="py-2.5 px-4 align-top">
+                                        <div className="flex items-center gap-1.5 text-[10px] text-emerald-800 font-semibold">
+                                          <span>Sub-Program dari {item.code}</span>
+                                          <span className="text-slate-300">·</span>
+                                          <span className="text-slate-500">{sub.status}</span>
+                                        </div>
+                                        <p className="font-semibold text-slate-900 mt-0.5">
+                                          {sub.programName}
+                                        </p>
+                                        {sub.notes && (
+                                          <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">
+                                            {sub.notes}
+                                          </p>
+                                        )}
+                                      </td>
 
                               <td className="py-2.5 px-4 align-top">
                                 {sub.locationUnitName && (
@@ -2289,6 +2763,9 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                             </tr>
                           );
                         })}
+                            </React.Fragment>
+                          );
+                        })}
                     </React.Fragment>
                   );
                 })
@@ -2336,6 +2813,80 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold uppercase"
                   />
                 </div>
+              </div>
+
+              <div>
+                <div className="flex items-center justify-between gap-2 mb-1">
+                  <label className="block font-semibold text-slate-700">
+                    Kategori (Pengelompokan Hierarki Daftar Anggaran)
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsGroupCategoryModalOpen(true)}
+                      className="text-[11px] font-semibold text-slate-600 hover:text-emerald-800 underline cursor-pointer"
+                      title="Tambah, edit, atau hapus daftar Kategori"
+                    >
+                      Kelola Kategori
+                    </button>
+                    <span className="text-slate-300">·</span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextMode = !isManualGroupCategoryMode;
+                        setIsManualGroupCategoryMode(nextMode);
+                        if (nextMode && !formManualGroupCategory) {
+                          setFormManualGroupCategory('');
+                        }
+                      }}
+                      className="text-[11px] font-bold text-emerald-700 hover:text-emerald-900 underline cursor-pointer"
+                    >
+                      {isManualGroupCategoryMode ? 'Pilih dari Daftar' : '+ Tambah Kategori Baru'}
+                    </button>
+                  </div>
+                </div>
+
+                {isManualGroupCategoryMode ? (
+                  <div className="space-y-1.5">
+                    <input
+                      type="text"
+                      value={formManualGroupCategory}
+                      onChange={(e) => setFormManualGroupCategory(e.target.value)}
+                      placeholder="Ketik nama Kategori baru (contoh: Belanja Investasi, Operasional)..."
+                      className="w-full px-3 py-2 bg-emerald-50/70 border border-emerald-400 rounded-lg font-semibold text-slate-900 focus:outline-hidden focus:ring-1 focus:ring-emerald-600"
+                    />
+                    <label className="flex items-center gap-1.5 text-[11px] text-slate-600 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={saveNewGroupCategoryToMaster}
+                        onChange={(e) => setSaveNewGroupCategoryToMaster(e.target.checked)}
+                        className="rounded-xs text-emerald-700 focus:ring-emerald-600"
+                      />
+                      <span>Simpan kategori ini ke daftar pilihan agar bisa dipakai kembali</span>
+                    </label>
+                  </div>
+                ) : (
+                  <select
+                    value={formParentCategory}
+                    onChange={(e) => {
+                      if (e.target.value === '__MANUAL_GROUP__') {
+                        setIsManualGroupCategoryMode(true);
+                        setFormManualGroupCategory('');
+                      } else {
+                        setFormParentCategory(e.target.value);
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold text-slate-900"
+                  >
+                    <option value="">-- Pilih / Tanpa Kategori --</option>
+                    {groupCategoryOptions.map((gc) => (
+                      <option key={gc} value={gc}>
+                        {gc}
+                      </option>
+                    ))}
+                    <option value="__MANUAL_GROUP__">+ Tambah Kategori Baru...</option>
+                  </select>
+                )}
               </div>
 
               <div>
@@ -2998,6 +3549,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                 <thead>
                   <tr className="bg-slate-100 font-bold text-slate-800">
                     <th className="p-2 border border-slate-300 w-8 text-center">No</th>
+                    <th className="p-2 border border-slate-300">Kategori</th>
                     <th className="p-2 border border-slate-300">Kode &amp; Uraian Program (Pos Induk / Sub-Program)</th>
                     <th className="p-2 border border-slate-300">Waktu</th>
                     <th className="p-2 border border-slate-300">Unit / PIC</th>
@@ -3013,6 +3565,9 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                       <React.Fragment key={r.id}>
                         <tr className={summary.hasChildren ? 'bg-slate-50/90 font-semibold' : ''}>
                           <td className="p-2 border border-slate-300 text-center align-top">{i + 1}</td>
+                          <td className="p-2 border border-slate-300 align-top font-semibold text-slate-700">
+                            {(r.parentCategory || '').trim() || 'Tanpa Kategori'}
+                          </td>
                           <td className="p-2 border border-slate-300 align-top">
                             <p className="font-bold text-slate-900">{r.programName}</p>
                             <p className="text-[9px] text-slate-600 font-mono">
@@ -3056,6 +3611,9 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                           <tr key={sub.id} className="bg-white">
                             <td className="p-1.5 border border-slate-300 text-center text-slate-500 align-top">
                               {i + 1}.{subIdx + 1}
+                            </td>
+                            <td className="p-1.5 border border-slate-300 align-top text-slate-500">
+                              └ {(r.parentCategory || '').trim() || 'Tanpa Kategori'}
                             </td>
                             <td className="p-1.5 pl-5 border border-slate-300 align-top">
                               <p className="font-semibold text-slate-800">└ {sub.programName}</p>
@@ -3279,6 +3837,176 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                 onClick={() => {
                   setIsCategoryModalOpen(false);
                   setEditingCatId(null);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg cursor-pointer"
+              >
+                Tutup
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Kelola Kategori Pos Anggaran Induk (CRUD) */}
+      {isGroupCategoryModalOpen && canManage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="w-full max-w-xl max-h-[85vh] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
+            <div className="px-6 py-4 bg-gradient-to-r from-[#0d3824] to-[#105234] text-white flex items-center justify-between">
+              <h3 className="text-sm font-bold flex items-center gap-2">
+                <FolderKanban className="w-4 h-4 text-amber-300" />
+                <span>Kelola Kategori Pos Anggaran Induk (RKA)</span>
+              </h3>
+              <button
+                onClick={() => {
+                  setIsGroupCategoryModalOpen(false);
+                  setEditingGroupCatId(null);
+                }}
+                className="text-emerald-200 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5 text-xs overflow-y-auto flex-1">
+              <form onSubmit={handleAddGroupCategory} className="space-y-2">
+                <label className="block font-semibold text-slate-700">
+                  Tambah Kategori Baru
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    required
+                    value={newGroupCategoryName}
+                    onChange={(e) => setNewGroupCategoryName(e.target.value)}
+                    placeholder="Contoh: Belanja Investasi, Biaya Operasional, Pemeliharaan..."
+                    className="flex-1 px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-600"
+                  />
+                  <button
+                    type="submit"
+                    disabled={groupCatSaving}
+                    className="px-3.5 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shrink-0 cursor-pointer disabled:opacity-60"
+                  >
+                    + Tambah
+                  </button>
+                </div>
+              </form>
+
+              <div className="flex items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
+                <label className="flex items-center gap-2 text-[11px] text-slate-700 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={syncEditedGroupCatToRka}
+                    onChange={(e) => setSyncEditedGroupCatToRka(e.target.checked)}
+                    className="rounded-xs text-emerald-700 focus:ring-emerald-600"
+                  />
+                  <span>Saat mengubah (Edit) nama kategori, perbarui juga data Pos Induk RKA terkait</span>
+                </label>
+              </div>
+
+              <div className="space-y-2">
+                <p className="font-semibold text-slate-700">
+                  Daftar Kategori Pos Induk ({masterGroupCategories.length})
+                </p>
+
+                {masterGroupCategories.length === 0 ? (
+                  <p className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-slate-500 text-center">
+                    Belum ada Kategori tersimpan. Tambahkan kategori baru melalui formulir di atas.
+                  </p>
+                ) : (
+                  <ul className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
+                    {masterGroupCategories.map((cat) => {
+                      const isEditing = editingGroupCatId === cat.id;
+                      const usageCount =
+                        groupCategoryUsageCounts.get(cat.name.trim().toLowerCase()) || 0;
+
+                      return (
+                        <li
+                          key={cat.id}
+                          className="px-3.5 py-2.5 bg-white flex items-center justify-between gap-2 hover:bg-slate-50/70"
+                        >
+                          {isEditing ? (
+                            <div className="flex-1 flex items-center gap-2">
+                              <input
+                                type="text"
+                                value={editingGroupCatName}
+                                onChange={(e) => setEditingGroupCatName(e.target.value)}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    handleSaveEditGroupCategory(cat);
+                                  } else if (e.key === 'Escape') {
+                                    setEditingGroupCatId(null);
+                                  }
+                                }}
+                                className="flex-1 px-2.5 py-1.5 text-xs font-semibold bg-emerald-50/60 border border-emerald-400 rounded-lg focus:outline-hidden focus:ring-1 focus:ring-emerald-600"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => handleSaveEditGroupCategory(cat)}
+                                disabled={groupCatSaving}
+                                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md cursor-pointer"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Simpan</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setEditingGroupCatId(null)}
+                                className="p-1.5 text-slate-500 hover:text-slate-800 bg-slate-100 rounded-md cursor-pointer"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-semibold text-slate-800 truncate">{cat.name}</p>
+                                <p className="text-[10px] text-slate-400">
+                                  Dipakai oleh <strong className="font-mono text-slate-600">{usageCount}</strong> pos induk ·{' '}
+                                  {cat.updatedBy
+                                    ? `Diubah oleh ${cat.updatedBy}`
+                                    : `Sumber: ${cat.createdBy || 'SPI'}`}
+                                </p>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingGroupCatId(cat.id);
+                                    setEditingGroupCatName(cat.name);
+                                  }}
+                                  disabled={groupCatSaving}
+                                  className="p-1.5 text-slate-500 hover:text-emerald-700 hover:bg-emerald-50 rounded-md transition-colors cursor-pointer"
+                                  title="Edit nama kategori"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteGroupCategory(cat)}
+                                  disabled={groupCatSaving}
+                                  className="p-1.5 text-slate-500 hover:text-rose-600 hover:bg-rose-50 rounded-md transition-colors cursor-pointer"
+                                  title="Hapus kategori"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            </>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </div>
+
+            <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+              <button
+                onClick={() => {
+                  setIsGroupCategoryModalOpen(false);
+                  setEditingGroupCatId(null);
                 }}
                 className="px-4 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-100 rounded-lg cursor-pointer"
               >

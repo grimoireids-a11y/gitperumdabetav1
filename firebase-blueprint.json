@@ -585,6 +585,7 @@
         "id": { "type": "string", "maxLength": 64 },
         "year": { "type": "number" },
         "code": { "type": "string", "maxLength": 64 },
+        "parentCategory": { "type": "string", "maxLength": 128 },
         "unitId": { "type": "string", "maxLength": 64 },
         "unitName": { "type": "string", "maxLength": 128 },
         "programName": { "type": "string", "maxLength": 256 },
@@ -643,6 +644,19 @@
         "name": { "type": "string", "maxLength": 128 },
         "order": { "type": "number" },
         "isDefaultSeed": { "type": "boolean" },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "updatedBy": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "name"]
+    },
+    "RKAGroupCategoryItem": {
+      "title": "RKAGroupCategoryItem",
+      "description": "Dynamic top-level Kategori grouping for parent RKA budget posts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 128 },
+        "order": { "type": "number" },
         "createdBy": { "type": "string", "maxLength": 128 },
         "updatedBy": { "type": "string", "maxLength": 128 }
       },
@@ -772,6 +786,10 @@
     "/rka_categories/{catId}": {
       "schema": "RKACategoryItem",
       "description": "Editable Bidang / Kategori Program options managed by Super User"
+    },
+    "/rka_group_categories/{groupId}": {
+      "schema": "RKAGroupCategoryItem",
+      "description": "Top-level Kategori grouping master list for parent RKA budget posts"
     },
     "/app_settings/{settingId}": {
       "schema": "AppSettings",

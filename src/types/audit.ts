@@ -105,6 +105,16 @@ export interface RKACategoryItem {
   updatedAt?: string;
 }
 
+export interface RKAGroupCategoryItem {
+  id: string;
+  name: string;
+  order?: number;
+  createdBy?: string;
+  createdAt?: string;
+  updatedBy?: string;
+  updatedAt?: string;
+}
+
 export type RKAStatus = 'Usulan' | 'Disetujui RKAP' | 'Berjalan' | 'Selesai';
 
 export type RKAVerificationStatus =
@@ -116,6 +126,7 @@ export interface RKAItem {
   id: string;
   year: number;
   code: string;
+  parentCategory?: string;
   unitId: string;
   unitName: string;
   programName: string;
