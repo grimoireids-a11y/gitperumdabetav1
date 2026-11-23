@@ -199,7 +199,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         badge: 'bg-yellow-100 text-yellow-800 border-yellow-300',
         border: 'border-yellow-400',
         ring: 'ring-yellow-400',
-        desc: 'Pengendalian berkala triwulanan sesuai SOP',
+        desc: 'Pengendalian berkala bulan berjalan sesuai SOP',
       };
     }
     if (score >= 3) {

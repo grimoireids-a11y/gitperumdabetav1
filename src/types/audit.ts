@@ -141,6 +141,7 @@ export interface PKPT {
   objective: string;
   scope: string;
   estimatedDays: number;
+  executionMonth?: string;
   quarter: 'Q1' | 'Q2' | 'Q3' | 'Q4';
   status: 'Rencana' | 'Berlangsung' | 'Selesai';
   approvalStatus: 'Draft' | 'Disetujui' | 'Ditolak';
@@ -220,6 +221,7 @@ export interface SPIProgram {
   year: number;
   activityName: string;
   target: string;
+  executionMonth?: string;
   schedule: string;
   pic: string;
   budget: number;

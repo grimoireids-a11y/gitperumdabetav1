@@ -143,7 +143,7 @@ export const MANUAL_BOOK_CHAPTERS: ManualChapter[] = [
           rows: [
             ['20 - 25', 'Sangat Tinggi (Ekstrem)', 'Prioritas mitigasi Direksi / tindakan darurat & prioritas utama audit PKPT.'],
             ['12 - 16', 'Tinggi', 'Mitigasi aktif oleh Kepala Unit & pemantauan intensif bulanan.'],
-            ['5 - 10', 'Sedang', 'Pengendalian berkala triwulanan sesuai SOP yang berlaku.'],
+            ['5 - 10', 'Sedang', 'Pengendalian berkala bulan berjalan sesuai SOP yang berlaku.'],
             ['3 - 4', 'Rendah', 'Pemantauan berkala oleh unit kerja pelaksana.'],
             ['1 - 2', 'Sangat Rendah', 'Risiko dapat diterima (Risk Acceptance) dengan pengawasan rutin.'],
           ],
@@ -226,7 +226,7 @@ export const MANUAL_BOOK_CHAPTERS: ManualChapter[] = [
           text: 'Skor Prioritas PKPT (1-100) = (60% x Profil Skor Risiko Unit) + (40% x Bobot Materialitas RKA). Jika PKPT tidak dikaitkan ke item RKA tertentu, skor dihitung 100% dari Skor Risiko.',
         },
         bullets: [
-          'Kirim Langsung dari RKA ke PKPT: Pada tabel RKA, klik tombol "Ke PKPT ->" pada baris program yang belum terjadwal. Sistem akan langsung membuka modul PKPT dengan judul, unit, triwulan, tujuan audit, pagu, dan skor prioritas terisi otomatis.',
+          'Kirim Langsung dari RKA ke PKPT: Pada tabel RKA, klik tombol "Ke PKPT ->" pada baris program yang belum terjadwal. Sistem akan langsung membuka modul PKPT dengan judul, unit, waktu pelaksanaan bulan berjalan, tujuan audit, pagu, dan skor prioritas terisi otomatis.',
           'Generator Otomatis di PKPT: Pada modul Penyusunan PKPT terdapat banner "Integrasi RKA". Jika masih ada RKA Prioritas Tinggi atau bernilai material (>= Rp 100 Juta) yang belum masuk PKPT, klik tombol "Buat Usulan PKPT dari RKA" untuk menjadwalkannya sekaligus.',
           'Pilih Referensi RKA di Modal PKPT: Saat membuat atau mengedit PKPT secara manual, gunakan kotak "Referensi Program RKA" di bagian atas modal untuk menautkan RKA dan memperbarui skor prioritas PKPT secara otomatis.',
           'Tindak Lanjut ke SPT: Setelah PKPT disetujui Kepala SPI, klik "Terbitkan SPT" pada baris PKPT untuk langsung membuat Surat Perintah Tugas.',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   collection,
   onSnapshot,
@@ -12,23 +12,47 @@ import {
   Plus,
   Edit2,
   Trash2,
-  CheckCircle2,
-  TrendingUp,
-  DollarSign,
   Printer,
+  Search,
+  Filter,
+  RotateCcw,
+  BarChart3,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import { db } from '../../lib/firebase';
 import { SPIProgram } from '../../types/audit';
 import { useAuth } from '../../context/AuthContext';
+import { useAppBranding } from '../../context/AppBrandingContext';
 import { useFiscalYear } from '../../context/FiscalYearContext';
+import { FISCAL_MONTHS, FiscalMonthName } from '../../lib/featureCatalog';
 import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
+
+function resolveProgramMonth(p: SPIProgram): FiscalMonthName {
+  if (p.executionMonth) {
+    const exact = FISCAL_MONTHS.find((m) => m.toLowerCase() === p.executionMonth!.trim().toLowerCase());
+    if (exact) return exact;
+  }
+  const sched = (p.schedule || '').toLowerCase();
+  const matched = FISCAL_MONTHS.find((m) => sched.includes(m.toLowerCase()));
+  if (matched) return matched;
+  if (sched.includes('q2') || sched.includes('ii')) return 'April';
+  if (sched.includes('q3') || sched.includes('iii')) return 'Juli';
+  if (sched.includes('q4') || sched.includes('iv')) return 'Oktober';
+  return 'Januari';
+}
 
 export const SPIProgramsModule: React.FC = () => {
   const { hasRole } = useAuth();
+  const { getFeatureLabel } = useAppBranding();
   const { activeYear, availableYears, addCustomYear } = useFiscalYear();
 
   const [programs, setPrograms] = useState<SPIProgram[]>([]);
   const [selectedYear, setSelectedYear] = useState<number>(activeYear);
+  const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showMonthlyDashboard, setShowMonthlyDashboard] = useState<boolean>(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
   const [editingProg, setEditingProg] = useState<SPIProgram | null>(null);
@@ -41,6 +65,7 @@ export const SPIProgramsModule: React.FC = () => {
   const [formYear, setFormYear] = useState<number>(activeYear);
   const [formActivityName, setFormActivityName] = useState('');
   const [formTarget, setFormTarget] = useState('');
+  const [formExecutionMonth, setFormExecutionMonth] = useState<string>('Januari');
   const [formSchedule, setFormSchedule] = useState('');
   const [formPic, setFormPic] = useState('Anggota SPI');
   const [formBudget, setFormBudget] = useState<number>(0);
@@ -67,7 +92,9 @@ export const SPIProgramsModule: React.FC = () => {
     setFormYear(selectedYear === 0 ? activeYear : selectedYear);
     setFormActivityName('');
     setFormTarget('');
-    setFormSchedule('Triwulan I - II');
+    const curMonth = FISCAL_MONTHS[new Date().getMonth()];
+    setFormExecutionMonth(curMonth);
+    setFormSchedule(`Bulan Berjalan (${curMonth})`);
     setFormPic('Tim SPI');
     setFormBudget(15000000);
     setFormKpi('Tersusun dokumen resmi disahkan Direktur Utama');
@@ -81,6 +108,7 @@ export const SPIProgramsModule: React.FC = () => {
     setFormYear(p.year);
     setFormActivityName(p.activityName);
     setFormTarget(p.target);
+    setFormExecutionMonth(resolveProgramMonth(p));
     setFormSchedule(p.schedule);
     setFormPic(p.pic);
     setFormBudget(p.budget);
@@ -98,7 +126,8 @@ export const SPIProgramsModule: React.FC = () => {
       year: validYear,
       activityName: formActivityName,
       target: formTarget,
-      schedule: formSchedule,
+      executionMonth: formExecutionMonth,
+      schedule: formSchedule.trim() || `Bulan Berjalan (${formExecutionMonth})`,
       pic: formPic,
       budget: formBudget,
       kpi: formKpi,
@@ -128,9 +157,60 @@ export const SPIProgramsModule: React.FC = () => {
     }
   };
 
-  const filteredPrograms = programs.filter(
-    (p) => selectedYear === 0 || p.year === selectedYear
-  );
+  const currentCalendarMonth = FISCAL_MONTHS[new Date().getMonth()];
+
+  const dashboardPrograms = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    return programs.filter((p) => {
+      const matchYear = selectedYear === 0 || p.year === selectedYear;
+      const matchStatus = selectedStatus === 'ALL' || p.status === selectedStatus;
+      const matchSearch =
+        !q ||
+        p.activityName.toLowerCase().includes(q) ||
+        (p.target || '').toLowerCase().includes(q) ||
+        (p.pic || '').toLowerCase().includes(q) ||
+        (p.kpi || '').toLowerCase().includes(q);
+      return matchYear && matchStatus && matchSearch;
+    });
+  }, [programs, selectedYear, selectedStatus, searchTerm]);
+
+  const filteredPrograms = useMemo(() => {
+    return dashboardPrograms.filter((p) => {
+      if (selectedMonth === 'ALL') return true;
+      return resolveProgramMonth(p) === selectedMonth;
+    });
+  }, [dashboardPrograms, selectedMonth]);
+
+  const monthlyBreakdown = useMemo(() => {
+    const map = new Map<
+      string,
+      { month: string; shortMonth: string; count: number; budget: number; realizedCount: number }
+    >();
+    FISCAL_MONTHS.forEach((m) => {
+      map.set(m, { month: m, shortMonth: m.slice(0, 3), count: 0, budget: 0, realizedCount: 0 });
+    });
+    dashboardPrograms.forEach((p) => {
+      const m = resolveProgramMonth(p);
+      const entry = map.get(m);
+      if (!entry) return;
+      entry.count += 1;
+      entry.budget += p.budget || 0;
+      if (p.status === 'Terealisasi') entry.realizedCount += 1;
+    });
+    const list = Array.from(map.values());
+    const maxBudget = list.reduce((mx, c) => Math.max(mx, c.budget), 0);
+    return { list, maxBudget };
+  }, [dashboardPrograms]);
+
+  const hasActiveFilters =
+    selectedMonth !== 'ALL' || selectedStatus !== 'ALL' || searchTerm.trim() !== '';
+
+  const resetFilters = () => {
+    setSearchTerm('');
+    setSelectedMonth('ALL');
+    setSelectedStatus('ALL');
+  };
+
   const totalBudget = filteredPrograms.reduce((acc, curr) => acc + (curr.budget || 0), 0);
   const terealisasiCount = filteredPrograms.filter((p) => p.status === 'Terealisasi').length;
 
@@ -141,14 +221,14 @@ export const SPIProgramsModule: React.FC = () => {
         <div>
           <h2 className="text-base font-extrabold text-slate-900 flex items-center gap-2">
             <BookOpen className="w-5 h-5 text-emerald-700" />
-            Program Kerja Tahunan Kapabilitas SPI (Non-Audit)
+            <span>{getFeatureLabel('spi_programs', 'Program Kerja Tahunan Kapabilitas SPI (Non-Audit)')}</span>
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Penyusunan Audit Charter, sertifikasi kompetensi auditor, sosialisasi GCG, reviu SOP, dan koordinasi stakeholder pengawasan
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
@@ -164,7 +244,7 @@ export const SPIProgramsModule: React.FC = () => {
 
           <button
             onClick={() => setIsPrintModalOpen(true)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors shadow-2xs"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg transition-colors shadow-2xs whitespace-nowrap shrink-0 cursor-pointer"
             title="Tinjau dan cetak dokumen program tahunan kapabilitas SPI dengan pengesahan jabatan"
           >
             <Printer className="w-3.5 h-3.5 text-emerald-700" />
@@ -174,10 +254,10 @@ export const SPIProgramsModule: React.FC = () => {
           {canManage && (
             <button
               onClick={openAddModal}
-              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm transition-colors whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Tambah Kegiatan Non-Audit</span>
+              <span>Tambah Kegiatan</span>
             </button>
           )}
         </div>
@@ -186,10 +266,10 @@ export const SPIProgramsModule: React.FC = () => {
       {/* Metric Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500">Total Kegiatan SPI</span>
+          <span className="text-[11px] font-semibold text-slate-500">Total Kegiatan</span>
           <p className="text-2xl font-extrabold text-slate-900 mt-1 tabular-nums">{filteredPrograms.length}</p>
           <span className="text-[10px] text-slate-400">
-            Pengembangan Internal ({selectedYear === 0 ? 'Semua Tahun' : `TA ${selectedYear}`})
+            Periode ({selectedYear === 0 ? 'Semua Tahun' : `TA ${selectedYear}`})
           </span>
         </div>
         <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
@@ -200,12 +280,133 @@ export const SPIProgramsModule: React.FC = () => {
           </span>
         </div>
         <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500">Total Anggaran Kapabilitas</span>
-          <p className="text-2xl font-extrabold text-slate-900 mt-1 tabular-nums">
+          <span className="text-[11px] font-semibold text-slate-500">Total Anggaran</span>
+          <p className="text-2xl font-extrabold text-slate-900 mt-1 font-mono tabular-nums">
             Rp {totalBudget.toLocaleString('id-ID')}
           </p>
-          <span className="text-[10px] text-slate-400">RKA Pengembangan Pengawasan</span>
+          <span className="text-[10px] text-slate-400">Alokasi Anggaran Terfilter</span>
         </div>
+      </div>
+
+      {/* Dashboard Bulanan (12 Bulan) */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-5 py-3.5 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-emerald-700" />
+              <span>Dashboard Bulanan (Januari – Desember {selectedYear === 0 ? 'Semua Tahun' : selectedYear})</span>
+            </h3>
+            <p className="text-[11px] text-slate-500">
+              Bulan Berjalan: <strong className="text-emerald-800">{currentCalendarMonth}</strong> · Klik kartu bulan untuk memfilter list di bawah
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowMonthlyDashboard((prev) => !prev)}
+            className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg cursor-pointer"
+          >
+            <span>{showMonthlyDashboard ? 'Tutup' : 'Tampilkan'}</span>
+            {showMonthlyDashboard ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {showMonthlyDashboard && (
+          <div className="p-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+            {monthlyBreakdown.list.map((m) => {
+              const isSelected = selectedMonth === m.month;
+              const isCurrent = m.month === currentCalendarMonth;
+              const pctWidth =
+                monthlyBreakdown.maxBudget > 0 && m.budget > 0
+                  ? Math.max(8, Math.round((m.budget / monthlyBreakdown.maxBudget) * 100))
+                  : 0;
+              return (
+                <button
+                  key={m.month}
+                  type="button"
+                  onClick={() => setSelectedMonth(isSelected ? 'ALL' : m.month)}
+                  className={`text-left p-2.5 rounded-xl border transition-colors cursor-pointer ${
+                    isSelected
+                      ? 'bg-emerald-50 border-emerald-600 ring-1 ring-emerald-600'
+                      : isCurrent
+                      ? 'bg-amber-50/50 border-amber-300'
+                      : 'bg-white border-slate-200 hover:bg-slate-50'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-xs font-bold text-slate-900">{m.month}</span>
+                    {isCurrent && (
+                      <span className="text-[9px] font-bold text-amber-800 uppercase">Berjalan</span>
+                    )}
+                  </div>
+                  <p className="text-[11px] font-mono font-bold text-emerald-800 mt-1 tabular-nums truncate">
+                    Rp {m.budget.toLocaleString('id-ID')}
+                  </p>
+                  <p className="text-[10px] text-slate-500 mt-0.5 tabular-nums">
+                    {m.count} kegiatan · {m.realizedCount} selesai
+                  </p>
+                  <div className="mt-1.5 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-600 rounded-full" style={{ width: `${pctWidth}%` }} />
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* Filter Bar */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2.5 flex-1">
+          <div className="relative flex-1 min-w-[200px] max-w-sm">
+            <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Cari kegiatan, target, PIC, atau KPI..."
+              className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-600"
+            />
+          </div>
+
+          <div className="flex items-center gap-1.5 text-xs text-slate-500">
+            <Filter className="w-3.5 h-3.5 text-emerald-700" />
+          </div>
+
+          <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Bulan Berjalan</option>
+            {FISCAL_MONTHS.map((m) => (
+              <option key={m} value={m}>
+                Bulan: {m}{m === currentCalendarMonth ? ' (Berjalan)' : ''}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+            className="px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Status</option>
+            <option value="Belum Dimulai">Belum Dimulai</option>
+            <option value="Dalam Proses">Dalam Proses</option>
+            <option value="Terealisasi">Terealisasi</option>
+          </select>
+        </div>
+
+        {hasActiveFilters && (
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg cursor-pointer"
+          >
+            <RotateCcw className="w-3 h-3" />
+            <span>Reset Filter</span>
+          </button>
+        )}
       </div>
 
       {/* Program Table */}
@@ -340,15 +541,35 @@ export const SPIProgramsModule: React.FC = () => {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Jadwal Pelaksanaan</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Bulan Pelaksanaan</label>
+                  <select
+                    value={formExecutionMonth}
+                    onChange={(e) => {
+                      const nextMonth = e.target.value;
+                      setFormExecutionMonth(nextMonth);
+                      if (!formSchedule || formSchedule.startsWith('Bulan Berjalan')) {
+                        setFormSchedule(`Bulan Berjalan (${nextMonth})`);
+                      }
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
+                  >
+                    {FISCAL_MONTHS.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Keterangan Jadwal</label>
                   <input
                     type="text"
                     required
                     value={formSchedule}
                     onChange={(e) => setFormSchedule(e.target.value)}
-                    placeholder="Contoh: Triwulan II"
+                    placeholder="Contoh: Bulan Berjalan (Mei)"
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
                   />
                 </div>

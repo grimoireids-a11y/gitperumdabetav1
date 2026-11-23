@@ -227,7 +227,7 @@ export const FindingsModule: React.FC<FindingsModuleProps> = ({
       setFormTitle('Tingkat Kehilangan Air Fisik pada Jaringan Distribusi Melebihi Batas Toleransi Standar');
       setFormCategory('Operasional & Efisiensi');
       setFormRiskLevel('Tinggi');
-      setFormCondition('Tingkat kehilangan air fisik (NRW) pada triwulan berjalan mencapai 38,4%, melampaui batas toleransi yang ditetapkan maksimal 20%. Ditemukan kebocoran pipa transmisi yang tidak tertangani lebih dari 48 jam.');
+      setFormCondition('Tingkat kehilangan air fisik (NRW) pada bulan berjalan mencapai 38,4%, melampaui batas toleransi yang ditetapkan maksimal 20%. Ditemukan kebocoran pipa transmisi yang tidak tertangani lebih dari 48 jam.');
       setFormCriteria('Permendagri No. 23/2024 tentang BUMD Air Minum dan Standar Pelayanan Minimal (SPM) Perumda Tirta Saiyo pasal 14 mengenai kecepatan tanggap kebocoran pipa maksimal 12 jam.');
       setFormCause('Kurangnya ketersediaan fitting pipa sambungan darurat pada gudang unit pelayanan dan pemantauan tekanan pipa berkala yang belum optimal.');
       setFormConsequence('Kehilangan potensi pendapatan air bersih sebesar Rp 84.500.000,- per bulan dan terganggunya suplai air minum ke 350 pelanggan.');

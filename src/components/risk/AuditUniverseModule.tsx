@@ -59,6 +59,10 @@ import {
   isEntityScheduledInPkpt,
   mapCompositeToUnitRiskScore25,
 } from '../../lib/auditUniverseAnalytics';
+import {
+  formatPkptExecutionSchedule,
+  formatQuarterAsCurrentMonth,
+} from '../../lib/featureCatalog';
 
 interface AuditUniverseModuleProps {
   onNavigateToPkptWithUniverse?: (item: AuditUniverseItem) => void;
@@ -777,14 +781,14 @@ export const AuditUniverseModule: React.FC<AuditUniverseModuleProps> = ({
       'Skor Komposit (0-100)': item.compositeScore,
       'Peringkat Risiko': item.riskTier,
       'Siklus Audit Rekomendasi': item.recommendedFrequency,
-      'Triwulan Rekomendasi': item.recommendedQuarter,
+      'Rekomendasi Bulan Berjalan': formatQuarterAsCurrentMonth(item.recommendedQuarter),
       'Estimasi Hari Kerja': item.estimatedDays,
       'Audit Terakhir': live.lastAuditYear || 'Belum Pernah',
       'Temuan 5C Terbuka': live.openFindingsCount,
       'Laporan WBS Aktif': live.openWbsCount,
       'Pagu RKA Unit (Rp)': live.linkedRkaBudget,
       'Status di PKPT': linkedPkpt
-        ? `Terjadwal (${linkedPkpt.quarter} · Skor ${linkedPkpt.priorityScore})`
+        ? `Terjadwal (${formatPkptExecutionSchedule(linkedPkpt)} · Skor ${linkedPkpt.priorityScore})`
         : 'Belum Masuk PKPT',
     }));
 
@@ -1283,7 +1287,7 @@ export const AuditUniverseModule: React.FC<AuditUniverseModuleProps> = ({
                       <td className="py-3 px-3 text-center align-top">
                         <p className="font-semibold text-slate-800">{item.recommendedFrequency}</p>
                         <p className="text-[11px] text-slate-500 mt-0.5">
-                          <span className="font-bold text-emerald-800">{item.recommendedQuarter}</span> ·{' '}
+                          <span className="font-bold text-emerald-800">{formatQuarterAsCurrentMonth(item.recommendedQuarter)}</span> ·{' '}
                           {item.estimatedDays} HK
                         </p>
                       </td>
@@ -1296,7 +1300,7 @@ export const AuditUniverseModule: React.FC<AuditUniverseModuleProps> = ({
                               Terjadwal PKPT
                             </span>
                             <span className="text-[10px] font-mono text-emerald-700 mt-0.5">
-                              {linkedPkpt.quarter} · Skor {linkedPkpt.priorityScore}
+                              {formatPkptExecutionSchedule(linkedPkpt)} · Skor {linkedPkpt.priorityScore}
                             </span>
                           </div>
                         ) : (
@@ -1621,16 +1625,16 @@ export const AuditUniverseModule: React.FC<AuditUniverseModuleProps> = ({
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Rekomendasi Triwulan</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Rekomendasi Bulan Berjalan</label>
                   <select
                     value={formRecommendedQuarter}
                     onChange={(e) => setFormRecommendedQuarter(e.target.value as any)}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
                   >
-                    <option value="Q1">Triwulan I (Q1)</option>
-                    <option value="Q2">Triwulan II (Q2)</option>
-                    <option value="Q3">Triwulan III (Q3)</option>
-                    <option value="Q4">Triwulan IV (Q4)</option>
+                    <option value="Q1">Bulan Berjalan · Tahap 1 (Jan–Mar)</option>
+                    <option value="Q2">Bulan Berjalan · Tahap 2 (Apr–Jun)</option>
+                    <option value="Q3">Bulan Berjalan · Tahap 3 (Jul–Sep)</option>
+                    <option value="Q4">Bulan Berjalan · Tahap 4 (Okt–Des)</option>
                   </select>
                 </div>
                 <div>
@@ -1743,7 +1747,7 @@ export const AuditUniverseModule: React.FC<AuditUniverseModuleProps> = ({
                         [{item.code}] {item.entityName}
                       </p>
                       <p className="text-[11px] text-slate-500 truncate">
-                        {item.unitName} · {item.recommendedQuarter} · {item.estimatedDays} HK
+                        {item.unitName} · {formatQuarterAsCurrentMonth(item.recommendedQuarter)} · {item.estimatedDays} HK
                       </p>
                     </div>
                     <span className="font-mono font-bold text-emerald-800 shrink-0">
@@ -1897,10 +1901,10 @@ export const AuditUniverseModule: React.FC<AuditUniverseModuleProps> = ({
                           <p className="text-[9px] text-slate-600">{item.recommendedFrequency}</p>
                         </td>
                         <td className="p-1.5 border border-slate-300 text-center">
-                          {item.recommendedQuarter} ({item.estimatedDays} HK)
+                          {formatQuarterAsCurrentMonth(item.recommendedQuarter)} ({item.estimatedDays} HK)
                         </td>
                         <td className="p-1.5 border border-slate-300 text-center">
-                          {linkedPkpt ? `Terjadwal (${linkedPkpt.quarter})` : 'Belum'}
+                          {linkedPkpt ? `Terjadwal (${formatPkptExecutionSchedule(linkedPkpt)})` : 'Belum'}
                         </td>
                       </tr>
                     ))}

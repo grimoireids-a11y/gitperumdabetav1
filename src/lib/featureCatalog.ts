@@ -287,6 +287,34 @@ export function getDefaultMonthForQuarter(quarter?: 'Q1' | 'Q2' | 'Q3' | 'Q4'): 
   }
 }
 
+export function formatQuarterAsCurrentMonth(quarter?: 'Q1' | 'Q2' | 'Q3' | 'Q4'): string {
+  switch (quarter) {
+    case 'Q2':
+      return 'Bulan Berjalan (Apr–Jun)';
+    case 'Q3':
+      return 'Bulan Berjalan (Jul–Sep)';
+    case 'Q4':
+      return 'Bulan Berjalan (Okt–Des)';
+    case 'Q1':
+    default:
+      return 'Bulan Berjalan (Jan–Mar)';
+  }
+}
+
+export function resolveExecutionMonth(item: {
+  executionMonth?: string;
+  targetQuarter?: 'Q1' | 'Q2' | 'Q3' | 'Q4';
+  quarter?: 'Q1' | 'Q2' | 'Q3' | 'Q4';
+}): FiscalMonthName {
+  if (item.executionMonth) {
+    const found = FISCAL_MONTHS.find(
+      (m) => m.toLowerCase() === item.executionMonth!.trim().toLowerCase()
+    );
+    if (found) return found;
+  }
+  return getDefaultMonthForQuarter(item.targetQuarter || item.quarter);
+}
+
 export function formatRkaExecutionSchedule(item: {
   year: number;
   executionMonth?: string;
@@ -296,7 +324,21 @@ export function formatRkaExecutionSchedule(item: {
     return `${item.executionMonth.trim()} ${item.year}`;
   }
   if (item.targetQuarter) {
-    return `${item.targetQuarter} · TA ${item.year}`;
+    return `${getDefaultMonthForQuarter(item.targetQuarter)} ${item.year}`;
   }
   return `TA ${item.year}`;
+}
+
+export function formatPkptExecutionSchedule(item: {
+  year?: number;
+  executionMonth?: string;
+  quarter?: 'Q1' | 'Q2' | 'Q3' | 'Q4';
+}): string {
+  if (item.executionMonth && item.executionMonth.trim()) {
+    return item.year ? `${item.executionMonth.trim()} ${item.year}` : item.executionMonth.trim();
+  }
+  if (item.quarter) {
+    return formatQuarterAsCurrentMonth(item.quarter);
+  }
+  return 'Bulan Berjalan';
 }

@@ -303,7 +303,7 @@ export function buildRiskAnnualReportPdfDoc(opts: AnnualReportPdfOptions): jsPDF
       [
         'Ambang Batas Selera Risiko (Risk Appetite)',
         `Skor Residual <= ${analytics.appetiteThreshold}`,
-        'Risiko di atas ambang ini wajib memiliki rencana perlakuan aktif & pantauan triwulanan SPI.',
+        'Risiko di atas ambang ini wajib memiliki rencana perlakuan aktif & pantauan bulan berjalan SPI.',
       ],
       [
         'Toleransi Risiko Sangat Tinggi / Ekstrem (20–25)',

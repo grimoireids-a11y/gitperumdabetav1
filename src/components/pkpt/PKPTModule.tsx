@@ -27,7 +27,14 @@ import { useFiscalYear } from '../../context/FiscalYearContext';
 import { AUDIT_TYPES } from '../../data/initialData';
 import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
 import { calculateRkaWeightScore } from './RKAModule';
-import { getQuarterFromMonth, formatRkaExecutionSchedule } from '../../lib/featureCatalog';
+import {
+  FISCAL_MONTHS,
+  formatPkptExecutionSchedule,
+  formatRkaExecutionSchedule,
+  getDefaultMonthForQuarter,
+  getQuarterFromMonth,
+  resolveExecutionMonth,
+} from '../../lib/featureCatalog';
 import {
   isEntityScheduledInPkpt,
   mapCompositeToUnitRiskScore25,
@@ -88,6 +95,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
   const [formObjective, setFormObjective] = useState('');
   const [formScope, setFormScope] = useState('');
   const [formEstimatedDays, setFormEstimatedDays] = useState<number>(10);
+  const [formExecutionMonth, setFormExecutionMonth] = useState<string>('Januari');
   const [formQuarter, setFormQuarter] = useState<'Q1' | 'Q2' | 'Q3' | 'Q4'>('Q1');
   const [formStatus, setFormStatus] = useState<'Rencana' | 'Berlangsung' | 'Selesai'>('Rencana');
   const [formApprovalStatus, setFormApprovalStatus] = useState<'Draft' | 'Disetujui' | 'Ditolak'>('Draft');
@@ -168,9 +176,9 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
         `Pengujian pertanggungjawaban RKA ${initialPrefillFromRka.code}, pencapaian output unit ${initialPrefillFromRka.unitName}, serta kepatuhan SOP pengadaan & keuangan.`
       );
       setFormEstimatedDays(initialPrefillFromRka.strategicPriority === 'Tinggi' ? 14 : 10);
-      setFormQuarter(
-        getQuarterFromMonth(initialPrefillFromRka.executionMonth, initialPrefillFromRka.targetQuarter || 'Q1')
-      );
+      const prefillMonth = resolveExecutionMonth(initialPrefillFromRka);
+      setFormExecutionMonth(prefillMonth);
+      setFormQuarter(getQuarterFromMonth(prefillMonth, initialPrefillFromRka.targetQuarter || 'Q1'));
       setFormStatus('Rencana');
       setFormApprovalStatus(isKepalaSPI ? 'Disetujui' : 'Draft');
       setFormRiskScore(maxRisk);
@@ -201,6 +209,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
       setFormObjective(au.auditObjectiveTemplate || '');
       setFormScope(au.auditScopeTemplate || '');
       setFormEstimatedDays(au.estimatedDays || 12);
+      setFormExecutionMonth(getDefaultMonthForQuarter(au.recommendedQuarter || 'Q1'));
       setFormQuarter(au.recommendedQuarter || 'Q1');
       setFormStatus('Rencana');
       setFormApprovalStatus(isKepalaSPI ? 'Disetujui' : 'Draft');
@@ -284,6 +293,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
     setFormObjective('Memberikan assurance atas kepatuhan SOP perbaikan pipa dan akurasi meter induk');
     setFormScope('Jaringan distribusi unit pelayanan Pasaman dan pencatatan volume produksi');
     setFormEstimatedDays(12);
+    setFormExecutionMonth('Januari');
     setFormQuarter('Q1');
     setFormStatus('Rencana');
     setFormApprovalStatus(isKepalaSPI ? 'Disetujui' : 'Draft');
@@ -305,6 +315,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
     setFormObjective(p.objective);
     setFormScope(p.scope);
     setFormEstimatedDays(p.estimatedDays);
+    setFormExecutionMonth(resolveExecutionMonth(p));
     setFormQuarter(p.quarter);
     setFormStatus(p.status);
     setFormApprovalStatus(p.approvalStatus);
@@ -336,6 +347,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
       setFormObjective(au.auditObjectiveTemplate || formObjective);
       setFormScope(au.auditScopeTemplate || formScope);
       setFormEstimatedDays(au.estimatedDays || 12);
+      setFormExecutionMonth(getDefaultMonthForQuarter(au.recommendedQuarter || formQuarter));
       setFormQuarter(au.recommendedQuarter || formQuarter);
     }
   };
@@ -356,7 +368,9 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
 
     if (!editingPkpt) {
       setFormUnitId(rka.unitId || formUnitId);
-      setFormQuarter(getQuarterFromMonth(rka.executionMonth, rka.targetQuarter || formQuarter));
+      const rkaMonth = resolveExecutionMonth(rka);
+      setFormExecutionMonth(rkaMonth);
+      setFormQuarter(getQuarterFromMonth(rkaMonth, rka.targetQuarter || formQuarter));
       setFormBusinessProcess(rka.category || formBusinessProcess);
       setFormTitle(`Audit Pelaksanaan & Anggaran: ${rka.programName}`);
       setFormObjective(
@@ -406,6 +420,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
           objective: `Evaluasi realisasi anggaran Rp ${(rka.budgetAmount || 0).toLocaleString('id-ID')} dan kepatuhan pelaksanaan ${rka.programName} (${rka.code}).`,
           scope: `Pertanggungjawaban RKA ${rka.code}, efisiensi penggunaan dana, dan kesesuaian fisik/administrasi pada ${rka.unitName}.`,
           estimatedDays: rka.strategicPriority === 'Tinggi' ? 14 : 10,
+          executionMonth: resolveExecutionMonth(rka),
           quarter: getQuarterFromMonth(rka.executionMonth, rka.targetQuarter || 'Q1'),
           status: 'Rencana',
           approvalStatus: isKepalaSPI ? 'Disetujui' : 'Draft',
@@ -444,7 +459,8 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
       objective: formObjective,
       scope: formScope,
       estimatedDays: formEstimatedDays,
-      quarter: formQuarter,
+      executionMonth: formExecutionMonth,
+      quarter: getQuarterFromMonth(formExecutionMonth, formQuarter),
       status: formStatus,
       approvalStatus: formApprovalStatus,
       riskScore: formRiskScore,
@@ -527,7 +543,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
       'Pagu RKA (Rp)': p.rkaBudget || 0,
       'Skor Prioritas': p.priorityScore,
       Peringkat: p.priorityRank || '-',
-      Triwulan: p.quarter,
+      'Waktu Pelaksanaan (Bulan Berjalan)': formatPkptExecutionSchedule(p),
       'Estimasi Hari Kerja': p.estimatedDays,
       'Status Pelaksanaan': p.status,
       'Status Persetujuan': p.approvalStatus,
@@ -544,8 +560,11 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
   const filteredPkpt = pkptList
     .filter((p) => {
       const matchesYear = selectedYear === 0 || p.year === selectedYear;
-      const matchesQuarter = selectedQuarter === 'ALL' || p.quarter === selectedQuarter;
-      return matchesYear && matchesQuarter;
+      if (selectedQuarter === 'ALL') return matchesYear;
+      if (FISCAL_MONTHS.includes(selectedQuarter as any)) {
+        return matchesYear && resolveExecutionMonth(p) === selectedQuarter;
+      }
+      return matchesYear && p.quarter === selectedQuarter;
     })
     .sort((a, b) => (b.priorityScore || 0) - (a.priorityScore || 0));
 
@@ -677,11 +696,12 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
             onChange={(e) => setSelectedQuarter(e.target.value)}
             className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-800"
           >
-            <option value="ALL">Semua Triwulan (Q1 - Q4)</option>
-            <option value="Q1">Triwulan I (Q1)</option>
-            <option value="Q2">Triwulan II (Q2)</option>
-            <option value="Q3">Triwulan III (Q3)</option>
-            <option value="Q4">Triwulan IV (Q4)</option>
+            <option value="ALL">Semua Bulan Berjalan</option>
+            {FISCAL_MONTHS.map((m) => (
+              <option key={m} value={m}>
+                Bulan Berjalan: {m}
+              </option>
+            ))}
           </select>
         </div>
 
@@ -759,7 +779,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
                       </span>
                     </td>
                     <td className="py-3 px-4 text-center">
-                      <span className="font-bold text-slate-900">{p.quarter}</span>
+                      <span className="font-bold text-slate-900">{formatPkptExecutionSchedule(p)}</span>
                       <p className="text-[11px] text-slate-400 tabular-nums">{p.estimatedDays} hari kerja</p>
                     </td>
                     <td className="py-3 px-4 text-center">
@@ -1003,16 +1023,21 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Triwulan</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Bulan Berjalan</label>
                   <select
-                    value={formQuarter}
-                    onChange={(e) => setFormQuarter(e.target.value as any)}
+                    value={formExecutionMonth}
+                    onChange={(e) => {
+                      const nextMonth = e.target.value;
+                      setFormExecutionMonth(nextMonth);
+                      setFormQuarter(getQuarterFromMonth(nextMonth, 'Q1'));
+                    }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
                   >
-                    <option value="Q1">Q1</option>
-                    <option value="Q2">Q2</option>
-                    <option value="Q3">Q3</option>
-                    <option value="Q4">Q4</option>
+                    {FISCAL_MONTHS.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -1180,7 +1205,7 @@ export const PKPTModule: React.FC<PKPTModuleProps> = ({
                             )}
                           </td>
                           <td className="p-2 border border-slate-300">{p.auditType}</td>
-                          <td className="p-2 border border-slate-300 text-center font-bold text-emerald-800">{p.quarter}</td>
+                          <td className="p-2 border border-slate-300 text-center font-bold text-emerald-800">{formatPkptExecutionSchedule(p)}</td>
                           <td className="p-2 border border-slate-300 text-center">{p.estimatedDays} Hari</td>
                           <td className="p-2 border border-slate-300 text-center font-mono font-bold text-slate-800">
                             {p.priorityScore}

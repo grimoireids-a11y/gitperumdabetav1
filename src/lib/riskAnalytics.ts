@@ -734,7 +734,7 @@ export function generateDefaultAnnualReportNarratives(
         (analytics.year || new Date().getFullYear()) + 1
       }:\n` +
       `1. Penajaman Risk Appetite & Risk Tolerance berbasis indikator kinerja utama (KPI) per bidang dan unit pelayanan cabang.\n` +
-      `2. Pemantauan triwulanan wajib atas seluruh rencana aksi mitigasi risiko yang memiliki skor residual di atas ${analytics.appetiteThreshold} beserta verifikasi bukti dukung.\n` +
+      `2. Pemantauan bulan berjalan wajib atas seluruh rencana aksi mitigasi risiko yang memiliki skor residual di atas ${analytics.appetiteThreshold} beserta verifikasi bukti dukung.\n` +
       `3. Penyelarasan penuh antara skor profil risiko unit, pagu RKA strategis, dan alokasi hari penugasan auditor di PKPT.\n` +
       `4. Peningkatan kapabilitas lini pertama melalui bimbingan teknis penyusunan Register Risiko & RCSA berstandar SPIP BPKP menuju level Maturitas SPIP minimal Level 4 (Terkelola & Terukur).`,
   };

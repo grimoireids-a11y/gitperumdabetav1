@@ -491,7 +491,7 @@ export const RiskRegisterManualBookModal: React.FC<RiskRegisterManualBookModalPr
                       <span className="text-[10px] uppercase font-bold tracking-wider opacity-75 block">Level 3</span>
                       <strong className="text-xs block">Sedang</strong>
                       <span className="text-sm font-black block">5 – 10</span>
-                      <p className="text-[9.5px] opacity-85">Pengendalian triwulanan sesuai SOP</p>
+                      <p className="text-[9.5px] opacity-85">Pengendalian bulan berjalan sesuai SOP</p>
                     </div>
 
                     <div className="p-3 rounded-xl bg-lime-500 text-slate-900 space-y-1">
@@ -916,7 +916,7 @@ export const RiskRegisterManualBookModal: React.FC<RiskRegisterManualBookModalPr
                 <div className="border border-yellow-500 bg-yellow-50 p-2 rounded">
                   <strong className="text-yellow-800 block">Sedang</strong>
                   <span className="font-bold">Skor 5–10</span>
-                  <p className="text-[9.5px]">Kontrol Triwulan</p>
+                  <p className="text-[9.5px]">Kontrol Bulan Berjalan</p>
                 </div>
                 <div className="border border-lime-500 bg-lime-50 p-2 rounded">
                   <strong className="text-lime-800 block">Rendah</strong>

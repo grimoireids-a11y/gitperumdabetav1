@@ -25,6 +25,10 @@ import {
   Check,
   X,
   RotateCcw,
+  BarChart3,
+  Filter,
+  ChevronDown,
+  ChevronUp,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { db } from '../../lib/firebase';
@@ -45,6 +49,7 @@ import {
   formatRkaExecutionSchedule,
   getDefaultMonthForQuarter,
   getQuarterFromMonth,
+  resolveExecutionMonth,
 } from '../../lib/featureCatalog';
 import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
 
@@ -81,6 +86,12 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
 
   const [selectedYear, setSelectedYear] = useState<number>(activeYear);
   const [selectedCategory, setSelectedCategory] = useState<string>('ALL');
+  const [selectedMonth, setSelectedMonth] = useState<string>('ALL');
+  const [selectedUnitId, setSelectedUnitId] = useState<string>('ALL');
+  const [selectedPriority, setSelectedPriority] = useState<string>('ALL');
+  const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
+  const [selectedPkptStatus, setSelectedPkptStatus] = useState<'ALL' | 'LINKED' | 'UNLINKED'>('ALL');
+  const [showMonthlyDashboard, setShowMonthlyDashboard] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState('');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -531,22 +542,6 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     }
   };
 
-  const filteredRka = useMemo(() => {
-    return rkaList
-      .filter((r) => {
-        const matchYear = selectedYear === 0 || r.year === selectedYear;
-        const matchCat = selectedCategory === 'ALL' || r.category === selectedCategory;
-        const q = searchTerm.toLowerCase();
-        const matchSearch =
-          !q ||
-          r.programName.toLowerCase().includes(q) ||
-          r.code.toLowerCase().includes(q) ||
-          r.unitName.toLowerCase().includes(q);
-        return matchYear && matchCat && matchSearch;
-      })
-      .sort((a, b) => (b.budgetAmount || 0) - (a.budgetAmount || 0));
-  }, [rkaList, selectedYear, selectedCategory, searchTerm]);
-
   const linkedPkptMap = useMemo(() => {
     const map = new Map<string, PKPT>();
     pkptList.forEach((p) => {
@@ -554,6 +549,138 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     });
     return map;
   }, [pkptList]);
+
+  const currentCalendarMonth = FISCAL_MONTHS[new Date().getMonth()];
+
+  // Items matching all filters except month (used for the 12-Month Dashboard comparison)
+  const rkaForDashboard = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    return rkaList.filter((r) => {
+      const matchYear = selectedYear === 0 || r.year === selectedYear;
+      const matchCat = selectedCategory === 'ALL' || r.category === selectedCategory;
+      const matchUnit = selectedUnitId === 'ALL' || r.unitId === selectedUnitId;
+      const matchPriority = selectedPriority === 'ALL' || r.strategicPriority === selectedPriority;
+      const matchStatus = selectedStatus === 'ALL' || r.status === selectedStatus;
+      const isLinked = linkedPkptMap.has(r.id);
+      const matchPkpt =
+        selectedPkptStatus === 'ALL' ||
+        (selectedPkptStatus === 'LINKED' && isLinked) ||
+        (selectedPkptStatus === 'UNLINKED' && !isLinked);
+      const matchSearch =
+        !q ||
+        r.programName.toLowerCase().includes(q) ||
+        r.code.toLowerCase().includes(q) ||
+        r.unitName.toLowerCase().includes(q) ||
+        (r.pic || '').toLowerCase().includes(q);
+      return (
+        matchYear &&
+        matchCat &&
+        matchUnit &&
+        matchPriority &&
+        matchStatus &&
+        matchPkpt &&
+        matchSearch
+      );
+    });
+  }, [
+    rkaList,
+    selectedYear,
+    selectedCategory,
+    selectedUnitId,
+    selectedPriority,
+    selectedStatus,
+    selectedPkptStatus,
+    searchTerm,
+    linkedPkptMap,
+  ]);
+
+  const filteredRka = useMemo(() => {
+    return rkaForDashboard
+      .filter((r) => {
+        if (selectedMonth === 'ALL') return true;
+        return resolveExecutionMonth(r) === selectedMonth;
+      })
+      .sort((a, b) => (b.budgetAmount || 0) - (a.budgetAmount || 0));
+  }, [rkaForDashboard, selectedMonth]);
+
+  const monthlyStats = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        month: string;
+        shortMonth: string;
+        count: number;
+        budget: number;
+        realization: number;
+        highPriorityCount: number;
+        linkedCount: number;
+        absorptionPct: number;
+      }
+    >();
+
+    FISCAL_MONTHS.forEach((m) => {
+      map.set(m, {
+        month: m,
+        shortMonth: m.slice(0, 3),
+        count: 0,
+        budget: 0,
+        realization: 0,
+        highPriorityCount: 0,
+        linkedCount: 0,
+        absorptionPct: 0,
+      });
+    });
+
+    rkaForDashboard.forEach((item) => {
+      const m = resolveExecutionMonth(item);
+      const entry = map.get(m);
+      if (!entry) return;
+      entry.count += 1;
+      entry.budget += item.budgetAmount || 0;
+      entry.realization += item.realizationAmount || 0;
+      if (item.strategicPriority === 'Tinggi') entry.highPriorityCount += 1;
+      if (linkedPkptMap.has(item.id)) entry.linkedCount += 1;
+    });
+
+    const list = Array.from(map.values()).map((entry) => ({
+      ...entry,
+      absorptionPct:
+        entry.budget > 0 ? Math.min(100, Math.round((entry.realization / entry.budget) * 100)) : 0,
+    }));
+
+    const maxBudget = list.reduce((mx, cur) => Math.max(mx, cur.budget), 0);
+    const peakMonth = list.reduce(
+      (best, cur) => (cur.budget > best.budget ? cur : best),
+      list[0]
+    );
+    const activeMonthsCount = list.filter((m) => m.count > 0).length;
+
+    return { list, maxBudget, peakMonth, activeMonthsCount };
+  }, [rkaForDashboard, linkedPkptMap]);
+
+  const yearTotalForContext = useMemo(
+    () => rkaList.filter((r) => selectedYear === 0 || r.year === selectedYear).length,
+    [rkaList, selectedYear]
+  );
+
+  const hasActiveFilters =
+    selectedCategory !== 'ALL' ||
+    selectedMonth !== 'ALL' ||
+    selectedUnitId !== 'ALL' ||
+    selectedPriority !== 'ALL' ||
+    selectedStatus !== 'ALL' ||
+    selectedPkptStatus !== 'ALL' ||
+    searchTerm.trim() !== '';
+
+  const resetAllFilters = () => {
+    setSearchTerm('');
+    setSelectedCategory('ALL');
+    setSelectedMonth('ALL');
+    setSelectedUnitId('ALL');
+    setSelectedPriority('ALL');
+    setSelectedStatus('ALL');
+    setSelectedPkptStatus('ALL');
+  };
 
   const totalBudget = filteredRka.reduce((sum, r) => sum + (r.budgetAmount || 0), 0);
   const totalRealization = filteredRka.reduce((sum, r) => sum + (r.realizationAmount || 0), 0);
@@ -701,24 +828,228 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         </div>
       </div>
 
-      {/* Filter & Search Bar */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="relative flex-1 max-w-sm">
-          <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Cari kode RKA, program, atau unit..."
-            className="w-full pl-9 pr-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-800 focus:outline-hidden focus:ring-1 focus:ring-emerald-600"
-          />
+      {/* Dashboard Bulanan (12 Bulan) */}
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+              <BarChart3 className="w-4 h-4 text-emerald-700 shrink-0" />
+              <span>Dashboard Bulanan (Januari – Desember {selectedYear === 0 ? 'Semua Tahun' : selectedYear})</span>
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">
+              Bulan Berjalan: <strong className="text-emerald-800">{currentCalendarMonth}</strong>
+              {' · '}
+              {monthlyStats.activeMonthsCount}/12 bulan terjadwal
+              {monthlyStats.peakMonth && monthlyStats.peakMonth.budget > 0 && (
+                <>
+                  {' · '}
+                  Pagu tertinggi:{' '}
+                  <strong className="text-slate-800">
+                    {monthlyStats.peakMonth.month} (Rp {monthlyStats.peakMonth.budget.toLocaleString('id-ID')})
+                  </strong>
+                </>
+              )}
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {selectedMonth !== 'ALL' && (
+              <button
+                type="button"
+                onClick={() => setSelectedMonth('ALL')}
+                className="px-2.5 py-1.5 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+              >
+                Tampilkan Semua Bulan
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setShowMonthlyDashboard((prev) => !prev)}
+              className="flex items-center gap-1 px-2.5 py-1.5 text-[11px] font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <span>{showMonthlyDashboard ? 'Tutup Grafik' : 'Buka Dashboard Bulan'}</span>
+              {showMonthlyDashboard ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        {showMonthlyDashboard && (
+          <div className="p-5 space-y-5">
+            {/* 12-Month Visual Comparison Bars */}
+            <div className="bg-slate-50/70 border border-slate-200 rounded-xl p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <span className="text-[11px] font-semibold text-slate-600">
+                  Distribusi Pagu Anggaran vs Realisasi per Bulan (klik bulan untuk memfilter list)
+                </span>
+                <div className="flex items-center gap-3 text-[11px] text-slate-600">
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-xs bg-emerald-200 border border-emerald-400" />
+                    Pagu Anggaran
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <span className="w-2.5 h-2.5 rounded-xs bg-emerald-700" />
+                    Realisasi
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-6 sm:grid-cols-12 gap-2 items-end h-36 pt-3">
+                {monthlyStats.list.map((m) => {
+                  const budgetHeightPct =
+                    monthlyStats.maxBudget > 0 && m.budget > 0
+                      ? Math.max(8, Math.round((m.budget / monthlyStats.maxBudget) * 100))
+                      : 4;
+                  const realHeightPct =
+                    monthlyStats.maxBudget > 0 && m.realization > 0
+                      ? Math.max(6, Math.round((m.realization / monthlyStats.maxBudget) * 100))
+                      : 0;
+                  const isSelected = selectedMonth === m.month;
+                  const isCurrent = m.month === currentCalendarMonth;
+
+                  return (
+                    <button
+                      key={m.month}
+                      type="button"
+                      onClick={() => setSelectedMonth(isSelected ? 'ALL' : m.month)}
+                      title={`${m.month}: ${m.count} program | Pagu Rp ${m.budget.toLocaleString('id-ID')} | Realisasi Rp ${m.realization.toLocaleString('id-ID')} (${m.absorptionPct}%)`}
+                      className={`group flex flex-col items-center h-full justify-end rounded-lg p-1 transition-colors cursor-pointer ${
+                        isSelected
+                          ? 'bg-emerald-100/80 ring-1 ring-emerald-600'
+                          : isCurrent
+                          ? 'bg-amber-50/70 ring-1 ring-amber-300'
+                          : 'hover:bg-white'
+                      }`}
+                    >
+                      <span className="text-[10px] font-mono font-semibold text-slate-500 mb-1 tabular-nums">
+                        {m.count > 0 ? m.count : '-'}
+                      </span>
+                      <div className="w-full max-w-[26px] h-20 flex items-end justify-center gap-0.5">
+                        <div
+                          className={`w-1/2 rounded-t-xs transition-all ${
+                            m.budget > 0
+                              ? isSelected
+                                ? 'bg-emerald-500'
+                                : 'bg-emerald-200 group-hover:bg-emerald-300'
+                              : 'bg-slate-200'
+                          }`}
+                          style={{ height: `${budgetHeightPct}%` }}
+                        />
+                        <div
+                          className="w-1/2 rounded-t-xs bg-emerald-700 transition-all"
+                          style={{ height: `${realHeightPct}%` }}
+                        />
+                      </div>
+                      <span
+                        className={`mt-1.5 text-[10px] font-bold ${
+                          isSelected
+                            ? 'text-emerald-900'
+                            : isCurrent
+                            ? 'text-amber-800'
+                            : 'text-slate-600'
+                        }`}
+                      >
+                        {m.shortMonth}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 12-Month Breakdown Grid */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-2.5">
+              {monthlyStats.list.map((m) => {
+                const isSelected = selectedMonth === m.month;
+                const isCurrent = m.month === currentCalendarMonth;
+
+                return (
+                  <button
+                    key={m.month}
+                    type="button"
+                    onClick={() => setSelectedMonth(isSelected ? 'ALL' : m.month)}
+                    className={`text-left p-3 rounded-xl border transition-colors cursor-pointer ${
+                      isSelected
+                        ? 'bg-emerald-50 border-emerald-600 ring-1 ring-emerald-600'
+                        : isCurrent
+                        ? 'bg-amber-50/50 border-amber-300 hover:border-amber-400'
+                        : 'bg-white border-slate-200 hover:border-slate-300 hover:bg-slate-50/60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-xs font-bold text-slate-900 truncate">{m.month}</span>
+                      {isCurrent && (
+                        <span className="text-[9px] font-bold text-amber-800 uppercase tracking-wide shrink-0">
+                          Berjalan
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] font-mono font-bold text-emerald-800 mt-1 tabular-nums truncate">
+                      Rp {m.budget.toLocaleString('id-ID')}
+                    </p>
+                    <div className="flex items-center justify-between text-[10px] text-slate-500 mt-1 tabular-nums">
+                      <span>{m.count} program</span>
+                      <span className="font-mono font-semibold text-slate-700">{m.absorptionPct}%</span>
+                    </div>
+                    <div className="mt-1.5 h-1.5 w-full bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${
+                          m.absorptionPct >= 75
+                            ? 'bg-emerald-600'
+                            : m.absorptionPct > 0
+                            ? 'bg-amber-500'
+                            : 'bg-slate-200'
+                        }`}
+                        style={{ width: `${m.absorptionPct}%` }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Filter & Search Panel */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-800">
+            <Filter className="w-3.5 h-3.5 text-emerald-700" />
+            <span>Filter Daftar Program &amp; Anggaran</span>
+            <span className="text-[11px] font-normal text-slate-500 tabular-nums">
+              (Menampilkan <strong className="text-slate-900">{filteredRka.length}</strong> dari{' '}
+              {yearTotalForContext} item)
+            </span>
+          </div>
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={resetAllFilters}
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <RotateCcw className="w-3 h-3" />
+              <span>Reset Filter</span>
+            </button>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
+          <div className="relative">
+            <Search className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Cari kode, nama program, unit, PIC..."
+              className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800 focus:bg-white focus:outline-hidden focus:ring-1 focus:ring-emerald-600"
+            />
+          </div>
+
           <select
             value={selectedYear}
             onChange={(e) => setSelectedYear(parseInt(e.target.value, 10))}
-            className="px-3 py-2 text-xs font-semibold bg-white border border-slate-300 rounded-lg text-slate-800"
+            className="px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
           >
             {yearOptions.map((yr) => (
               <option key={yr} value={yr}>
@@ -729,16 +1060,75 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
           </select>
 
           <select
+            value={selectedMonth}
+            onChange={(e) => setSelectedMonth(e.target.value)}
+            className="px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Bulan Berjalan (Jan – Des)</option>
+            {FISCAL_MONTHS.map((m) => (
+              <option key={m} value={m}>
+                Bulan: {m}{m === currentCalendarMonth ? ' (Berjalan)' : ''}
+              </option>
+            ))}
+          </select>
+
+          <select
             value={selectedCategory}
             onChange={(e) => setSelectedCategory(e.target.value)}
-            className="px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg text-slate-800"
+            className="px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
           >
-            <option value="ALL">Semua Bidang / Kategori RKA</option>
+            <option value="ALL">Semua Bidang / Kategori</option>
             {categoryOptions.map((cat) => (
               <option key={cat} value={cat}>
                 {cat}
               </option>
             ))}
+          </select>
+
+          <select
+            value={selectedUnitId}
+            onChange={(e) => setSelectedUnitId(e.target.value)}
+            className="px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Pemilik Risiko / Unit</option>
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+
+          <select
+            value={selectedPriority}
+            onChange={(e) => setSelectedPriority(e.target.value)}
+            className="px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Prioritas Strategis</option>
+            <option value="Tinggi">Prioritas Tinggi</option>
+            <option value="Sedang">Prioritas Sedang</option>
+            <option value="Rendah">Prioritas Rendah</option>
+          </select>
+
+          <select
+            value={selectedStatus}
+            onChange={(e) => setSelectedStatus(e.target.value)}
+            className="px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Status Pelaksanaan</option>
+            <option value="Usulan">Usulan</option>
+            <option value="Disetujui RKAP">Disetujui RKAP</option>
+            <option value="Berjalan">Berjalan</option>
+            <option value="Selesai">Selesai</option>
+          </select>
+
+          <select
+            value={selectedPkptStatus}
+            onChange={(e) => setSelectedPkptStatus(e.target.value as 'ALL' | 'LINKED' | 'UNLINKED')}
+            className="px-3 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Status PKPT</option>
+            <option value="LINKED">Sudah Masuk PKPT</option>
+            <option value="UNLINKED">Belum Dijadwalkan di PKPT</option>
           </select>
         </div>
       </div>

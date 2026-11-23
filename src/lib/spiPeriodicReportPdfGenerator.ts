@@ -3,6 +3,7 @@ import autoTable from 'jspdf-autotable';
 import { OfficialSignatory, SPIPeriodicReport } from '../types/audit';
 import { SPIPeriodicAnalytics } from './spiPeriodicAnalytics';
 import { formatRupiahId } from './riskAnalytics';
+import { formatPkptExecutionSchedule } from './featureCatalog';
 
 export interface SpiPeriodicPdfOptions {
   report: SPIPeriodicReport;
@@ -248,14 +249,14 @@ export function buildSpiPeriodicReportPdfDoc(opts: SpiPeriodicPdfOptions): jsPDF
     theme: 'grid',
     headStyles: { fillColor: EMERALD_DARK, textColor: [255, 255, 255], fontSize: 7.8 },
     bodyStyles: { fontSize: 7.6 },
-    head: [['Judul Pengawasan PKPT', 'Unit / Auditee', 'Jenis Audit', 'Kuartal', 'Skor Prioritas', 'Status']],
+    head: [['Judul Pengawasan PKPT', 'Unit / Auditee', 'Jenis Audit', 'Bulan Berjalan', 'Skor Prioritas', 'Status']],
     body:
       analytics.pkptItems.length > 0
         ? analytics.pkptItems.map((p) => [
             p.title,
             p.unitName,
             p.auditType,
-            p.quarter,
+            formatPkptExecutionSchedule(p),
             `${p.priorityScore || p.riskScore || 0}`,
             p.status,
           ])

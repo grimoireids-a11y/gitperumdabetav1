@@ -86,7 +86,7 @@ export const INITIAL_REGULATIONS: Omit<Regulation, 'id'>[] = [
     category: 'Standar Audit',
     about: 'Prinsip, kerangka kerja, dan proses manajemen risiko korporat.',
     riskArticles: 'Klausul 5 (Integrasi Manajemen Risiko), Klausul 6.4 (Penilaian Risiko 5x5)',
-    recommendation: 'Wajibkan seluruh kepala unit menyusun dan memperbarui Risk Register triwulanan.',
+    recommendation: 'Wajibkan seluruh kepala unit menyusun dan memperbarui Risk Register bulan berjalan.',
     status: 'Berlaku',
   },
   {

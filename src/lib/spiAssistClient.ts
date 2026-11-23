@@ -91,7 +91,7 @@ C. Mitigasi Korektif:
 - Menyediakan Standby Mobile Repair Unit dengan stok klem pipa dan aksesoris cepat pakai untuk perbaikan darurat < 6 jam.
 
 3. INDIKATOR KEBERHASILAN & TARGET:
-- Angka kehilangan air fisik turun minimal 2.0% per triwulan.
+- Angka kehilangan air fisik turun minimal 2.0% per bulan berjalan.
 - Target waktu penanganan kebocoran pipa utama selesai maksimal 12 jam sejak laporan diterima.`;
   }
 
@@ -134,7 +134,7 @@ Seluruh catatan perbaikan yang dirumuskan difokuskan untuk mendorong efisiensi b
       strengthsAndAchievements: `1. Likuiditas dan solvabilitas perusahaan tangguh dengan rasio kecukupan kas di atas 120%.\n2. Efektivitas penagihan rekening air melampaui target nasional (> 91%).\n3. Rasio pegawai efisien (5.2 pegawai per 1.000 pelanggan).\n4. Sistem kepemimpinan kondusif dan peran pengawasan intern SPI telah berjalan independen.`,
       gapAnalysisAndWeaknesses: `1. Aspek Operasional: Tingkat Kehilangan Air (NRW) masih perlu ditekan menuju batas ideal (≤ 25%).\n2. Pemeliharaan Water Meter: Masih terdapat meter air pelanggan usia di atas 5 tahun yang membutuhkan peremajaan.\n3. Digitalisasi Layanan: Waktu respon perbaikan kebocoran pipa distribusi darurat perlu dipercepat melalui sistem tiket terintegrasi.`,
       strategicRecommendations: `1. Membentuk Gugus Tugas Penurunan NRW terpadu dengan target penurunan 2.5% per tahun.\n2. Mengalokasikan belanja modal (capex) khusus peremajaan water meter langganan.\n3. Melanjutkan sertifikasi profesi bidang manajemen air minum dan audit internal bagi auditor SPI.\n4. Mempertahankan predikat SEHAT dengan menjaga efisiensi rasio biaya operasi di bawah 0.85.`,
-      spipRoadmap: `Roadmap Peningkatan Maturitas SPIP:\n- Triwulan I: Pemutakhiran register risiko korporat dan RCSA seluruh unit kerja.\n- Triwulan II: Review dan pembaruan SOP yang telah berusia lebih dari 3 tahun.\n- Triwulan III: Pelaksanaan audit kepatuhan dan efektivitas pengendalian fraud (FCP).\n- Triwulan IV: Evaluasi berkala tindak lanjut rekomendasi audit dengan target penyelesaian > 90%.`,
+      spipRoadmap: `Roadmap Peningkatan Maturitas SPIP:\n- Bulan Berjalan Tahap I: Pemutakhiran register risiko korporat dan RCSA seluruh unit kerja.\n- Bulan Berjalan Tahap II: Review dan pembaruan SOP yang telah berusia lebih dari 3 tahun.\n- Bulan Berjalan Tahap III: Pelaksanaan audit kepatuhan dan efektivitas pengendalian fraud (FCP).\n- Bulan Berjalan Tahap IV: Evaluasi berkala tindak lanjut rekomendasi audit dengan target penyelesaian > 90%.`,
     };
     return JSON.stringify(result, null, 2);
   }

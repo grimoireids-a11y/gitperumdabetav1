@@ -162,7 +162,7 @@ export const BACKUP_COLLECTIONS: BackupCollectionMeta[] = [
   {
     key: 'kpi_measurements',
     label: 'Pengukuran Realisasi KPI & Rencana Aksi',
-    description: 'Realisasi periodik bulanan/triwulanan/tahunan, verifikasi SPI & rencana aksi',
+    description: 'Realisasi periodik bulan berjalan/tahunan, verifikasi SPI & rencana aksi',
   },
   {
     key: 'kpi_checklist',

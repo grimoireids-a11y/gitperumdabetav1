@@ -112,14 +112,14 @@ export const KPI_PEDOMAN_REFINEMENTS: PedomanRefinementEntry[] = [
   },
   {
     id: 'ref-6',
-    section: 'Bab VII 7.1 & 7.2 (Monitoring Bulanan/Triwulanan)',
+    section: 'Bab VII 7.1 & 7.2 (Monitoring Bulanan / Bulan Berjalan)',
     gapTitle: 'Belum Ada Aturan Akumulasi Year-to-Date (Kumulatif vs Rata-Rata vs Snapshot)',
     draftIssue:
       'Frekuensi monitoring bulanan tidak menjelaskan metode penarikan nilai berjalan (apakah dijumlahkan seperti pendapatan/sambungan baru, dirata-ratakan seperti jam layanan, atau diambil posisi terakhir seperti cakupan layanan).',
     perfectedStandard:
       'Setiap indikator dalam Kamus KPI wajib mendeklarasikan Metode Akumulasi YTD: CUMULATIVE (Penjumlahan), AVERAGE (Rata-rata periode), atau LAST_VALUE (Posisi terakhir).',
     systemImplementation:
-      'Pengukuran bulanan/triwulanan menghitung skor periodik sekaligus capaian YTD secara otomatis sesuai metode akumulasi KPI.',
+      'Pengukuran bulanan / bulan berjalan menghitung skor periodik sekaligus capaian YTD secara otomatis sesuai metode akumulasi KPI.',
   },
   {
     id: 'ref-7',
@@ -236,7 +236,7 @@ export const DEFAULT_KPI_CHECKLIST_ITEMS: Array<
     itemNumber: 13,
     componentName: 'Laporan monitoring KPI',
     pedomanRef: 'Bab VII (7.1)',
-    requiredArtifact: 'Laporan realisasi periodik bulanan/triwulanan beserta verifikasi SPI.',
+    requiredArtifact: 'Laporan realisasi periodik bulan berjalan beserta verifikasi SPI.',
     status: 'Ada',
   },
   {
@@ -365,7 +365,7 @@ export function buildStandardKPIPack(year: number, createdBy: string): KPIItem[]
       weight: 10,
       dataSource: 'Laporan Laba Rugi (Akuntansi)',
       frequency: 'Triwulanan',
-      evidenceRequired: 'Laporan Keuangan Triwulanan / Audited',
+      evidenceRequired: 'Laporan Keuangan Bulan Berjalan / Audited',
       targetBasisNote: 'Standar sehat BPKP/Permendagri rasio operasi < 100% menuju ≤ 85%.',
       linkedRkaCode: 'RKA-KEU-02',
       linkedRiskCode: 'RSK-KEU-02',
@@ -571,7 +571,7 @@ export function buildStandardKPIPack(year: number, createdBy: string): KPIItem[]
       weight: 7,
       dataSource: 'Laporan K3, Review Hukum, dan Laporan Pengaduan WBS Terbukti',
       frequency: 'Triwulanan',
-      evidenceRequired: 'Laporan K3 Triwulanan & Berita Acara Nihil Insiden',
+      evidenceRequired: 'Laporan K3 Bulan Berjalan & Berita Acara Nihil Insiden',
       targetBasisNote: 'Penerapan prinsip Zero Accident & Zero Material Non-Compliance.',
       linkedRkaCode: 'RKA-UMU-02',
       linkedRiskCode: 'RSK-K3-01',

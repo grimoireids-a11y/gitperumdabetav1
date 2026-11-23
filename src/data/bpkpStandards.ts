@@ -393,7 +393,7 @@ export const INITIAL_SPIP_ELEMENTS: SPIPElementAssessment[] = [
     subElementName: 'Analisis Risiko dan Rencana Mitigasi',
     bpkpCriteria: 'Matriks tingkat kemungkinan dan dampak 5x5, penetapan selera risiko (risk appetite), dan penugasan PIC mitigasi.',
     selfRating: 4,
-    evidenceRef: 'Peta Risiko Korporat & Jadwal Monitoring Mitigasi Triwulanan',
+    evidenceRef: 'Peta Risiko Korporat & Jadwal Monitoring Mitigasi Bulan Berjalan',
     improvementPlan: 'Peningkatan monitoring mitigasi terhadap risiko piutang air menunggak.',
   },
 
@@ -404,9 +404,9 @@ export const INITIAL_SPIP_ELEMENTS: SPIPElementAssessment[] = [
     elementName: 'Kegiatan Pengendalian',
     subElementCode: '3.1',
     subElementName: 'Reviu atas Kinerja Entitas',
-    bpkpCriteria: 'Rapat evaluasi kinerja bulanan/triwulanan membandingkan target RKAP dengan realisasi fisik dan keuangan.',
+    bpkpCriteria: 'Rapat evaluasi kinerja bulanan / bulan berjalan membandingkan target RKAP dengan realisasi fisik dan keuangan.',
     selfRating: 5,
-    evidenceRef: 'Laporan Manajemen Triwulanan ke Dewan Pengawas & KPM',
+    evidenceRef: 'Laporan Manajemen Bulan Berjalan ke Dewan Pengawas & KPM',
     improvementPlan: 'Penyajian dashboard analitik real-time agar pengambilan keputusan lebih cepat.',
   },
   {

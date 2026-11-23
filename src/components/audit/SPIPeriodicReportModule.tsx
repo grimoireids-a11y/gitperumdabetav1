@@ -44,6 +44,7 @@ import {
   buildSpiPeriodicAnalytics,
   generateSpiPeriodicNarratives,
 } from '../../lib/spiPeriodicAnalytics';
+import { formatPkptExecutionSchedule } from '../../lib/featureCatalog';
 import { formatRupiahId } from '../../lib/riskAnalytics';
 import { downloadSpiPeriodicReportPdf } from '../../lib/spiPeriodicReportPdfGenerator';
 import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
@@ -470,7 +471,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
           Judul: p.title,
           Unit: p.unitName,
           Jenis: p.auditType,
-          Kuartal: p.quarter,
+          'Bulan Berjalan': formatPkptExecutionSchedule(p),
           'Skor Prioritas': p.priorityScore || p.riskScore,
           Status: p.status,
         }))
@@ -991,7 +992,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                       <th className="py-2 px-3 font-semibold">Judul Pengawasan PKPT</th>
                       <th className="py-2 px-3 font-semibold">Unit / Auditee</th>
                       <th className="py-2 px-3 font-semibold">Jenis</th>
-                      <th className="py-2 px-3 font-semibold text-center">Kuartal</th>
+                      <th className="py-2 px-3 font-semibold text-center">Bulan Berjalan</th>
                       <th className="py-2 px-3 font-semibold text-right">Prioritas</th>
                       <th className="py-2 px-3 font-semibold">Status</th>
                     </tr>
@@ -1009,7 +1010,7 @@ export const SPIPeriodicReportModule: React.FC = () => {
                           <td className="py-2 px-3 font-medium text-slate-900">{p.title}</td>
                           <td className="py-2 px-3 text-slate-700">{p.unitName}</td>
                           <td className="py-2 px-3 text-slate-600">{p.auditType}</td>
-                          <td className="py-2 px-3 text-center font-mono">{p.quarter}</td>
+                          <td className="py-2 px-3 text-center font-mono">{formatPkptExecutionSchedule(p)}</td>
                           <td className="py-2 px-3 text-right font-mono tabular-nums">
                             {p.priorityScore || p.riskScore || 0}
                           </td>

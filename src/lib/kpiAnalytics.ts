@@ -182,13 +182,22 @@ export function calculateKPIAchievement(
   };
 }
 
+export function getFrequencyLabel(frequency?: string): string {
+  if (frequency === 'Triwulanan') return 'Bulan Berjalan';
+  return frequency || 'Bulanan';
+}
+
 export function getPeriodLabel(
   periodType: 'Bulanan' | 'Triwulanan' | 'Tahunan',
   periodIndex: number,
   year: number
 ): string {
   if (periodType === 'Tahunan') return `Tahunan ${year}`;
-  if (periodType === 'Triwulanan') return `Q${periodIndex} ${year}`;
+  if (periodType === 'Triwulanan') {
+    const spans = ['Jan–Mar', 'Apr–Jun', 'Jul–Sep', 'Okt–Des'];
+    const span = spans[Math.max(0, Math.min(3, periodIndex - 1))];
+    return `Bulan Berjalan (${span} ${year})`;
+  }
   const months = [
     'Jan',
     'Feb',

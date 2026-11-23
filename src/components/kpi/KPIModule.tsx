@@ -63,6 +63,7 @@ import {
 import {
   calculateKPIAchievement,
   evaluateOverallPredicate,
+  getFrequencyLabel,
   getLevelLabel,
   getPeriodLabel,
   getPolarityLabel,
@@ -109,8 +110,8 @@ export const KPIModule: React.FC = () => {
   const [filterUnit, setFilterUnit] = useState<string>('ALL');
 
   // Period controls for Dashboard & Measurement
-  const [periodType, setPeriodType] = useState<'Bulanan' | 'Triwulanan' | 'Tahunan'>('Triwulanan');
-  const [periodIndex, setPeriodIndex] = useState<number>(1);
+  const [periodType, setPeriodType] = useState<'Bulanan' | 'Triwulanan' | 'Tahunan'>('Bulanan');
+  const [periodIndex, setPeriodIndex] = useState<number>(() => new Date().getMonth() + 1);
   const [contractLevelFilter, setContractLevelFilter] = useState<number>(1);
   const [expandedNodes, setExpandedNodes] = useState<Record<string, boolean>>({});
   const [expandedDictId, setExpandedDictId] = useState<string | null>(null);
@@ -1273,13 +1274,14 @@ export const KPIModule: React.FC = () => {
               <select
                 value={periodType}
                 onChange={(e) => {
-                  setPeriodType(e.target.value as any);
-                  setPeriodIndex(1);
+                  const nextType = e.target.value as 'Bulanan' | 'Triwulanan' | 'Tahunan';
+                  setPeriodType(nextType);
+                  setPeriodIndex(nextType === 'Bulanan' ? new Date().getMonth() + 1 : 1);
                 }}
                 className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-md font-semibold text-slate-800"
               >
-                <option value="Bulanan">Bulanan</option>
-                <option value="Triwulanan">Triwulanan</option>
+                <option value="Bulanan">Bulan Berjalan</option>
+                <option value="Triwulanan">Bulan Berjalan (Periode 3 Bln)</option>
                 <option value="Tahunan">Tahunan</option>
               </select>
 
@@ -1305,7 +1307,7 @@ export const KPIModule: React.FC = () => {
                 >
                   {[1, 2, 3, 4].map((q) => (
                     <option key={q} value={q}>
-                      Triwulan {q} (Q{q} {selectedYear})
+                      {getPeriodLabel('Triwulanan', q, selectedYear)}
                     </option>
                   ))}
                 </select>
@@ -1710,7 +1712,7 @@ export const KPIModule: React.FC = () => {
                                 <div>
                                   <span className="font-semibold text-slate-500 block">Sumber Data & Frekuensi:</span>
                                   <p className="text-slate-900 mt-0.5">
-                                    {k.dataSource} ({k.frequency})
+                                    {k.dataSource} ({getFrequencyLabel(k.frequency)})
                                   </p>
                                 </div>
                                 <div>
@@ -1796,13 +1798,14 @@ export const KPIModule: React.FC = () => {
               <select
                 value={periodType}
                 onChange={(e) => {
-                  setPeriodType(e.target.value as any);
-                  setPeriodIndex(1);
+                  const nextType = e.target.value as 'Bulanan' | 'Triwulanan' | 'Tahunan';
+                  setPeriodType(nextType);
+                  setPeriodIndex(nextType === 'Bulanan' ? new Date().getMonth() + 1 : 1);
                 }}
                 className="px-2.5 py-1.5 bg-slate-50 border border-slate-300 rounded-md font-semibold text-slate-800"
               >
-                <option value="Bulanan">Bulanan</option>
-                <option value="Triwulanan">Triwulanan</option>
+                <option value="Bulanan">Bulan Berjalan</option>
+                <option value="Triwulanan">Bulan Berjalan (Periode 3 Bln)</option>
                 <option value="Tahunan">Tahunan</option>
               </select>
 
@@ -1828,7 +1831,7 @@ export const KPIModule: React.FC = () => {
                 >
                   {[1, 2, 3, 4].map((q) => (
                     <option key={q} value={q}>
-                      Q{q} {selectedYear}
+                      {getPeriodLabel('Triwulanan', q, selectedYear)}
                     </option>
                   ))}
                 </select>
@@ -2764,7 +2767,7 @@ export const KPIModule: React.FC = () => {
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
                   >
                     <option value="Bulanan">Bulanan</option>
-                    <option value="Triwulanan">Triwulanan</option>
+                    <option value="Triwulanan">Bulan Berjalan</option>
                     <option value="Semesteran">Semesteran</option>
                     <option value="Tahunan">Tahunan</option>
                   </select>
