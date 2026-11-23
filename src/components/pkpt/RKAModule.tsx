@@ -29,11 +29,19 @@ import {
   Filter,
   ChevronDown,
   ChevronUp,
+  ChevronRight,
+  ShieldCheck,
+  GitBranch,
+  Calendar,
+  Clock,
+  AlertCircle,
 } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { db } from '../../lib/firebase';
+import { db, handleFirestoreError, OperationType } from '../../lib/firebase';
 import {
   RKAItem,
+  RKASubItem,
+  RKAVerificationStatus,
   RKACategory,
   RKACategoryItem,
   RKAStatus,
@@ -57,6 +65,32 @@ interface RKAModuleProps {
   onNavigateToPkptWithRka?: (rkaItem: RKAItem) => void;
 }
 
+const getTodayIsoDate = (): string => {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const formatDateId = (dateStr?: string): string => {
+  if (!dateStr || !dateStr.trim()) return '-';
+  const trimmed = dateStr.trim();
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})/.exec(trimmed);
+  if (isoMatch) {
+    return `${isoMatch[3]}/${isoMatch[2]}/${isoMatch[1]}`;
+  }
+  const parsed = new Date(trimmed);
+  if (!isNaN(parsed.getTime())) {
+    return new Intl.DateTimeFormat('id-ID', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(parsed);
+  }
+  return trimmed;
+};
+
 export const calculateRkaWeightScore = (
   budgetAmount: number,
   strategicPriority: 'Tinggi' | 'Sedang' | 'Rendah'
@@ -78,6 +112,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const { activeYear, availableYears, addCustomYear } = useFiscalYear();
 
   const [rkaList, setRkaList] = useState<RKAItem[]>([]);
+  const [subItems, setSubItems] = useState<RKASubItem[]>([]);
   const [pkptList, setPkptList] = useState<PKPT[]>([]);
   const [units, setUnits] = useState<Unit[]>([]);
   const [masterCategories, setMasterCategories] = useState<RKACategoryItem[]>([]);
@@ -91,8 +126,10 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const [selectedPriority, setSelectedPriority] = useState<string>('ALL');
   const [selectedStatus, setSelectedStatus] = useState<string>('ALL');
   const [selectedPkptStatus, setSelectedPkptStatus] = useState<'ALL' | 'LINKED' | 'UNLINKED'>('ALL');
+  const [selectedVerificationFilter, setSelectedVerificationFilter] = useState<string>('ALL');
   const [showMonthlyDashboard, setShowMonthlyDashboard] = useState<boolean>(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [expandedParentIds, setExpandedParentIds] = useState<Record<string, boolean>>({});
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -104,7 +141,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setSelectedYear(activeYear);
   }, [activeYear]);
 
-  // Form states
+  // Form states (Parent Pos Induk)
   const [formYear, setFormYear] = useState<number>(activeYear);
   const [formCode, setFormCode] = useState('');
   const [formUnitId, setFormUnitId] = useState('');
@@ -115,11 +152,42 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   const [saveNewCategoryToMaster, setSaveNewCategoryToMaster] = useState(true);
   const [formBudgetAmount, setFormBudgetAmount] = useState<number>(100000000);
   const [formRealizationAmount, setFormRealizationAmount] = useState<number>(0);
+  const [formRealizationDate, setFormRealizationDate] = useState<string>('');
   const [formStrategicPriority, setFormStrategicPriority] = useState<'Tinggi' | 'Sedang' | 'Rendah'>('Tinggi');
   const [formExecutionMonth, setFormExecutionMonth] = useState<string>('Januari');
   const [formPic, setFormPic] = useState('');
   const [formStatus, setFormStatus] = useState<RKAStatus>('Disetujui RKAP');
   const [formNotes, setFormNotes] = useState('');
+
+  // Sub-Program Kerja & Realisasi modal states (Berjenjang)
+  const [isSubModalOpen, setIsSubModalOpen] = useState(false);
+  const [subParentItem, setSubParentItem] = useState<RKAItem | null>(null);
+  const [editingSubItem, setEditingSubItem] = useState<RKASubItem | null>(null);
+  const [subFormCode, setSubFormCode] = useState('');
+  const [subFormProgramName, setSubFormProgramName] = useState('');
+  const [subFormExecutionMonth, setSubFormExecutionMonth] = useState<string>('Januari');
+  const [subFormAllocatedBudget, setSubFormAllocatedBudget] = useState<number>(0);
+  const [subFormRealizationAmount, setSubFormRealizationAmount] = useState<number>(0);
+  const [subFormRealizationDate, setSubFormRealizationDate] = useState<string>('');
+  const [subFormStatus, setSubFormStatus] = useState<RKAStatus>('Berjalan');
+  const [subFormPic, setSubFormPic] = useState('');
+  const [subFormNotes, setSubFormNotes] = useState('');
+  const [subSaving, setSubSaving] = useState(false);
+
+  // Verifikasi Bidang Keuangan modal states
+  const [isVerifyModalOpen, setIsVerifyModalOpen] = useState(false);
+  const [verifyTarget, setVerifyTarget] = useState<
+    | { mode: 'sub'; sub: RKASubItem; parent: RKAItem }
+    | { mode: 'parent'; parent: RKAItem }
+    | null
+  >(null);
+  const [verifyRealizationAmount, setVerifyRealizationAmount] = useState<number>(0);
+  const [verifyRealizationDate, setVerifyRealizationDate] = useState<string>('');
+  const [verifyStatus, setVerifyStatus] = useState<RKAVerificationStatus>('Terverifikasi Keuangan');
+  const [verifyDate, setVerifyDate] = useState<string>(getTodayIsoDate());
+  const [verifyBy, setVerifyBy] = useState<string>('');
+  const [verifyNotes, setVerifyNotes] = useState<string>('');
+  const [verifySaving, setVerifySaving] = useState(false);
 
   // Category CRUD modal states (Super User)
   const [newMasterCategoryName, setNewMasterCategoryName] = useState('');
@@ -130,10 +198,16 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
 
   const isSuperUser = hasRole(['KEPALA_SPI', 'ADMIN_SISTEM']);
   const canManage = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
+  const isBidangKeuangan = hasRole(['BIDANG_KEUANGAN']);
+  const canManageSub = hasRole(['BIDANG_KEUANGAN', 'KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM']);
+  const canVerifyFinance = hasRole(['BIDANG_KEUANGAN', 'KEPALA_SPI', 'ADMIN_SISTEM']);
 
   useEffect(() => {
     const unsubRka = onSnapshot(collection(db, 'rka_items'), (snap) => {
       setRkaList(snap.docs.map((d) => ({ id: d.id, ...d.data() } as RKAItem)));
+    });
+    const unsubSubRka = onSnapshot(collection(db, 'rka_sub_items'), (snap) => {
+      setSubItems(snap.docs.map((d) => ({ id: d.id, ...d.data() } as RKASubItem)));
     });
     const unsubPkpt = onSnapshot(collection(db, 'pkpt'), (snap) => {
       setPkptList(snap.docs.map((d) => ({ id: d.id, ...d.data() } as PKPT)));
@@ -158,6 +232,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
 
     return () => {
       unsubRka();
+      unsubSubRka();
       unsubPkpt();
       unsubUnits();
       unsubCats();
@@ -253,6 +328,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setSaveNewCategoryToMaster(true);
     setFormBudgetAmount(150000000);
     setFormRealizationAmount(0);
+    setFormRealizationDate('');
     setFormStrategicPriority('Tinggi');
     setFormExecutionMonth('Januari');
     setFormPic(units[0]?.headName || units[0]?.name || 'Kepala Unit Kerja');
@@ -273,6 +349,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setSaveNewCategoryToMaster(true);
     setFormBudgetAmount(item.budgetAmount || 0);
     setFormRealizationAmount(item.realizationAmount || 0);
+    setFormRealizationDate(item.realizationDate || '');
     setFormStrategicPriority(item.strategicPriority || 'Sedang');
     setFormExecutionMonth(
       item.executionMonth && FISCAL_MONTHS.includes(item.executionMonth as any)
@@ -479,7 +556,15 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       : 'Januari';
     const derivedQuarter = getQuarterFromMonth(resolvedMonth, 'Q1');
 
-    const payload: Omit<RKAItem, 'id'> = {
+    const existingChildren = editingItem
+      ? subItems.filter((s) => s.parentRkaId === editingItem.id)
+      : [];
+    const aggregatedChildRealization = existingChildren.reduce(
+      (sum, c) => sum + (c.realizationAmount || 0),
+      0
+    );
+
+    const payload: Record<string, unknown> = {
       year: validYear,
       code: formCode.trim().toUpperCase(),
       unitId: formUnitId,
@@ -487,13 +572,24 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       programName: formProgramName.trim(),
       category: chosenCategory,
       budgetAmount: Number(formBudgetAmount) || 0,
-      realizationAmount: Number(formRealizationAmount) || 0,
+      realizationAmount:
+        existingChildren.length > 0
+          ? aggregatedChildRealization
+          : Number(formRealizationAmount) || 0,
+      realizationDate:
+        existingChildren.length > 0
+          ? editingItem?.realizationDate || ''
+          : formRealizationDate.trim(),
       strategicPriority: formStrategicPriority,
       executionMonth: resolvedMonth,
       targetQuarter: derivedQuarter,
       pic: formPic.trim() || unitName,
       notes: formNotes.trim(),
       status: formStatus,
+      verificationStatus: editingItem?.verificationStatus || 'Menunggu Verifikasi',
+      verifiedBy: editingItem?.verifiedBy || '',
+      verifiedAt: editingItem?.verifiedAt || '',
+      verificationNotes: editingItem?.verificationNotes || '',
       createdBy: editingItem?.createdBy || userProfile?.displayName || 'SPI',
       createdAt: editingItem?.createdAt || new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -521,7 +617,17 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       }
 
       if (editingItem) {
-        await updateDoc(doc(db, 'rka_items', editingItem.id), payload);
+        const batch = writeBatch(db);
+        batch.update(doc(db, 'rka_items', editingItem.id), payload);
+        if (existingChildren.length > 0 && formCode.trim().toUpperCase() !== editingItem.code) {
+          existingChildren.forEach((child) => {
+            batch.update(doc(db, 'rka_sub_items', child.id), {
+              parentRkaCode: formCode.trim().toUpperCase(),
+              year: validYear,
+            });
+          });
+        }
+        await batch.commit();
       } else {
         const id = 'rka-' + Date.now();
         await setDoc(doc(db, 'rka_items', id), { id, ...payload });
@@ -534,11 +640,292 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
   };
 
   const handleDelete = async (id: string) => {
-    if (!window.confirm('Hapus program RKA ini? Jika sudah tertaut ke PKPT, tautan referensi tetap aman namun item RKA ini dihapus.')) return;
+    const childList = subItems.filter((s) => s.parentRkaId === id);
+    const msg =
+      childList.length > 0
+        ? `Hapus Pos Anggaran Induk ini beserta ${childList.length} Sub-Program Kerja turunannya?`
+        : 'Hapus program RKA ini? Jika sudah tertaut ke PKPT, tautan referensi tetap aman namun item RKA ini dihapus.';
+    if (!window.confirm(msg)) return;
     try {
-      await deleteDoc(doc(db, 'rka_items', id));
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'rka_items', id));
+      childList.forEach((c) => {
+        batch.delete(doc(db, 'rka_sub_items', c.id));
+      });
+      await batch.commit();
     } catch (err) {
       console.error('Error deleting RKA item:', err);
+      handleFirestoreError(err, OperationType.DELETE, `rka_items/${id}`);
+    }
+  };
+
+  // Compute parent summary update payload whenever sub-items change
+  const buildParentSyncFields = (parent: RKAItem, nextChildren: RKASubItem[]) => {
+    const nowIso = new Date().toISOString();
+    if (nextChildren.length === 0) {
+      return {
+        realizationAmount: 0,
+        realizationDate: '',
+        verificationStatus: 'Menunggu Verifikasi' as RKAVerificationStatus,
+        verifiedAt: '',
+        verifiedBy: '',
+        updatedAt: nowIso,
+      };
+    }
+
+    const totalReal = nextChildren.reduce((sum, c) => sum + (c.realizationAmount || 0), 0);
+    const realDates = nextChildren
+      .map((c) => (c.realizationDate || '').trim())
+      .filter(Boolean)
+      .sort((a, b) => b.localeCompare(a));
+    const latestRealDate = realDates[0] || '';
+
+    const verifiedChildren = nextChildren.filter(
+      (c) => c.verificationStatus === 'Terverifikasi Keuangan'
+    );
+    const revisionChildren = nextChildren.filter(
+      (c) => c.verificationStatus === 'Perlu Revisi'
+    );
+    const verDates = verifiedChildren
+      .map((c) => ({ date: (c.verifiedAt || '').trim(), by: c.verifiedBy || '' }))
+      .filter((x) => Boolean(x.date))
+      .sort((a, b) => b.date.localeCompare(a.date));
+
+    let nextVerStatus: RKAVerificationStatus = 'Menunggu Verifikasi';
+    if (verifiedChildren.length === nextChildren.length) {
+      nextVerStatus = 'Terverifikasi Keuangan';
+    } else if (revisionChildren.length > 0) {
+      nextVerStatus = 'Perlu Revisi';
+    }
+
+    return {
+      realizationAmount: totalReal,
+      realizationDate: latestRealDate,
+      verificationStatus: nextVerStatus,
+      verifiedAt: verDates[0]?.date || '',
+      verifiedBy: verDates[0]?.by || verifiedChildren[0]?.verifiedBy || parent.verifiedBy || '',
+      updatedAt: nowIso,
+    };
+  };
+
+  const openAddSubModal = (parent: RKAItem) => {
+    const existing = subItems.filter((s) => s.parentRkaId === parent.id);
+    const nextIdx = existing.length + 1;
+    const allocatedSoFar = existing.reduce((s, c) => s + (c.allocatedBudget || 0), 0);
+    const remaining = Math.max(0, (parent.budgetAmount || 0) - allocatedSoFar);
+
+    setSubParentItem(parent);
+    setEditingSubItem(null);
+    setSubFormCode(`${parent.code}.${String(nextIdx).padStart(2, '0')}`);
+    setSubFormProgramName('');
+    setSubFormExecutionMonth(resolveExecutionMonth(parent));
+    setSubFormAllocatedBudget(remaining > 0 ? remaining : 0);
+    setSubFormRealizationAmount(0);
+    setSubFormRealizationDate(getTodayIsoDate());
+    setSubFormStatus('Berjalan');
+    setSubFormPic(parent.pic || parent.unitName || '');
+    setSubFormNotes('');
+    setIsSubModalOpen(true);
+  };
+
+  const openEditSubModal = (parent: RKAItem, sub: RKASubItem) => {
+    setSubParentItem(parent);
+    setEditingSubItem(sub);
+    setSubFormCode(sub.subCode);
+    setSubFormProgramName(sub.programName);
+    setSubFormExecutionMonth(
+      sub.executionMonth && FISCAL_MONTHS.includes(sub.executionMonth as any)
+        ? sub.executionMonth
+        : resolveExecutionMonth(parent)
+    );
+    setSubFormAllocatedBudget(sub.allocatedBudget || 0);
+    setSubFormRealizationAmount(sub.realizationAmount || 0);
+    setSubFormRealizationDate(sub.realizationDate || '');
+    setSubFormStatus(sub.status || 'Berjalan');
+    setSubFormPic(sub.pic || '');
+    setSubFormNotes(sub.notes || '');
+    setIsSubModalOpen(true);
+  };
+
+  const handleSaveSubItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!subParentItem || !subFormCode.trim() || !subFormProgramName.trim()) return;
+    setSubSaving(true);
+    const nowIso = new Date().toISOString();
+    const subId = editingSubItem ? editingSubItem.id : `rka-sub-${Date.now()}`;
+    const realAmt = Number(subFormRealizationAmount) || 0;
+    const resolvedRealDate =
+      subFormRealizationDate.trim() || (realAmt > 0 ? getTodayIsoDate() : '');
+
+    const subPayload: RKASubItem = {
+      id: subId,
+      parentRkaId: subParentItem.id,
+      parentRkaCode: subParentItem.code,
+      year: subParentItem.year,
+      subCode: subFormCode.trim().toUpperCase(),
+      programName: subFormProgramName.trim(),
+      executionMonth: subFormExecutionMonth,
+      allocatedBudget: Number(subFormAllocatedBudget) || 0,
+      realizationAmount: realAmt,
+      realizationDate: resolvedRealDate,
+      pic: subFormPic.trim() || subParentItem.pic || subParentItem.unitName,
+      notes: subFormNotes.trim(),
+      status: subFormStatus,
+      verificationStatus: editingSubItem?.verificationStatus || 'Menunggu Verifikasi',
+      verifiedBy: editingSubItem?.verifiedBy || '',
+      verifiedAt: editingSubItem?.verifiedAt || '',
+      verificationNotes: editingSubItem?.verificationNotes || '',
+      createdBy: editingSubItem?.createdBy || userProfile?.displayName || 'Bidang Keuangan',
+      createdByRole: editingSubItem?.createdByRole || userProfile?.role || 'BIDANG_KEUANGAN',
+      createdAt: editingSubItem?.createdAt || nowIso,
+      updatedAt: nowIso,
+    };
+
+    try {
+      const siblingSubs = subItems.filter(
+        (s) => s.parentRkaId === subParentItem.id && s.id !== subId
+      );
+      const nextChildren = [...siblingSubs, subPayload];
+      const parentSync = buildParentSyncFields(subParentItem, nextChildren);
+
+      const batch = writeBatch(db);
+      batch.set(doc(db, 'rka_sub_items', subId), subPayload);
+      batch.update(doc(db, 'rka_items', subParentItem.id), parentSync);
+      await batch.commit();
+
+      setExpandedParentIds((prev) => ({ ...prev, [subParentItem.id]: true }));
+      setIsSubModalOpen(false);
+    } catch (err) {
+      console.error('Error saving RKA sub-program:', err);
+      handleFirestoreError(err, OperationType.WRITE, `rka_sub_items/${subId}`);
+      alert('Gagal menyimpan Sub-Program RKA.');
+    } finally {
+      setSubSaving(false);
+    }
+  };
+
+  const handleDeleteSubItem = async (parent: RKAItem, sub: RKASubItem) => {
+    if (!window.confirm(`Hapus sub-program "${sub.subCode} — ${sub.programName}"?`)) return;
+    try {
+      const remainingSubs = subItems.filter(
+        (s) => s.parentRkaId === parent.id && s.id !== sub.id
+      );
+      const parentSync = buildParentSyncFields(parent, remainingSubs);
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'rka_sub_items', sub.id));
+      batch.update(doc(db, 'rka_items', parent.id), parentSync);
+      await batch.commit();
+    } catch (err) {
+      console.error('Error deleting RKA sub-program:', err);
+      handleFirestoreError(err, OperationType.DELETE, `rka_sub_items/${sub.id}`);
+    }
+  };
+
+  const openVerifySubModal = (parent: RKAItem, sub: RKASubItem) => {
+    setVerifyTarget({ mode: 'sub', sub, parent });
+    setVerifyRealizationAmount(sub.realizationAmount || 0);
+    setVerifyRealizationDate(sub.realizationDate || (sub.realizationAmount > 0 ? getTodayIsoDate() : ''));
+    setVerifyStatus(
+      sub.verificationStatus === 'Terverifikasi Keuangan' || sub.verificationStatus === 'Perlu Revisi'
+        ? sub.verificationStatus
+        : 'Terverifikasi Keuangan'
+    );
+    setVerifyDate(sub.verifiedAt || getTodayIsoDate());
+    setVerifyBy(
+      sub.verifiedBy ||
+        `${userProfile?.displayName || 'Petugas Keuangan'}${
+          isBidangKeuangan ? ' (Bidang Keuangan)' : ''
+        }`
+    );
+    setVerifyNotes(sub.verificationNotes || '');
+    setIsVerifyModalOpen(true);
+  };
+
+  const openVerifyParentModal = (parent: RKAItem) => {
+    setVerifyTarget({ mode: 'parent', parent });
+    setVerifyRealizationAmount(parent.realizationAmount || 0);
+    setVerifyRealizationDate(
+      parent.realizationDate || ((parent.realizationAmount || 0) > 0 ? getTodayIsoDate() : '')
+    );
+    setVerifyStatus(
+      parent.verificationStatus === 'Terverifikasi Keuangan' || parent.verificationStatus === 'Perlu Revisi'
+        ? parent.verificationStatus
+        : 'Terverifikasi Keuangan'
+    );
+    setVerifyDate(parent.verifiedAt || getTodayIsoDate());
+    setVerifyBy(
+      parent.verifiedBy ||
+        `${userProfile?.displayName || 'Petugas Keuangan'}${
+          isBidangKeuangan ? ' (Bidang Keuangan)' : ''
+        }`
+    );
+    setVerifyNotes(parent.verificationNotes || '');
+    setIsVerifyModalOpen(true);
+  };
+
+  const handleSaveVerification = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verifyTarget) return;
+    setVerifySaving(true);
+    const nowIso = new Date().toISOString();
+    const realAmt = Number(verifyRealizationAmount) || 0;
+    const resolvedRealDate =
+      verifyRealizationDate.trim() || (realAmt > 0 ? getTodayIsoDate() : '');
+    const resolvedVerifyDate =
+      verifyStatus === 'Menunggu Verifikasi' ? '' : verifyDate.trim() || getTodayIsoDate();
+    const resolvedVerifier =
+      verifyStatus === 'Menunggu Verifikasi'
+        ? ''
+        : verifyBy.trim() || userProfile?.displayName || 'Bidang Keuangan';
+
+    try {
+      if (verifyTarget.mode === 'sub') {
+        const updatedSub: RKASubItem = {
+          ...verifyTarget.sub,
+          realizationAmount: realAmt,
+          realizationDate: resolvedRealDate,
+          verificationStatus: verifyStatus,
+          verifiedAt: resolvedVerifyDate,
+          verifiedBy: resolvedVerifier,
+          verificationNotes: verifyNotes.trim(),
+          updatedAt: nowIso,
+        };
+        const siblingSubs = subItems.filter(
+          (s) => s.parentRkaId === verifyTarget.parent.id && s.id !== updatedSub.id
+        );
+        const nextChildren = [...siblingSubs, updatedSub];
+        const parentSync = buildParentSyncFields(verifyTarget.parent, nextChildren);
+
+        const batch = writeBatch(db);
+        batch.update(doc(db, 'rka_sub_items', updatedSub.id), {
+          realizationAmount: updatedSub.realizationAmount,
+          realizationDate: updatedSub.realizationDate,
+          verificationStatus: updatedSub.verificationStatus,
+          verifiedAt: updatedSub.verifiedAt,
+          verifiedBy: updatedSub.verifiedBy,
+          verificationNotes: updatedSub.verificationNotes,
+          updatedAt: nowIso,
+        });
+        batch.update(doc(db, 'rka_items', verifyTarget.parent.id), parentSync);
+        await batch.commit();
+      } else {
+        await updateDoc(doc(db, 'rka_items', verifyTarget.parent.id), {
+          realizationAmount: realAmt,
+          realizationDate: resolvedRealDate,
+          verificationStatus: verifyStatus,
+          verifiedAt: resolvedVerifyDate,
+          verifiedBy: resolvedVerifier,
+          verificationNotes: verifyNotes.trim(),
+          updatedAt: nowIso,
+        });
+      }
+      setIsVerifyModalOpen(false);
+    } catch (err) {
+      console.error('Error saving verification:', err);
+      handleFirestoreError(err, OperationType.UPDATE, 'rka_verification');
+      alert('Gagal menyimpan verifikasi keuangan.');
+    } finally {
+      setVerifySaving(false);
     }
   };
 
@@ -550,12 +937,97 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     return map;
   }, [pkptList]);
 
+  // Group sub-items by parentRkaId and compute rollup metrics per parent RKA
+  const subItemsByParentMap = useMemo(() => {
+    const map = new Map<string, RKASubItem[]>();
+    subItems.forEach((sub) => {
+      const list = map.get(sub.parentRkaId) || [];
+      list.push(sub);
+      map.set(sub.parentRkaId, list);
+    });
+    map.forEach((list, key) => {
+      list.sort((a, b) => (a.subCode || '').localeCompare(b.subCode || ''));
+      map.set(key, list);
+    });
+    return map;
+  }, [subItems]);
+
+  const getParentSummary = (item: RKAItem) => {
+    const children = subItemsByParentMap.get(item.id) || [];
+    const hasChildren = children.length > 0;
+    const totalAllocatedSub = children.reduce((s, c) => s + (c.allocatedBudget || 0), 0);
+    const remainingCeiling = (item.budgetAmount || 0) - totalAllocatedSub;
+    const isOverCeiling = hasChildren && totalAllocatedSub > (item.budgetAmount || 0);
+    const effectiveRealization = hasChildren
+      ? children.reduce((s, c) => s + (c.realizationAmount || 0), 0)
+      : item.realizationAmount || 0;
+
+    const verifiedCount = children.filter(
+      (c) => c.verificationStatus === 'Terverifikasi Keuangan'
+    ).length;
+    const revisionCount = children.filter(
+      (c) => c.verificationStatus === 'Perlu Revisi'
+    ).length;
+
+    let effectiveVerificationStatus: RKAVerificationStatus =
+      item.verificationStatus || 'Menunggu Verifikasi';
+    if (hasChildren) {
+      if (verifiedCount === children.length) {
+        effectiveVerificationStatus = 'Terverifikasi Keuangan';
+      } else if (revisionCount > 0) {
+        effectiveVerificationStatus = 'Perlu Revisi';
+      } else {
+        effectiveVerificationStatus = 'Menunggu Verifikasi';
+      }
+    }
+
+    const latestRealizationDate = hasChildren
+      ? children
+          .map((c) => (c.realizationDate || '').trim())
+          .filter(Boolean)
+          .sort((a, b) => b.localeCompare(a))[0] ||
+        item.realizationDate ||
+        ''
+      : item.realizationDate || '';
+
+    const latestVerifiedEntry = hasChildren
+      ? children
+          .filter((c) => c.verificationStatus === 'Terverifikasi Keuangan' && (c.verifiedAt || '').trim())
+          .sort((a, b) => (b.verifiedAt || '').localeCompare(a.verifiedAt || ''))[0]
+      : null;
+
+    const latestVerificationDate = hasChildren
+      ? latestVerifiedEntry?.verifiedAt || item.verifiedAt || ''
+      : item.verifiedAt || '';
+
+    const latestVerifiedBy = hasChildren
+      ? latestVerifiedEntry?.verifiedBy || item.verifiedBy || ''
+      : item.verifiedBy || '';
+
+    return {
+      children,
+      hasChildren,
+      totalAllocatedSub,
+      remainingCeiling,
+      isOverCeiling,
+      effectiveRealization,
+      verifiedCount,
+      revisionCount,
+      effectiveVerificationStatus,
+      latestRealizationDate,
+      latestVerificationDate,
+      latestVerifiedBy,
+    };
+  };
+
   const currentCalendarMonth = FISCAL_MONTHS[new Date().getMonth()];
 
   // Items matching all filters except month (used for the 12-Month Dashboard comparison)
   const rkaForDashboard = useMemo(() => {
     const q = searchTerm.toLowerCase();
     return rkaList.filter((r) => {
+      const children = subItemsByParentMap.get(r.id) || [];
+      const summary = getParentSummary(r);
       const matchYear = selectedYear === 0 || r.year === selectedYear;
       const matchCat = selectedCategory === 'ALL' || r.category === selectedCategory;
       const matchUnit = selectedUnitId === 'ALL' || r.unitId === selectedUnitId;
@@ -566,12 +1038,24 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         selectedPkptStatus === 'ALL' ||
         (selectedPkptStatus === 'LINKED' && isLinked) ||
         (selectedPkptStatus === 'UNLINKED' && !isLinked);
+      const matchVerification =
+        selectedVerificationFilter === 'ALL' ||
+        (selectedVerificationFilter === 'HAS_SUB' && summary.hasChildren) ||
+        (selectedVerificationFilter !== 'HAS_SUB' &&
+          summary.effectiveVerificationStatus === selectedVerificationFilter);
+      const matchChildSearch = children.some(
+        (c) =>
+          c.subCode.toLowerCase().includes(q) ||
+          c.programName.toLowerCase().includes(q) ||
+          (c.pic || '').toLowerCase().includes(q)
+      );
       const matchSearch =
         !q ||
         r.programName.toLowerCase().includes(q) ||
         r.code.toLowerCase().includes(q) ||
         r.unitName.toLowerCase().includes(q) ||
-        (r.pic || '').toLowerCase().includes(q);
+        (r.pic || '').toLowerCase().includes(q) ||
+        matchChildSearch;
       return (
         matchYear &&
         matchCat &&
@@ -579,17 +1063,20 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         matchPriority &&
         matchStatus &&
         matchPkpt &&
+        matchVerification &&
         matchSearch
       );
     });
   }, [
     rkaList,
+    subItemsByParentMap,
     selectedYear,
     selectedCategory,
     selectedUnitId,
     selectedPriority,
     selectedStatus,
     selectedPkptStatus,
+    selectedVerificationFilter,
     searchTerm,
     linkedPkptMap,
   ]);
@@ -598,10 +1085,14 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     return rkaForDashboard
       .filter((r) => {
         if (selectedMonth === 'ALL') return true;
-        return resolveExecutionMonth(r) === selectedMonth;
+        const children = subItemsByParentMap.get(r.id) || [];
+        return (
+          resolveExecutionMonth(r) === selectedMonth ||
+          children.some((c) => c.executionMonth === selectedMonth)
+        );
       })
       .sort((a, b) => (b.budgetAmount || 0) - (a.budgetAmount || 0));
-  }, [rkaForDashboard, selectedMonth]);
+  }, [rkaForDashboard, selectedMonth, subItemsByParentMap]);
 
   const monthlyStats = useMemo(() => {
     const map = new Map<
@@ -635,9 +1126,10 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
       const m = resolveExecutionMonth(item);
       const entry = map.get(m);
       if (!entry) return;
+      const summary = getParentSummary(item);
       entry.count += 1;
       entry.budget += item.budgetAmount || 0;
-      entry.realization += item.realizationAmount || 0;
+      entry.realization += summary.effectiveRealization;
       if (item.strategicPriority === 'Tinggi') entry.highPriorityCount += 1;
       if (linkedPkptMap.has(item.id)) entry.linkedCount += 1;
     });
@@ -656,7 +1148,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     const activeMonthsCount = list.filter((m) => m.count > 0).length;
 
     return { list, maxBudget, peakMonth, activeMonthsCount };
-  }, [rkaForDashboard, linkedPkptMap]);
+  }, [rkaForDashboard, linkedPkptMap, subItemsByParentMap]);
 
   const yearTotalForContext = useMemo(
     () => rkaList.filter((r) => selectedYear === 0 || r.year === selectedYear).length,
@@ -670,6 +1162,7 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     selectedPriority !== 'ALL' ||
     selectedStatus !== 'ALL' ||
     selectedPkptStatus !== 'ALL' ||
+    selectedVerificationFilter !== 'ALL' ||
     searchTerm.trim() !== '';
 
   const resetAllFilters = () => {
@@ -680,29 +1173,102 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
     setSelectedPriority('ALL');
     setSelectedStatus('ALL');
     setSelectedPkptStatus('ALL');
+    setSelectedVerificationFilter('ALL');
   };
 
   const totalBudget = filteredRka.reduce((sum, r) => sum + (r.budgetAmount || 0), 0);
-  const totalRealization = filteredRka.reduce((sum, r) => sum + (r.realizationAmount || 0), 0);
+  const totalRealization = filteredRka.reduce(
+    (sum, r) => sum + getParentSummary(r).effectiveRealization,
+    0
+  );
+  const totalSubProgramsCount = filteredRka.reduce(
+    (sum, r) => sum + getParentSummary(r).children.length,
+    0
+  );
+  const verifiedProgramsCount = filteredRka.filter(
+    (r) => getParentSummary(r).effectiveVerificationStatus === 'Terverifikasi Keuangan'
+  ).length;
   const highPriorityCount = filteredRka.filter((r) => r.strategicPriority === 'Tinggi').length;
   const linkedToPkptCount = filteredRka.filter((r) => linkedPkptMap.has(r.id)).length;
 
+  const allExpandableIds = useMemo(
+    () => filteredRka.filter((r) => (subItemsByParentMap.get(r.id) || []).length > 0).map((r) => r.id),
+    [filteredRka, subItemsByParentMap]
+  );
+  const areAllExpanded =
+    allExpandableIds.length > 0 && allExpandableIds.every((id) => Boolean(expandedParentIds[id]));
+
+  const toggleExpandAll = () => {
+    if (areAllExpanded) {
+      setExpandedParentIds({});
+    } else {
+      const next: Record<string, boolean> = {};
+      allExpandableIds.forEach((id) => {
+        next[id] = true;
+      });
+      setExpandedParentIds(next);
+    }
+  };
+
   const exportToExcel = () => {
-    const rows = filteredRka.map((r, idx) => ({
-      No: idx + 1,
-      Tahun: r.year,
-      'Kode RKA': r.code,
-      'Unit Kerja / Pemilik Risiko': r.unitName,
-      'Nama Program / Kegiatan RKA': r.programName,
-      'Bidang / Kategori': r.category,
-      'Pagu Anggaran (Rp)': r.budgetAmount,
-      'Realisasi (Rp)': r.realizationAmount || 0,
-      'Prioritas Strategis': r.strategicPriority,
-      'Bobot Materialitas RKA': calculateRkaWeightScore(r.budgetAmount, r.strategicPriority),
-      'Waktu Pelaksanaan': formatRkaExecutionSchedule(r),
-      Status: r.status,
-      'Masuk PKPT': linkedPkptMap.has(r.id) ? 'Sudah Masuk PKPT' : 'Belum Dijadwalkan',
-    }));
+    const rows: Record<string, unknown>[] = [];
+    let rowIdx = 0;
+
+    filteredRka.forEach((r) => {
+      rowIdx += 1;
+      const summary = getParentSummary(r);
+      rows.push({
+        No: rowIdx,
+        Tingkat: 'Pos Anggaran Induk',
+        Tahun: r.year,
+        'Kode Induk': r.code,
+        'Kode Program': r.code,
+        'Unit Kerja / Pemilik Risiko': r.unitName,
+        'Nama Program / Sub-Program': r.programName,
+        'Bidang / Kategori': r.category,
+        'Pagu / Alokasi Anggaran (Rp)': r.budgetAmount,
+        'Realisasi (Rp)': summary.effectiveRealization,
+        'Tanggal Realisasi': formatDateId(summary.latestRealizationDate),
+        'Status Verifikasi Keuangan': summary.hasChildren
+          ? `${summary.effectiveVerificationStatus} (${summary.verifiedCount}/${summary.children.length})`
+          : summary.effectiveVerificationStatus,
+        'Tanggal Verifikasi': formatDateId(summary.latestVerificationDate),
+        'Diverifikasi Oleh': summary.latestVerifiedBy || '-',
+        'Catatan Verifikasi': r.verificationNotes || '-',
+        'Waktu Pelaksanaan': formatRkaExecutionSchedule(r),
+        'Prioritas Strategis': r.strategicPriority,
+        'Bobot Materialitas RKA': calculateRkaWeightScore(r.budgetAmount, r.strategicPriority),
+        Status: r.status,
+        'Masuk PKPT': linkedPkptMap.has(r.id) ? 'Sudah Masuk PKPT' : 'Belum Dijadwalkan',
+      });
+
+      summary.children.forEach((sub) => {
+        rowIdx += 1;
+        rows.push({
+          No: rowIdx,
+          Tingkat: 'Sub-Program Kerja',
+          Tahun: sub.year,
+          'Kode Induk': r.code,
+          'Kode Program': sub.subCode,
+          'Unit Kerja / Pemilik Risiko': r.unitName,
+          'Nama Program / Sub-Program': `   └ ${sub.programName}`,
+          'Bidang / Kategori': r.category,
+          'Pagu / Alokasi Anggaran (Rp)': sub.allocatedBudget,
+          'Realisasi (Rp)': sub.realizationAmount || 0,
+          'Tanggal Realisasi': formatDateId(sub.realizationDate),
+          'Status Verifikasi Keuangan': sub.verificationStatus || 'Menunggu Verifikasi',
+          'Tanggal Verifikasi': formatDateId(sub.verifiedAt),
+          'Diverifikasi Oleh': sub.verifiedBy || '-',
+          'Catatan Verifikasi': sub.verificationNotes || '-',
+          'Waktu Pelaksanaan': `${sub.executionMonth} ${sub.year}`,
+          'Prioritas Strategis': r.strategicPriority,
+          'Bobot Materialitas RKA': '-',
+          Status: sub.status,
+          'Masuk PKPT': '-',
+        });
+      });
+    });
+
     const ws = XLSX.utils.json_to_sheet(rows);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'RKA');
@@ -777,44 +1343,73 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         </div>
       </div>
 
-      {/* Info Banner: Bagaimana RKA Mempengaruhi PKPT */}
-      <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50/70 border border-emerald-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
-        <div className="space-y-1">
-          <p className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
-            <TrendingUp className="w-4 h-4 text-emerald-700" />
-            Integrasi Otomatis RKA ke Penyusunan PKPT Berbasis Risiko
-          </p>
-          <p className="text-[11px] text-emerald-900 leading-relaxed">
-            Setiap item RKA yang diinput menghasilkan <strong>Skor Materialitas Anggaran & Prioritas Strategis (0–100)</strong>. Saat menyusun PKPT, skor prioritas audit dihitung dari gabungan{' '}
-            <strong>60% Profil Risiko Unit + 40% Bobot Materialitas RKA</strong>, atau klik <strong>“Ke PKPT”</strong> langsung pada baris program RKA.
-          </p>
+      {/* Info Banner: Peran Bidang Keuangan & Hierarki RKA atau Integrasi PKPT */}
+      {isBidangKeuangan ? (
+        <div className="p-4 bg-emerald-50/70 border border-emerald-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+              <ShieldCheck className="w-4 h-4 text-emerald-700" />
+              Portal Pengisian Realisasi &amp; Verifikasi Anggaran Berjenjang (Bidang Keuangan)
+            </p>
+            <p className="text-[11px] text-emerald-900 leading-relaxed">
+              Klik <strong>+ Sub-Program</strong> pada Pos Anggaran Induk (mis.{' '}
+              <span className="font-mono font-semibold">RKA-2027-018</span>) untuk membuat rincian program kerja dan
+              realisasi terhadap pagu induk tersebut, lalu klik <strong>Verifikasi</strong> untuk mencatat{' '}
+              <strong>Tanggal Realisasi</strong>, <strong>Tanggal Verifikasi</strong>, dan status keabsahan keuangan.
+            </p>
+          </div>
         </div>
-      </div>
+      ) : (
+        <div className="p-4 bg-gradient-to-r from-emerald-50 to-teal-50/70 border border-emerald-200 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="space-y-1">
+            <p className="text-xs font-bold text-emerald-950 flex items-center gap-1.5">
+              <TrendingUp className="w-4 h-4 text-emerald-700" />
+              Anggaran Berjenjang, Verifikasi Keuangan &amp; Integrasi PKPT
+            </p>
+            <p className="text-[11px] text-emerald-900 leading-relaxed">
+              Setiap item RKA berlaku sebagai <strong>Pos Anggaran Induk</strong> yang dapat diturunkan menjadi beberapa{' '}
+              <strong>Sub-Program Kerja &amp; Realisasi</strong> (diisi &amp; diverifikasi oleh peran{' '}
+              <strong>Bidang Keuangan</strong>). Bobot Materialitas (0–100) otomatis terhubung ke prioritas{' '}
+              <strong>PKPT Berbasis Risiko</strong>.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* KPI Summary Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500">Total Program RKA</span>
-          <p className="text-2xl font-extrabold text-slate-900 mt-1 tabular-nums">{filteredRka.length}</p>
+          <span className="text-[11px] font-semibold text-slate-500">Pos Anggaran Induk &amp; Sub</span>
+          <p className="text-2xl font-extrabold text-slate-900 mt-1 tabular-nums">
+            {filteredRka.length}
+            <span className="text-xs font-semibold text-slate-500 ml-1.5">
+              · {totalSubProgramsCount} Sub-Program
+            </span>
+          </p>
           <span className="text-[10px] text-slate-400">
             Tahun {selectedYear === 0 ? 'Semua Tahun' : selectedYear}
           </span>
         </div>
 
         <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500">Total Pagu Anggaran RKA</span>
-          <p className="text-xl font-extrabold text-emerald-800 mt-1 tabular-nums">
+          <span className="text-[11px] font-semibold text-slate-500">Total Pagu Anggaran Induk</span>
+          <p className="text-xl font-extrabold text-emerald-800 mt-1 font-mono tabular-nums">
             Rp {totalBudget.toLocaleString('id-ID')}
           </p>
-          <span className="text-[10px] text-slate-400">
-            Realisasi: Rp {totalRealization.toLocaleString('id-ID')}
+          <span className="text-[10px] text-slate-500 font-mono tabular-nums">
+            Realisasi: Rp {totalRealization.toLocaleString('id-ID')} (
+            {totalBudget > 0 ? Math.round((totalRealization / totalBudget) * 100) : 0}%)
           </span>
         </div>
 
         <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-slate-500">RKA Prioritas Tinggi</span>
-          <p className="text-2xl font-extrabold text-amber-600 mt-1 tabular-nums">{highPriorityCount}</p>
-          <span className="text-[10px] text-amber-700 font-medium">Wajib menjadi perhatian audit SPI</span>
+          <span className="text-[11px] font-semibold text-slate-500">Verifikasi Bidang Keuangan</span>
+          <p className="text-2xl font-extrabold text-emerald-700 mt-1 tabular-nums">
+            {verifiedProgramsCount} / {filteredRka.length}
+          </p>
+          <span className="text-[10px] text-slate-500">
+            {highPriorityCount} pos prioritas tinggi
+          </span>
         </div>
 
         <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-2xs">
@@ -1130,138 +1725,460 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
             <option value="LINKED">Sudah Masuk PKPT</option>
             <option value="UNLINKED">Belum Dijadwalkan di PKPT</option>
           </select>
+
+          <select
+            value={selectedVerificationFilter}
+            onChange={(e) => setSelectedVerificationFilter(e.target.value)}
+            className="px-3 py-2 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-lg text-slate-800"
+          >
+            <option value="ALL">Semua Verifikasi Keuangan</option>
+            <option value="Terverifikasi Keuangan">Terverifikasi Keuangan</option>
+            <option value="Menunggu Verifikasi">Menunggu Verifikasi</option>
+            <option value="Perlu Revisi">Perlu Revisi</option>
+            <option value="HAS_SUB">Memiliki Sub-Program Berjenjang</option>
+          </select>
         </div>
       </div>
 
-      {/* RKA Table */}
+      {/* Hierarchical RKA Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="px-4 py-2.5 bg-slate-50/70 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex items-center gap-2 text-slate-700 font-semibold">
+            <GitBranch className="w-3.5 h-3.5 text-emerald-700" />
+            <span>Daftar Anggaran Berjenjang (Pos Induk &amp; Sub-Program Kerja)</span>
+          </div>
+
+          {allExpandableIds.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleExpandAll}
+              className="flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              {areAllExpanded ? (
+                <>
+                  <ChevronUp className="w-3.5 h-3.5" />
+                  <span>Tutup Semua Sub-Program</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                  <span>Buka Semua Sub-Program ({totalSubProgramsCount})</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-semibold">
-                <th className="py-3 px-4 w-36">Kode & Pelaksanaan</th>
-                <th className="py-3 px-4">Program Kerja & Anggaran (RKA)</th>
-                <th className="py-3 px-4">Pemilik Risiko / Unit</th>
-                <th className="py-3 px-4 text-right">Pagu Anggaran</th>
-                <th className="py-3 px-4 text-center">Prioritas & Bobot</th>
-                <th className="py-3 px-4 text-center">Pengaruh ke PKPT</th>
-                <th className="py-3 px-4 text-center w-44">Aksi</th>
+                <th className="py-3 px-4 w-44">Kode &amp; Pelaksanaan</th>
+                <th className="py-3 px-4">Program Kerja &amp; Anggaran (Induk / Sub)</th>
+                <th className="py-3 px-4">Unit / PIC</th>
+                <th className="py-3 px-4 text-right">Pagu &amp; Alokasi</th>
+                <th className="py-3 px-4 text-right">Realisasi &amp; Tgl</th>
+                <th className="py-3 px-4 text-center">Verifikasi Keuangan</th>
+                <th className="py-3 px-4 text-center">PKPT &amp; Bobot</th>
+                <th className="py-3 px-4 text-center w-48">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 text-slate-800">
               {filteredRka.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-slate-400">
-                    Belum ada data RKA yang diinput untuk tahun ini. Klik tombol &ldquo;Input RKA Manual&rdquo; untuk menambahkan program anggaran.
+                  <td colSpan={8} className="py-10 text-center text-slate-400">
+                    Belum ada data RKA yang sesuai filter untuk tahun ini.
                   </td>
                 </tr>
               ) : (
                 filteredRka.map((item) => {
                   const weight = calculateRkaWeightScore(item.budgetAmount, item.strategicPriority);
                   const linkedPkpt = linkedPkptMap.get(item.id);
+                  const summary = getParentSummary(item);
+                  const isExpanded = Boolean(expandedParentIds[item.id]);
+                  const parentAbsorptionPct =
+                    (item.budgetAmount || 0) > 0
+                      ? Math.round((summary.effectiveRealization / item.budgetAmount) * 100)
+                      : 0;
 
                   return (
-                    <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                      <td className="py-3 px-4 align-top">
-                        <span className="font-mono font-bold text-emerald-800 block">{item.code}</span>
-                        <span className="text-[11px] font-semibold text-slate-500">
-                          {formatRkaExecutionSchedule(item)}
-                        </span>
-                      </td>
-
-                      <td className="py-3 px-4 align-top">
-                        <p className="font-bold text-slate-900">{item.programName}</p>
-                        <p className="text-[11px] text-slate-500">{item.category}</p>
-                        {item.notes && (
-                          <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">{item.notes}</p>
-                        )}
-                      </td>
-
-                      <td className="py-3 px-4 align-top">
-                        <p className="font-semibold text-slate-800">{item.unitName}</p>
-                        <p className="text-[10px] text-slate-500">PIC: {item.pic || '-'}</p>
-                      </td>
-
-                      <td className="py-3 px-4 align-top text-right font-mono">
-                        <p className="font-bold text-slate-900">
-                          Rp {(item.budgetAmount || 0).toLocaleString('id-ID')}
-                        </p>
-                        {item.realizationAmount ? (
-                          <p className="text-[10px] text-emerald-700">
-                            Real: Rp {item.realizationAmount.toLocaleString('id-ID')}
-                          </p>
-                        ) : null}
-                      </td>
-
-                      <td className="py-3 px-4 align-top text-center">
-                        <span
-                          className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-md ${
-                            item.strategicPriority === 'Tinggi'
-                              ? 'bg-rose-100 text-rose-800'
-                              : item.strategicPriority === 'Sedang'
-                              ? 'bg-amber-100 text-amber-800'
-                              : 'bg-slate-100 text-slate-700'
-                          }`}
-                        >
-                          {item.strategicPriority}
-                        </span>
-                        <p className="text-[10px] text-slate-500 font-mono mt-1">
-                          Bobot: <strong>{weight}</strong>/100
-                        </p>
-                      </td>
-
-                      <td className="py-3 px-4 align-top text-center">
-                        {linkedPkpt ? (
-                          <div className="inline-flex flex-col items-center gap-0.5">
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold bg-emerald-100 text-emerald-800 rounded-md">
-                              <CheckCircle2 className="w-3 h-3" /> Masuk PKPT
-                            </span>
-                            <span className="text-[10px] text-slate-500 max-w-[140px] truncate" title={linkedPkpt.title}>
-                              Skor PKPT: {linkedPkpt.priorityScore}
-                            </span>
+                    <React.Fragment key={item.id}>
+                      {/* PARENT ROW (POS ANGGARAN INDUK) */}
+                      <tr className="hover:bg-slate-50/80 transition-colors bg-white">
+                        <td className="py-3 px-4 align-top">
+                          <div className="flex items-start gap-1.5">
+                            {summary.hasChildren ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setExpandedParentIds((prev) => ({
+                                    ...prev,
+                                    [item.id]: !prev[item.id],
+                                  }))
+                                }
+                                className="mt-0.5 p-0.5 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 transition-colors cursor-pointer shrink-0"
+                                title={isExpanded ? 'Tutup sub-program' : 'Lihat sub-program berjenjang'}
+                              >
+                                {isExpanded ? (
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ChevronRight className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            ) : (
+                              <span className="w-5 shrink-0" />
+                            )}
+                            <div className="min-w-0">
+                              <span className="font-mono font-bold text-emerald-800 block whitespace-nowrap">
+                                {item.code}
+                              </span>
+                              <span className="text-[11px] font-semibold text-slate-500 block">
+                                {formatRkaExecutionSchedule(item)}
+                              </span>
+                              {summary.hasChildren && (
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setExpandedParentIds((prev) => ({
+                                      ...prev,
+                                      [item.id]: !prev[item.id],
+                                    }))
+                                  }
+                                  className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700 hover:underline cursor-pointer whitespace-nowrap"
+                                >
+                                  <GitBranch className="w-3 h-3" />
+                                  <span>{summary.children.length} Sub-Program</span>
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 rounded-md">
-                            <AlertTriangle className="w-3 h-3" /> Belum di PKPT
+                        </td>
+
+                        <td className="py-3 px-4 align-top">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">
+                              Pos Induk
+                            </span>
+                            <span className="text-slate-300">·</span>
+                            <span className="text-[11px] text-slate-500">{item.category}</span>
+                          </div>
+                          <p className="font-bold text-slate-900 mt-0.5">{item.programName}</p>
+                          {item.notes && (
+                            <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-1">{item.notes}</p>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-4 align-top">
+                          <p className="font-semibold text-slate-800">{item.unitName}</p>
+                          <p className="text-[10px] text-slate-500">PIC: {item.pic || '-'}</p>
+                        </td>
+
+                        <td className="py-3 px-4 align-top text-right font-mono tabular-nums">
+                          <p className="font-bold text-slate-900 whitespace-nowrap">
+                            Rp {(item.budgetAmount || 0).toLocaleString('id-ID')}
+                          </p>
+                          {summary.hasChildren && (
+                            <div className="mt-1 space-y-0.5 text-[10px]">
+                              <p className="text-slate-600 whitespace-nowrap">
+                                Sub-Alokasi: Rp {summary.totalAllocatedSub.toLocaleString('id-ID')}
+                              </p>
+                              <p
+                                className={`font-semibold whitespace-nowrap ${
+                                  summary.isOverCeiling ? 'text-rose-600' : 'text-emerald-700'
+                                }`}
+                              >
+                                {summary.isOverCeiling
+                                  ? `Melebihi pagu Rp ${Math.abs(summary.remainingCeiling).toLocaleString('id-ID')}`
+                                  : `Sisa pagu: Rp ${summary.remainingCeiling.toLocaleString('id-ID')}`}
+                              </p>
+                            </div>
+                          )}
+                        </td>
+
+                        <td className="py-3 px-4 align-top text-right font-mono tabular-nums">
+                          <p className="font-bold text-emerald-800 whitespace-nowrap">
+                            Rp {summary.effectiveRealization.toLocaleString('id-ID')}
+                          </p>
+                          <p className="text-[10px] text-slate-500">
+                            Serapan {parentAbsorptionPct}%
+                          </p>
+                          <p className="text-[10px] text-slate-600 mt-0.5 whitespace-nowrap">
+                            Tgl: {formatDateId(summary.latestRealizationDate)}
+                          </p>
+                        </td>
+
+                        <td className="py-3 px-4 align-top text-center">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md whitespace-nowrap ${
+                              summary.effectiveVerificationStatus === 'Terverifikasi Keuangan'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : summary.effectiveVerificationStatus === 'Perlu Revisi'
+                                ? 'bg-rose-100 text-rose-800'
+                                : 'bg-amber-50 text-amber-800 border border-amber-200'
+                            }`}
+                          >
+                            {summary.effectiveVerificationStatus === 'Terverifikasi Keuangan' ? (
+                              <CheckCircle2 className="w-3 h-3" />
+                            ) : summary.effectiveVerificationStatus === 'Perlu Revisi' ? (
+                              <AlertCircle className="w-3 h-3" />
+                            ) : (
+                              <Clock className="w-3 h-3" />
+                            )}
+                            <span>
+                              {summary.hasChildren
+                                ? `${summary.verifiedCount}/${summary.children.length} Terverifikasi`
+                                : summary.effectiveVerificationStatus}
+                            </span>
                           </span>
-                        )}
-                      </td>
+                          <p className="text-[10px] font-mono text-slate-500 mt-1 tabular-nums whitespace-nowrap">
+                            Tgl Verif: {formatDateId(summary.latestVerificationDate)}
+                          </p>
+                          {summary.latestVerifiedBy && (
+                            <p className="text-[10px] text-slate-400 truncate max-w-[140px] mx-auto" title={summary.latestVerifiedBy}>
+                              {summary.latestVerifiedBy}
+                            </p>
+                          )}
+                        </td>
 
-                      <td className="py-3 px-4 align-top text-center">
-                        <div className="flex items-center justify-center gap-1 flex-wrap">
-                          {onNavigateToPkptWithRka && !linkedPkpt && (
-                            <button
-                              onClick={() => onNavigateToPkptWithRka(item)}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors cursor-pointer"
-                              title="Jadikan objek pengawasan dalam PKPT"
+                        <td className="py-3 px-4 align-top text-center">
+                          <div className="flex flex-col items-center gap-1">
+                            <span
+                              className={`inline-block px-2 py-0.5 text-[10px] font-bold rounded-md ${
+                                item.strategicPriority === 'Tinggi'
+                                  ? 'bg-rose-100 text-rose-800'
+                                  : item.strategicPriority === 'Sedang'
+                                  ? 'bg-amber-100 text-amber-800'
+                                  : 'bg-slate-100 text-slate-700'
+                              }`}
                             >
-                              <CalendarCheck className="w-3 h-3" />
-                              <span>Ke PKPT</span>
-                              <ArrowRight className="w-3 h-3" />
-                            </button>
-                          )}
+                              {item.strategicPriority} · {weight}
+                            </span>
+                            {linkedPkpt ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-700"
+                                title={linkedPkpt.title}
+                              >
+                                <CheckCircle2 className="w-3 h-3" /> PKPT ({linkedPkpt.priorityScore})
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-slate-400">Belum PKPT</span>
+                            )}
+                          </div>
+                        </td>
 
-                          {canManage && (
-                            <>
+                        <td className="py-3 px-4 align-top text-center">
+                          <div className="flex items-center justify-center gap-1 flex-wrap">
+                            {canManageSub && (
                               <button
-                                onClick={() => openEditModal(item)}
-                                className="p-1 text-slate-500 hover:text-emerald-700 rounded-md transition-colors cursor-pointer"
-                                title="Edit RKA"
+                                type="button"
+                                onClick={() => openAddSubModal(item)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                                title="Tambah Sub-Program Kerja & Realisasi di bawah Pos Induk ini"
                               >
-                                <Edit2 className="w-3.5 h-3.5" />
+                                <Plus className="w-3 h-3" />
+                                <span>Sub-Program</span>
                               </button>
+                            )}
+
+                            {canVerifyFinance && !summary.hasChildren && (
                               <button
-                                onClick={() => handleDelete(item.id)}
-                                className="p-1 text-slate-500 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
-                                title="Hapus RKA"
+                                type="button"
+                                onClick={() => openVerifyParentModal(item)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                                title="Isi Realisasi & Verifikasi Bidang Keuangan"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <ShieldCheck className="w-3 h-3" />
+                                <span>Verifikasi</span>
                               </button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                            )}
+
+                            {onNavigateToPkptWithRka && !linkedPkpt && (
+                              <button
+                                onClick={() => onNavigateToPkptWithRka(item)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-300 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                                title="Jadikan objek pengawasan dalam PKPT"
+                              >
+                                <CalendarCheck className="w-3 h-3 text-emerald-700" />
+                                <span>PKPT</span>
+                                <ArrowRight className="w-3 h-3" />
+                              </button>
+                            )}
+
+                            {canManage && (
+                              <>
+                                <button
+                                  onClick={() => openEditModal(item)}
+                                  className="p-1 text-slate-500 hover:text-emerald-700 rounded-md transition-colors cursor-pointer"
+                                  title="Edit Pos Induk RKA"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
+                                <button
+                                  onClick={() => handleDelete(item.id)}
+                                  className="p-1 text-slate-500 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
+                                  title="Hapus Pos Induk RKA"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+
+                      {/* CHILD SUB-PROGRAM ROWS (BERJENJANG) */}
+                      {isExpanded &&
+                        summary.children.map((sub) => {
+                          const subAbsPct =
+                            sub.allocatedBudget > 0
+                              ? Math.round(((sub.realizationAmount || 0) / sub.allocatedBudget) * 100)
+                              : 0;
+                          const shareOfParentPct =
+                            (item.budgetAmount || 0) > 0
+                              ? Math.round(((sub.allocatedBudget || 0) / item.budgetAmount) * 100)
+                              : 0;
+                          const canDeleteThisSub =
+                            canManage ||
+                            (isBidangKeuangan && sub.verificationStatus !== 'Terverifikasi Keuangan');
+
+                          return (
+                            <tr
+                              key={sub.id}
+                              className="bg-emerald-50/25 hover:bg-emerald-50/50 transition-colors border-t border-slate-100"
+                            >
+                              <td className="py-2.5 pl-8 pr-4 align-top">
+                                <div className="flex items-start gap-1.5">
+                                  <span className="text-emerald-600 font-mono font-bold select-none">
+                                    └
+                                  </span>
+                                  <div>
+                                    <span className="font-mono font-bold text-slate-800 block whitespace-nowrap">
+                                      {sub.subCode}
+                                    </span>
+                                    <span className="text-[10px] font-medium text-slate-500">
+                                      {sub.executionMonth} {sub.year}
+                                    </span>
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="py-2.5 px-4 align-top">
+                                <div className="flex items-center gap-1.5 text-[10px] text-emerald-800 font-semibold">
+                                  <span>Sub-Program dari {item.code}</span>
+                                  <span className="text-slate-300">·</span>
+                                  <span className="text-slate-500">{sub.status}</span>
+                                </div>
+                                <p className="font-semibold text-slate-900 mt-0.5">{sub.programName}</p>
+                                {sub.notes && (
+                                  <p className="text-[10px] text-slate-500 mt-0.5 line-clamp-1">{sub.notes}</p>
+                                )}
+                              </td>
+
+                              <td className="py-2.5 px-4 align-top">
+                                <p className="text-[11px] font-medium text-slate-700">
+                                  PIC: {sub.pic || item.pic || '-'}
+                                </p>
+                                {sub.createdBy && (
+                                  <p className="text-[10px] text-slate-400">Input: {sub.createdBy}</p>
+                                )}
+                              </td>
+
+                              <td className="py-2.5 px-4 align-top text-right font-mono tabular-nums">
+                                <p className="font-semibold text-slate-900 whitespace-nowrap">
+                                  Rp {(sub.allocatedBudget || 0).toLocaleString('id-ID')}
+                                </p>
+                                <p className="text-[10px] text-slate-500">
+                                  {shareOfParentPct}% dari pagu induk
+                                </p>
+                              </td>
+
+                              <td className="py-2.5 px-4 align-top text-right font-mono tabular-nums">
+                                <p className="font-semibold text-emerald-800 whitespace-nowrap">
+                                  Rp {(sub.realizationAmount || 0).toLocaleString('id-ID')}
+                                </p>
+                                <p className="text-[10px] text-slate-500">Serapan {subAbsPct}%</p>
+                                <p className="text-[10px] text-slate-600 mt-0.5 whitespace-nowrap">
+                                  Tgl: {formatDateId(sub.realizationDate)}
+                                </p>
+                              </td>
+
+                              <td className="py-2.5 px-4 align-top text-center">
+                                <span
+                                  className={`inline-flex items-center gap-1 px-2 py-0.5 text-[10px] font-bold rounded-md whitespace-nowrap ${
+                                    sub.verificationStatus === 'Terverifikasi Keuangan'
+                                      ? 'bg-emerald-100 text-emerald-800'
+                                      : sub.verificationStatus === 'Perlu Revisi'
+                                      ? 'bg-rose-100 text-rose-800'
+                                      : 'bg-amber-50 text-amber-800 border border-amber-200'
+                                  }`}
+                                >
+                                  {sub.verificationStatus === 'Terverifikasi Keuangan' ? (
+                                    <CheckCircle2 className="w-3 h-3" />
+                                  ) : sub.verificationStatus === 'Perlu Revisi' ? (
+                                    <AlertCircle className="w-3 h-3" />
+                                  ) : (
+                                    <Clock className="w-3 h-3" />
+                                  )}
+                                  <span>{sub.verificationStatus || 'Menunggu Verifikasi'}</span>
+                                </span>
+                                <p className="text-[10px] font-mono text-slate-500 mt-1 tabular-nums whitespace-nowrap">
+                                  Tgl Verif: {formatDateId(sub.verifiedAt)}
+                                </p>
+                                {sub.verifiedBy && (
+                                  <p className="text-[10px] text-slate-500 truncate max-w-[140px] mx-auto" title={sub.verifiedBy}>
+                                    {sub.verifiedBy}
+                                  </p>
+                                )}
+                                {sub.verificationNotes && (
+                                  <p className="text-[10px] text-slate-400 italic truncate max-w-[150px] mx-auto" title={sub.verificationNotes}>
+                                    &ldquo;{sub.verificationNotes}&rdquo;
+                                  </p>
+                                )}
+                              </td>
+
+                              <td className="py-2.5 px-4 align-top text-center text-[10px] text-slate-400">
+                                Turunan Pos Induk
+                              </td>
+
+                              <td className="py-2.5 px-4 align-top text-center">
+                                <div className="flex items-center justify-center gap-1 flex-wrap">
+                                  {canVerifyFinance && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openVerifySubModal(item, sub)}
+                                      className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-md transition-colors whitespace-nowrap shrink-0 cursor-pointer"
+                                      title="Verifikasi Realisasi & Tetapkan Tanggal Verifikasi (Bidang Keuangan)"
+                                    >
+                                      <ShieldCheck className="w-3 h-3" />
+                                      <span>Verifikasi</span>
+                                    </button>
+                                  )}
+                                  {canManageSub && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditSubModal(item, sub)}
+                                      className="p-1 text-slate-500 hover:text-emerald-700 rounded-md transition-colors cursor-pointer"
+                                      title="Edit Sub-Program & Realisasi"
+                                    >
+                                      <Edit2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                  {canDeleteThisSub && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDeleteSubItem(item, sub)}
+                                      className="p-1 text-slate-500 hover:text-rose-600 rounded-md transition-colors cursor-pointer"
+                                      title="Hapus Sub-Program"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                    </React.Fragment>
                   );
                 })
               )}
@@ -1434,9 +2351,9 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Pagu Anggaran RKA (Rp)</label>
+                  <label className="block font-semibold text-slate-700 mb-1">Pagu Anggaran Induk (Rp)</label>
                   <input
                     type="number"
                     required
@@ -1447,13 +2364,39 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Realisasi Anggaran s.d. Saat Ini (Rp)</label>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Realisasi s.d. Saat Ini (Rp)
+                  </label>
                   <input
                     type="number"
                     min={0}
-                    value={formRealizationAmount}
+                    disabled={Boolean(
+                      editingItem && (subItemsByParentMap.get(editingItem.id) || []).length > 0
+                    )}
+                    value={
+                      editingItem && (subItemsByParentMap.get(editingItem.id) || []).length > 0
+                        ? getParentSummary(editingItem).effectiveRealization
+                        : formRealizationAmount
+                    }
                     onChange={(e) => setFormRealizationAmount(parseInt(e.target.value, 10) || 0)}
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono disabled:opacity-60"
+                  />
+                  {editingItem && (subItemsByParentMap.get(editingItem.id) || []).length > 0 && (
+                    <p className="text-[10px] text-emerald-700 mt-0.5">
+                      Otomatis diakumulasi dari Sub-Program Kerja.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Tanggal Realisasi</label>
+                  <input
+                    type="date"
+                    disabled={Boolean(
+                      editingItem && (subItemsByParentMap.get(editingItem.id) || []).length > 0
+                    )}
+                    value={formRealizationDate}
+                    onChange={(e) => setFormRealizationDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono disabled:opacity-60"
                   />
                 </div>
               </div>
@@ -1537,6 +2480,358 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         </div>
       )}
 
+      {/* Modal Tambah / Edit Sub-Program Kerja & Realisasi (Berjenjang) */}
+      {isSubModalOpen && subParentItem && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="w-full max-w-xl max-h-[90vh] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
+            <div className="px-6 py-4 bg-gradient-to-r from-[#0d3824] to-[#105234] text-white flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold flex items-center gap-2">
+                  <GitBranch className="w-4 h-4 text-amber-300" />
+                  <span>
+                    {editingSubItem ? 'Edit Sub-Program Kerja & Realisasi' : 'Tambah Sub-Program Kerja RKA'}
+                  </span>
+                </h3>
+                <p className="text-[11px] text-emerald-200 mt-0.5">
+                  Pos Induk: <span className="font-mono font-bold text-white">{subParentItem.code}</span> ·{' '}
+                  {subParentItem.programName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSubModalOpen(false)}
+                className="text-emerald-200 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveSubItem} className="p-6 space-y-4 text-xs overflow-y-auto flex-1">
+              {(() => {
+                const siblingAllocated = (subItemsByParentMap.get(subParentItem.id) || [])
+                  .filter((s) => s.id !== editingSubItem?.id)
+                  .reduce((sum, s) => sum + (s.allocatedBudget || 0), 0);
+                const projectedTotal = siblingAllocated + (Number(subFormAllocatedBudget) || 0);
+                const ceilingDiff = (subParentItem.budgetAmount || 0) - projectedTotal;
+
+                return (
+                  <div
+                    className={`p-3 rounded-xl border text-[11px] grid grid-cols-3 gap-2 ${
+                      ceilingDiff < 0
+                        ? 'bg-rose-50 border-rose-300 text-rose-900'
+                        : 'bg-slate-50 border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <div>
+                      <span className="text-slate-500 block">Pagu Induk</span>
+                      <strong className="font-mono text-slate-900">
+                        Rp {(subParentItem.budgetAmount || 0).toLocaleString('id-ID')}
+                      </strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Total Alokasi Sub</span>
+                      <strong className="font-mono">Rp {projectedTotal.toLocaleString('id-ID')}</strong>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">
+                        {ceilingDiff < 0 ? 'Kelebihan Pagu' : 'Sisa Pagu Induk'}
+                      </span>
+                      <strong
+                        className={`font-mono ${
+                          ceilingDiff < 0 ? 'text-rose-700' : 'text-emerald-800'
+                        }`}
+                      >
+                        Rp {Math.abs(ceilingDiff).toLocaleString('id-ID')}
+                      </strong>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Kode Sub-Program</label>
+                  <input
+                    type="text"
+                    required
+                    value={subFormCode}
+                    onChange={(e) => setSubFormCode(e.target.value)}
+                    placeholder={`${subParentItem.code}.01`}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold uppercase"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Waktu Pelaksanaan</label>
+                  <select
+                    value={subFormExecutionMonth}
+                    onChange={(e) => setSubFormExecutionMonth(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
+                  >
+                    {FISCAL_MONTHS.map((m) => (
+                      <option key={m} value={m}>
+                        {m} {subParentItem.year}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Nama Sub-Program Kerja / Uraian Kegiatan
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={subFormProgramName}
+                  onChange={(e) => setSubFormProgramName(e.target.value)}
+                  placeholder="Contoh: Pengadaan Pipa HDPE Zona II & Pemasangan Aksesoris"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Anggaran Sub-Program (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    value={subFormAllocatedBudget}
+                    onChange={(e) => setSubFormAllocatedBudget(parseInt(e.target.value, 10) || 0)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Realisasi (Rp)</label>
+                  <input
+                    type="number"
+                    min={0}
+                    value={subFormRealizationAmount}
+                    onChange={(e) => setSubFormRealizationAmount(parseInt(e.target.value, 10) || 0)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold text-emerald-900"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Tanggal Realisasi</label>
+                  <input
+                    type="date"
+                    value={subFormRealizationDate}
+                    onChange={(e) => setSubFormRealizationDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Status Pelaksanaan</label>
+                  <select
+                    value={subFormStatus}
+                    onChange={(e) => setSubFormStatus(e.target.value as RKAStatus)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
+                  >
+                    <option value="Usulan">Usulan</option>
+                    <option value="Disetujui RKAP">Disetujui RKAP</option>
+                    <option value="Berjalan">Berjalan</option>
+                    <option value="Selesai">Selesai</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Penanggung Jawab (PIC)</label>
+                  <input
+                    type="text"
+                    value={subFormPic}
+                    onChange={(e) => setSubFormPic(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">Keterangan / Bukti SPJ</label>
+                <textarea
+                  rows={2}
+                  value={subFormNotes}
+                  onChange={(e) => setSubFormNotes(e.target.value)}
+                  placeholder="Nomor SPJ, nomor kontrak/SPK, atau keterangan realisasi keuangan..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsSubModalOpen(false)}
+                  disabled={subSaving}
+                  className="px-4 py-2 font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={subSaving}
+                  className="px-4 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm cursor-pointer disabled:opacity-60"
+                >
+                  {subSaving ? 'Menyimpan...' : 'Simpan Sub-Program'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Verifikasi Realisasi Bidang Keuangan */}
+      {isVerifyModalOpen && verifyTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
+          <div className="w-full max-w-lg max-h-[90vh] bg-white rounded-2xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden">
+            <div className="px-6 py-4 bg-gradient-to-r from-[#0d3824] to-[#105234] text-white flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold flex items-center gap-2">
+                  <ShieldCheck className="w-4 h-4 text-amber-300" />
+                  <span>Verifikasi Realisasi Anggaran (Bidang Keuangan)</span>
+                </h3>
+                <p className="text-[11px] text-emerald-200 mt-0.5 font-mono">
+                  {verifyTarget.mode === 'sub'
+                    ? `${verifyTarget.sub.subCode} (Induk: ${verifyTarget.parent.code})`
+                    : verifyTarget.parent.code}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsVerifyModalOpen(false)}
+                className="text-emerald-200 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveVerification} className="p-6 space-y-4 text-xs overflow-y-auto flex-1">
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl space-y-1">
+                <p className="font-bold text-slate-900">
+                  {verifyTarget.mode === 'sub'
+                    ? verifyTarget.sub.programName
+                    : verifyTarget.parent.programName}
+                </p>
+                <p className="text-[11px] text-slate-600 font-mono">
+                  Pagu / Alokasi: Rp{' '}
+                  {(verifyTarget.mode === 'sub'
+                    ? verifyTarget.sub.allocatedBudget
+                    : verifyTarget.parent.budgetAmount
+                  ).toLocaleString('id-ID')}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Nilai Realisasi Terverifikasi (Rp)
+                  </label>
+                  <input
+                    type="number"
+                    required
+                    min={0}
+                    value={verifyRealizationAmount}
+                    onChange={(e) => setVerifyRealizationAmount(parseInt(e.target.value, 10) || 0)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold text-emerald-900"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Tanggal Realisasi</span>
+                  </label>
+                  <input
+                    type="date"
+                    value={verifyRealizationDate}
+                    onChange={(e) => setVerifyRealizationDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Status Verifikasi Keuangan
+                  </label>
+                  <select
+                    value={verifyStatus}
+                    onChange={(e) => setVerifyStatus(e.target.value as RKAVerificationStatus)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-bold text-slate-900"
+                  >
+                    <option value="Terverifikasi Keuangan">Terverifikasi Keuangan (Sah)</option>
+                    <option value="Perlu Revisi">Perlu Revisi / Lengkapi SPJ</option>
+                    <option value="Menunggu Verifikasi">Menunggu Verifikasi</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1 flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-emerald-700" />
+                    <span>Tanggal Verifikasi</span>
+                  </label>
+                  <input
+                    type="date"
+                    required={verifyStatus !== 'Menunggu Verifikasi'}
+                    value={verifyDate}
+                    onChange={(e) => setVerifyDate(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-mono font-bold"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Petugas Verifikator (Bidang Keuangan)
+                </label>
+                <input
+                  type="text"
+                  required={verifyStatus !== 'Menunggu Verifikasi'}
+                  value={verifyBy}
+                  onChange={(e) => setVerifyBy(e.target.value)}
+                  placeholder="Nama Pejabat / Staf Bidang Keuangan"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg font-semibold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-semibold text-slate-700 mb-1">
+                  Catatan Pemeriksaan &amp; Verifikasi Keuangan
+                </label>
+                <textarea
+                  rows={2}
+                  value={verifyNotes}
+                  onChange={(e) => setVerifyNotes(e.target.value)}
+                  placeholder="Catatan kecocokan bukti kas, SP2D/SPJ, pajak, atau alasan revisi..."
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-300 rounded-lg"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-4 border-t border-slate-200">
+                <button
+                  type="button"
+                  onClick={() => setIsVerifyModalOpen(false)}
+                  disabled={verifySaving}
+                  className="px-4 py-2 font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg cursor-pointer"
+                >
+                  Batal
+                </button>
+                <button
+                  type="submit"
+                  disabled={verifySaving}
+                  className="flex items-center gap-1.5 px-4 py-2 font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg shadow-sm cursor-pointer disabled:opacity-60"
+                >
+                  <ShieldCheck className="w-4 h-4" />
+                  <span>{verifySaving ? 'Menyimpan...' : 'Simpan Verifikasi'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Print Modal */}
       {isPrintModalOpen && (
         <DocumentPrintPreviewModal
@@ -1551,52 +2846,129 @@ export const RKAModule: React.FC<RKAModuleProps> = ({ onNavigateToPkptWithRka })
         >
           {() => (
             <div className="space-y-4 text-xs font-sans">
-              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 grid grid-cols-3 gap-3">
+              <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 grid grid-cols-4 gap-3">
                 <div>
                   <p className="text-slate-500">Tahun Anggaran:</p>
                   <p className="font-bold text-slate-900">{selectedYear === 0 ? 'Semua Tahun' : selectedYear}</p>
                 </div>
                 <div>
-                  <p className="text-slate-500">Jumlah Program RKA:</p>
-                  <p className="font-bold text-emerald-800">{filteredRka.length} Program</p>
+                  <p className="text-slate-500">Pos Induk &amp; Sub-Program:</p>
+                  <p className="font-bold text-emerald-800">
+                    {filteredRka.length} Induk · {totalSubProgramsCount} Sub
+                  </p>
                 </div>
                 <div>
                   <p className="text-slate-500">Total Pagu Anggaran:</p>
                   <p className="font-bold text-slate-900 font-mono">Rp {totalBudget.toLocaleString('id-ID')}</p>
                 </div>
+                <div>
+                  <p className="text-slate-500">Total Realisasi (Terverifikasi):</p>
+                  <p className="font-bold text-emerald-800 font-mono">
+                    Rp {totalRealization.toLocaleString('id-ID')} ({verifiedProgramsCount}/{filteredRka.length})
+                  </p>
+                </div>
               </div>
 
-              <table className="w-full text-left text-[11px] border-collapse border border-slate-300">
+              <table className="w-full text-left text-[10px] border-collapse border border-slate-300">
                 <thead>
                   <tr className="bg-slate-100 font-bold text-slate-800">
                     <th className="p-2 border border-slate-300 w-8 text-center">No</th>
-                    <th className="p-2 border border-slate-300">Kode & Program RKA</th>
-                    <th className="p-2 border border-slate-300">Waktu Pelaksanaan</th>
-                    <th className="p-2 border border-slate-300">Pemilik Risiko / Unit</th>
-                    <th className="p-2 border border-slate-300 text-right">Pagu Anggaran</th>
-                    <th className="p-2 border border-slate-300 text-center">Prioritas</th>
-                    <th className="p-2 border border-slate-300 text-center">Bobot RKA</th>
+                    <th className="p-2 border border-slate-300">Kode &amp; Uraian Program (Pos Induk / Sub-Program)</th>
+                    <th className="p-2 border border-slate-300">Waktu</th>
+                    <th className="p-2 border border-slate-300">Unit / PIC</th>
+                    <th className="p-2 border border-slate-300 text-right">Pagu / Alokasi (Rp)</th>
+                    <th className="p-2 border border-slate-300 text-right">Realisasi &amp; Tgl Realisasi</th>
+                    <th className="p-2 border border-slate-300 text-center">Verifikasi Keuangan &amp; Tgl Verifikasi</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRka.map((r, i) => (
-                    <tr key={r.id}>
-                      <td className="p-2 border border-slate-300 text-center">{i + 1}</td>
-                      <td className="p-2 border border-slate-300">
-                        <p className="font-bold text-slate-900">{r.programName}</p>
-                        <p className="text-[10px] text-slate-500 font-mono">{r.code} ({r.category})</p>
-                      </td>
-                      <td className="p-2 border border-slate-300">{formatRkaExecutionSchedule(r)}</td>
-                      <td className="p-2 border border-slate-300">{r.unitName}</td>
-                      <td className="p-2 border border-slate-300 text-right font-mono font-semibold">
-                        Rp {(r.budgetAmount || 0).toLocaleString('id-ID')}
-                      </td>
-                      <td className="p-2 border border-slate-300 text-center">{r.strategicPriority}</td>
-                      <td className="p-2 border border-slate-300 text-center font-mono font-bold">
-                        {calculateRkaWeightScore(r.budgetAmount, r.strategicPriority)}
-                      </td>
-                    </tr>
-                  ))}
+                  {filteredRka.map((r, i) => {
+                    const summary = getParentSummary(r);
+                    return (
+                      <React.Fragment key={r.id}>
+                        <tr className={summary.hasChildren ? 'bg-slate-50/90 font-semibold' : ''}>
+                          <td className="p-2 border border-slate-300 text-center align-top">{i + 1}</td>
+                          <td className="p-2 border border-slate-300 align-top">
+                            <p className="font-bold text-slate-900">{r.programName}</p>
+                            <p className="text-[9px] text-slate-600 font-mono">
+                              {r.code} ({r.category}) · Bobot: {calculateRkaWeightScore(r.budgetAmount, r.strategicPriority)}
+                            </p>
+                          </td>
+                          <td className="p-2 border border-slate-300 align-top">{formatRkaExecutionSchedule(r)}</td>
+                          <td className="p-2 border border-slate-300 align-top">
+                            <p>{r.unitName}</p>
+                            <p className="text-[9px] text-slate-500">PIC: {r.pic || '-'}</p>
+                          </td>
+                          <td className="p-2 border border-slate-300 text-right font-mono font-bold align-top">
+                            Rp {(r.budgetAmount || 0).toLocaleString('id-ID')}
+                          </td>
+                          <td className="p-2 border border-slate-300 text-right font-mono align-top">
+                            <p className="font-bold text-slate-900">
+                              Rp {summary.effectiveRealization.toLocaleString('id-ID')}
+                            </p>
+                            <p className="text-[9px] text-slate-600">
+                              Tgl Realisasi: {formatDateId(summary.latestRealizationDate)}
+                            </p>
+                          </td>
+                          <td className="p-2 border border-slate-300 text-center align-top">
+                            <p className="font-bold text-slate-900">
+                              {summary.hasChildren
+                                ? `${summary.verifiedCount}/${summary.children.length} Terverifikasi`
+                                : summary.effectiveVerificationStatus}
+                            </p>
+                            <p className="text-[9px] font-mono text-slate-600">
+                              Tgl Verifikasi: {formatDateId(summary.latestVerificationDate)}
+                            </p>
+                            {summary.latestVerifiedBy && (
+                              <p className="text-[9px] text-slate-500">{summary.latestVerifiedBy}</p>
+                            )}
+                          </td>
+                        </tr>
+
+                        {summary.children.map((sub, subIdx) => (
+                          <tr key={sub.id} className="bg-white">
+                            <td className="p-1.5 border border-slate-300 text-center text-slate-500 align-top">
+                              {i + 1}.{subIdx + 1}
+                            </td>
+                            <td className="p-1.5 pl-5 border border-slate-300 align-top">
+                              <p className="font-semibold text-slate-800">└ {sub.programName}</p>
+                              <p className="text-[9px] text-slate-500 font-mono">
+                                {sub.subCode} · {sub.status}
+                              </p>
+                            </td>
+                            <td className="p-1.5 border border-slate-300 align-top">
+                              {sub.executionMonth} {sub.year}
+                            </td>
+                            <td className="p-1.5 border border-slate-300 align-top text-slate-600">
+                              {sub.pic || '-'}
+                            </td>
+                            <td className="p-1.5 border border-slate-300 text-right font-mono align-top">
+                              Rp {(sub.allocatedBudget || 0).toLocaleString('id-ID')}
+                            </td>
+                            <td className="p-1.5 border border-slate-300 text-right font-mono align-top">
+                              <p className="font-semibold text-emerald-800">
+                                Rp {(sub.realizationAmount || 0).toLocaleString('id-ID')}
+                              </p>
+                              <p className="text-[9px] text-slate-600">
+                                Tgl: {formatDateId(sub.realizationDate)}
+                              </p>
+                            </td>
+                            <td className="p-1.5 border border-slate-300 text-center align-top">
+                              <p className="font-semibold text-slate-800">
+                                {sub.verificationStatus || 'Menunggu Verifikasi'}
+                              </p>
+                              <p className="text-[9px] font-mono text-slate-600">
+                                Tgl Verif: {formatDateId(sub.verifiedAt)}
+                              </p>
+                              {sub.verifiedBy && (
+                                <p className="text-[9px] text-slate-500">{sub.verifiedBy}</p>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </React.Fragment>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

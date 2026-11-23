@@ -8,7 +8,7 @@
         "uid": { "type": "string", "maxLength": 128 },
         "email": { "type": "string", "maxLength": 128 },
         "displayName": { "type": "string", "maxLength": 128 },
-        "role": { "type": "string", "enum": ["KEPALA_SPI", "AUDITOR", "AUDITOR_EKSTERNAL", "DIREKTUR", "DEWAN_PENGAWAS", "AUDITEE", "ADMIN_SISTEM", "VIEWER"] },
+        "role": { "type": "string", "enum": ["KEPALA_SPI", "AUDITOR", "AUDITOR_EKSTERNAL", "BIDANG_KEUANGAN", "DIREKTUR", "DEWAN_PENGAWAS", "AUDITEE", "ADMIN_SISTEM", "VIEWER"] },
         "unitId": { "type": "string", "maxLength": 64 },
         "unitName": { "type": "string", "maxLength": 128 },
         "nip": { "type": "string", "maxLength": 64 },
@@ -591,13 +591,45 @@
         "category": { "type": "string", "maxLength": 128 },
         "budgetAmount": { "type": "number" },
         "realizationAmount": { "type": "number" },
+        "realizationDate": { "type": "string", "maxLength": 32 },
         "strategicPriority": { "type": "string", "enum": ["Tinggi", "Sedang", "Rendah"] },
         "executionMonth": { "type": "string", "maxLength": 32 },
         "targetQuarter": { "type": "string", "enum": ["Q1", "Q2", "Q3", "Q4"] },
         "pic": { "type": "string", "maxLength": 128 },
-        "status": { "type": "string", "enum": ["Usulan", "Disetujui RKAP", "Berjalan", "Selesai"] }
+        "status": { "type": "string", "enum": ["Usulan", "Disetujui RKAP", "Berjalan", "Selesai"] },
+        "verificationStatus": { "type": "string", "enum": ["Menunggu Verifikasi", "Terverifikasi Keuangan", "Perlu Revisi"] },
+        "verifiedBy": { "type": "string", "maxLength": 128 },
+        "verifiedAt": { "type": "string", "maxLength": 32 },
+        "verificationNotes": { "type": "string", "maxLength": 1000 }
       },
       "required": ["id", "year", "code", "programName", "category", "budgetAmount", "status"]
+    },
+    "RKASubItem": {
+      "title": "RKASubItem",
+      "description": "Hierarchical child work program and realization under a parent RKA budget post, filled and verified by Bidang Keuangan",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "parentRkaId": { "type": "string", "maxLength": 64 },
+        "parentRkaCode": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "subCode": { "type": "string", "maxLength": 64 },
+        "programName": { "type": "string", "maxLength": 256 },
+        "executionMonth": { "type": "string", "maxLength": 32 },
+        "allocatedBudget": { "type": "number" },
+        "realizationAmount": { "type": "number" },
+        "realizationDate": { "type": "string", "maxLength": 32 },
+        "pic": { "type": "string", "maxLength": 128 },
+        "notes": { "type": "string", "maxLength": 1000 },
+        "status": { "type": "string", "enum": ["Usulan", "Disetujui RKAP", "Berjalan", "Selesai"] },
+        "verificationStatus": { "type": "string", "enum": ["Menunggu Verifikasi", "Terverifikasi Keuangan", "Perlu Revisi"] },
+        "verifiedBy": { "type": "string", "maxLength": 128 },
+        "verifiedAt": { "type": "string", "maxLength": 32 },
+        "verificationNotes": { "type": "string", "maxLength": 1000 },
+        "createdBy": { "type": "string", "maxLength": 128 },
+        "createdByRole": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "parentRkaId", "parentRkaCode", "year", "subCode", "programName", "allocatedBudget", "realizationAmount", "verificationStatus"]
     },
     "RKACategoryItem": {
       "title": "RKACategoryItem",
@@ -729,6 +761,10 @@
     "/rka_items/{rkaId}": {
       "schema": "RKAItem",
       "description": "Manual RKA program and budget items with monthly execution schedule"
+    },
+    "/rka_sub_items/{subId}": {
+      "schema": "RKASubItem",
+      "description": "Hierarchical child work programs, realizations, and Bidang Keuangan verifications linked to parent RKA posts"
     },
     "/rka_categories/{catId}": {
       "schema": "RKACategoryItem",

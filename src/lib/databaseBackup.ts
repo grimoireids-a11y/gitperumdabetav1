@@ -51,8 +51,13 @@ export const BACKUP_COLLECTIONS: BackupCollectionMeta[] = [
   },
   {
     key: 'rka_items',
-    label: 'Input RKA Manual',
-    description: 'Data Rencana Kerja & Anggaran, pagu, realisasi, dan prioritas strategis',
+    label: 'Input RKA Manual (Pos Induk)',
+    description: 'Data Rencana Kerja & Anggaran induk, pagu, realisasi, dan prioritas strategis',
+  },
+  {
+    key: 'rka_sub_items',
+    label: 'RKA Sub-Program Kerja & Verifikasi Keuangan',
+    description: 'Rincian anggaran program kerja berjenjang, realisasi, dan verifikasi Bidang Keuangan',
   },
   {
     key: 'rka_categories',

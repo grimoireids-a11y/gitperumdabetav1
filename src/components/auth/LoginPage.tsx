@@ -237,6 +237,7 @@ export const LoginPage: React.FC = () => {
                   >
                     <option value="AUDITOR">Auditor / Pembantu SPI</option>
                     <option value="AUDITOR_EKSTERNAL">Auditor Eksternal (BPK / BPKP / KAP)</option>
+                    <option value="BIDANG_KEUANGAN">Bidang Keuangan (Input &amp; Verifikasi RKA)</option>
                     <option value="DIREKTUR">Direktur Perumda Tirta Saiyo</option>
                     <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
                     <option value="AUDITEE">Unit Kerja / Auditee</option>

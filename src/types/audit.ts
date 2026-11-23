@@ -2,6 +2,7 @@ export type UserRole =
   | 'KEPALA_SPI'
   | 'AUDITOR'
   | 'AUDITOR_EKSTERNAL'
+  | 'BIDANG_KEUANGAN'
   | 'DIREKTUR'
   | 'DEWAN_PENGAWAS'
   | 'AUDITEE'
@@ -106,6 +107,11 @@ export interface RKACategoryItem {
 
 export type RKAStatus = 'Usulan' | 'Disetujui RKAP' | 'Berjalan' | 'Selesai';
 
+export type RKAVerificationStatus =
+  | 'Menunggu Verifikasi'
+  | 'Terverifikasi Keuangan'
+  | 'Perlu Revisi';
+
 export interface RKAItem {
   id: string;
   year: number;
@@ -116,13 +122,42 @@ export interface RKAItem {
   category: RKACategory;
   budgetAmount: number;
   realizationAmount?: number;
+  realizationDate?: string;
   strategicPriority: 'Tinggi' | 'Sedang' | 'Rendah';
   executionMonth?: string;
   targetQuarter: 'Q1' | 'Q2' | 'Q3' | 'Q4';
   pic: string;
   notes?: string;
   status: RKAStatus;
+  verificationStatus?: RKAVerificationStatus;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  verificationNotes?: string;
   createdBy?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RKASubItem {
+  id: string;
+  parentRkaId: string;
+  parentRkaCode: string;
+  year: number;
+  subCode: string;
+  programName: string;
+  executionMonth: string;
+  allocatedBudget: number;
+  realizationAmount: number;
+  realizationDate?: string;
+  pic: string;
+  notes?: string;
+  status: RKAStatus;
+  verificationStatus: RKAVerificationStatus;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  verificationNotes?: string;
+  createdBy?: string;
+  createdByRole?: UserRole;
   createdAt?: string;
   updatedAt?: string;
 }

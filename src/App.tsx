@@ -65,12 +65,22 @@ const AppContent: React.FC = () => {
   const isFullAccess = userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
   const isViewer = userProfile?.role === 'VIEWER';
   const isExternalAuditor = userProfile?.role === 'AUDITOR_EKSTERNAL';
+  const isBidangKeuangan = userProfile?.role === 'BIDANG_KEUANGAN';
 
   const canAccessTab = React.useCallback(
     (tab: ActiveTab) => {
       if (isFullAccess) return true;
       if (isViewer) return tab !== 'user_management' && tab !== 'app_branding';
       if (isExternalAuditor) return tab === 'findings' || tab === 'follow_ups';
+      if (isBidangKeuangan) {
+        return (
+          tab === 'dashboard' ||
+          tab === 'rka' ||
+          tab === 'risk_register' ||
+          tab === 'kpi_management' ||
+          tab === 'follow_ups'
+        );
+      }
       return (
         tab === 'dashboard' ||
         tab === 'risk_register' ||
@@ -78,7 +88,7 @@ const AppContent: React.FC = () => {
         tab === 'follow_ups'
       );
     },
-    [isFullAccess, isViewer, isExternalAuditor]
+    [isFullAccess, isViewer, isExternalAuditor, isBidangKeuangan]
   );
 
   // Guard routes per role
@@ -197,10 +207,14 @@ const AppContent: React.FC = () => {
       case 'rka':
         return (
           <RKAModule
-            onNavigateToPkptWithRka={(rkaItem) => {
-              setPrefillRkaForPkpt(rkaItem);
-              setActiveTab('pkpt');
-            }}
+            onNavigateToPkptWithRka={
+              canAccessTab('pkpt')
+                ? (rkaItem) => {
+                    setPrefillRkaForPkpt(rkaItem);
+                    setActiveTab('pkpt');
+                  }
+                : undefined
+            }
           />
         );
       case 'pkpt':

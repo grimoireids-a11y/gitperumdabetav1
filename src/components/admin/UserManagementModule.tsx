@@ -546,6 +546,7 @@ export const UserManagementModule: React.FC = () => {
                     >
                       <option value="AUDITOR">Auditor SPI</option>
                       <option value="AUDITOR_EKSTERNAL">Auditor Eksternal (BPK / BPKP / KAP)</option>
+                      <option value="BIDANG_KEUANGAN">Bidang Keuangan (Input &amp; Verifikasi RKA)</option>
                       <option value="KEPALA_SPI">Kepala SPI</option>
                       <option value="DIREKTUR">Direktur</option>
                       <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
@@ -669,6 +670,7 @@ export const UserManagementModule: React.FC = () => {
             <option value="KEPALA_SPI">Kepala SPI</option>
             <option value="AUDITOR">Auditor SPI</option>
             <option value="AUDITOR_EKSTERNAL">Auditor Eksternal</option>
+            <option value="BIDANG_KEUANGAN">Bidang Keuangan</option>
             <option value="DIREKTUR">Direktur</option>
             <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
             <option value="AUDITEE">Auditee</option>
@@ -848,6 +850,7 @@ export const UserManagementModule: React.FC = () => {
                     <option value="KEPALA_SPI">Kepala SPI</option>
                     <option value="AUDITOR">Auditor SPI</option>
                     <option value="AUDITOR_EKSTERNAL">Auditor Eksternal (BPK / BPKP / KAP)</option>
+                    <option value="BIDANG_KEUANGAN">Bidang Keuangan (Input &amp; Verifikasi RKA)</option>
                     <option value="DIREKTUR">Direktur</option>
                     <option value="DEWAN_PENGAWAS">Dewan Pengawas</option>
                     <option value="AUDITEE">Unit Kerja / Auditee</option>
@@ -1063,6 +1066,7 @@ export const UserManagementModule: React.FC = () => {
                   >
                     <option value="AUDITOR">Auditor SPI</option>
                     <option value="AUDITOR_EKSTERNAL">Auditor Eksternal (BPK / BPKP / KAP)</option>
+                    <option value="BIDANG_KEUANGAN">Bidang Keuangan (Input &amp; Verifikasi RKA)</option>
                     <option value="AUDITEE">Unit Kerja / Auditee</option>
                     <option value="KEPALA_SPI">Kepala SPI</option>
                     <option value="DIREKTUR">Direktur</option>

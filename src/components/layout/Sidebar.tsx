@@ -84,6 +84,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
         return 'Auditor SPI';
       case 'AUDITOR_EKSTERNAL':
         return 'Auditor Eksternal';
+      case 'BIDANG_KEUANGAN':
+        return 'Bidang Keuangan';
       case 'DIREKTUR':
         return 'Direktur';
       case 'DEWAN_PENGAWAS':
@@ -116,6 +118,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const isFullAccess = userProfile?.role === 'KEPALA_SPI' || userProfile?.role === 'ADMIN_SISTEM';
   const isViewer = userProfile?.role === 'VIEWER';
   const isExternalAuditor = userProfile?.role === 'AUDITOR_EKSTERNAL';
+  const isBidangKeuangan = userProfile?.role === 'BIDANG_KEUANGAN';
   const canViewAllModules = isFullAccess || isViewer;
 
   const navSections: NavSection[] = canViewAllModules
@@ -235,6 +238,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
           items: [
             { id: 'findings', label: 'Input & Matriks Temuan 5C', icon: AlertTriangle },
             { id: 'follow_ups', label: 'Verifikasi Tindak Lanjut Unit', icon: FileCheck2 },
+          ],
+        },
+      ]
+    : isBidangKeuangan
+    ? [
+        {
+          sectionKey: 'pusat_komando',
+          title: 'Pusat Kendali Pengawasan',
+          items: [
+            { id: 'dashboard', label: 'Dashboard Pengawasan', icon: LayoutDashboard },
+          ],
+        },
+        {
+          sectionKey: 'perencanaan_risiko',
+          title: 'Anggaran & Realisasi RKA',
+          items: [
+            { id: 'rka', label: 'Input RKA Manual', icon: Wallet },
+            { id: 'risk_register', label: 'Register Risiko 5x5', icon: AlertTriangle },
+            { id: 'kpi_management', label: 'KPI & Cascading Kinerja', icon: Target },
+          ],
+        },
+        {
+          sectionKey: 'temuan_tl',
+          title: 'Pemantauan & Tindak Lanjut',
+          items: [
+            { id: 'follow_ups', label: 'Tindak Lanjut Rekomendasi (Unit Kerja)', icon: FileCheck2 },
           ],
         },
       ]
