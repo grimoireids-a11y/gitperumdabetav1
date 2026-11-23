@@ -56,6 +56,24 @@ const AppContent: React.FC = () => {
   const [prefillUniverseForPkpt, setPrefillUniverseForPkpt] = useState<AuditUniverseItem | null>(null);
   const [selectedFindingForFollowUp, setSelectedFindingForFollowUp] = useState<string | undefined>(undefined);
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isDesktopSidebarHidden, setIsDesktopSidebarHidden] = useState<boolean>(() => {
+    try {
+      return window.localStorage.getItem('spi_sidebar_hidden') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const toggleDesktopSidebar = React.useCallback(() => {
+    setIsDesktopSidebarHidden((prev) => {
+      const next = !prev;
+      try {
+        window.localStorage.setItem('spi_sidebar_hidden', String(next));
+      } catch {
+        // ignore storage access issues
+      }
+      return next;
+    });
+  }, []);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
   const [aiModalContext, setAiModalContext] = useState<any>(null);
   const [isManualBookOpen, setIsManualBookOpen] = useState(false);
@@ -348,6 +366,8 @@ const AppContent: React.FC = () => {
         setActiveTab={setActiveTab}
         isOpen={isMobileSidebarOpen}
         setIsOpen={setIsMobileSidebarOpen}
+        isDesktopHidden={isDesktopSidebarHidden}
+        onToggleDesktopHidden={toggleDesktopSidebar}
         onOpenManualBook={() => setIsManualBookOpen(true)}
         onOpenDatabaseBackup={
           isFullAccess
@@ -360,11 +380,17 @@ const AppContent: React.FC = () => {
       />
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col min-w-0 lg:pl-72 transition-all">
+      <div
+        className={`flex-1 flex flex-col min-w-0 transition-all duration-300 ${
+          isDesktopSidebarHidden ? 'lg:pl-0' : 'lg:pl-72'
+        }`}
+      >
         {/* Top Navbar */}
         <Navbar
           activeTab={activeTab}
           onOpenMobileMenu={() => setIsMobileSidebarOpen(true)}
+          isDesktopSidebarHidden={isDesktopSidebarHidden}
+          onToggleDesktopSidebar={toggleDesktopSidebar}
           onOpenManualBook={() => setIsManualBookOpen(true)}
           onOpenAiAssistant={
             isFullAccess
@@ -382,7 +408,11 @@ const AppContent: React.FC = () => {
         />
 
         {/* Viewport Content */}
-        <main className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
+        <main
+          className={`flex-1 p-4 sm:p-6 lg:p-8 w-full mx-auto ${
+            isDesktopSidebarHidden ? 'max-w-[1600px]' : 'max-w-7xl'
+          }`}
+        >
           {renderActiveTab()}
         </main>
       </div>

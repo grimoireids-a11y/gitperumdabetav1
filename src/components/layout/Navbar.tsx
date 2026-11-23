@@ -1,5 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { Menu, Calendar, Building, Sparkles, KeyRound, Bell, Palette, BookOpen } from 'lucide-react';
+import {
+  Menu,
+  Calendar,
+  Building,
+  Sparkles,
+  KeyRound,
+  Bell,
+  Palette,
+  BookOpen,
+  PanelLeftClose,
+  PanelLeftOpen,
+} from 'lucide-react';
 import { collection, onSnapshot, query, where } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { useAuth } from '../../context/AuthContext';
@@ -11,6 +22,8 @@ import { useFiscalYear } from '../../context/FiscalYearContext';
 interface NavbarProps {
   activeTab: ActiveTab;
   onOpenMobileMenu: () => void;
+  isDesktopSidebarHidden?: boolean;
+  onToggleDesktopSidebar?: () => void;
   onOpenAiAssistant?: () => void;
   onOpenManualBook?: () => void;
   onNavigateToTab?: (tab: ActiveTab) => void;
@@ -19,6 +32,8 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   onOpenMobileMenu,
+  isDesktopSidebarHidden = false,
+  onToggleDesktopSidebar,
   onOpenAiAssistant,
   onOpenManualBook,
   onNavigateToTab,
@@ -111,16 +126,44 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <>
       <header className="sticky top-0 z-30 flex items-center justify-between h-16 px-4 sm:px-6 bg-white/95 backdrop-blur-md border-b border-slate-200/80 shadow-xs">
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 min-w-0">
           <button
+            type="button"
             onClick={onOpenMobileMenu}
-            className="p-2 text-slate-600 rounded-lg lg:hidden hover:bg-slate-100 focus:outline-hidden"
+            className="p-2 text-slate-600 rounded-lg lg:hidden hover:bg-slate-100 focus:outline-hidden cursor-pointer shrink-0"
             aria-label="Buka menu navigasi"
+            title="Tampilkan Menu"
           >
             <Menu className="w-5 h-5" />
           </button>
 
-          <div>
+          {onToggleDesktopSidebar && (
+            <button
+              type="button"
+              onClick={onToggleDesktopSidebar}
+              className={`hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold rounded-lg border transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                isDesktopSidebarHidden
+                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-900 border-emerald-300 shadow-2xs'
+                  : 'bg-white hover:bg-slate-100 text-slate-600 border-slate-200'
+              }`}
+              title={isDesktopSidebarHidden ? 'Tampilkan Sidebar Menu' : 'Sembunyikan Sidebar Menu'}
+              aria-label={isDesktopSidebarHidden ? 'Tampilkan Sidebar Menu' : 'Sembunyikan Sidebar Menu'}
+            >
+              {isDesktopSidebarHidden ? (
+                <>
+                  <PanelLeftOpen className="w-4 h-4 text-emerald-700 shrink-0" />
+                  <span>Tampilkan Menu</span>
+                </>
+              ) : (
+                <>
+                  <PanelLeftClose className="w-4 h-4 text-slate-600 shrink-0" />
+                  <span className="hidden xl:inline">Sembunyikan Menu</span>
+                </>
+              )}
+            </button>
+          )}
+
+          <div className="min-w-0">
             <h1 className="text-sm sm:text-base font-bold text-slate-900 truncate tracking-tight">
               {getTabTitle(activeTab)}
             </h1>

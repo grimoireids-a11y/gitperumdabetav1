@@ -23,6 +23,8 @@ import {
   FileBarChart2,
   Compass,
   Target,
+  PanelLeftClose,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppBranding } from '../../context/AppBrandingContext';
@@ -61,6 +63,8 @@ interface SidebarProps {
   setActiveTab: (tab: ActiveTab) => void;
   isOpen: boolean;
   setIsOpen: (open: boolean) => void;
+  isDesktopHidden?: boolean;
+  onToggleDesktopHidden?: () => void;
   onOpenManualBook?: () => void;
   onOpenDatabaseBackup?: (mode: 'export' | 'import') => void;
 }
@@ -70,6 +74,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   setActiveTab,
   isOpen,
   setIsOpen,
+  isDesktopHidden = false,
+  onToggleDesktopHidden,
   onOpenManualBook,
   onOpenDatabaseBackup,
 }) => {
@@ -303,43 +309,66 @@ export const Sidebar: React.FC<SidebarProps> = ({
       )}
 
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 flex flex-col w-72 bg-gradient-to-b from-[#0a2f1c] via-[#0d3824] to-[#082416] text-slate-100 transition-transform duration-300 ease-in-out border-r border-emerald-950/40 lg:translate-x-0 ${
+        className={`fixed top-0 bottom-0 left-0 z-50 flex flex-col w-72 bg-gradient-to-b from-[#0a2f1c] via-[#0d3824] to-[#082416] text-slate-100 transition-transform duration-300 ease-in-out border-r border-emerald-950/40 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${isDesktopHidden ? 'lg:-translate-x-full' : 'lg:translate-x-0'}`}
       >
-        {/* Brand Header with Dynamic Logo & Name */}
-        <div className="flex items-center gap-3 px-5 py-5 border-b border-emerald-900/40">
-          <div
-            className="flex items-center justify-center w-11 h-11 rounded-xl shadow-md shadow-emerald-950/60 ring-2 ring-emerald-400/20 overflow-hidden shrink-0"
-            style={{
-              backgroundColor: branding.logoType === 'image' && branding.logoUrl ? '#ffffff' : (branding.logoThemeColor || '#10b981'),
-            }}
-          >
-            {branding.logoType === 'image' && branding.logoUrl ? (
-              <img
-                src={branding.logoUrl}
-                alt="Logo Kantor"
-                className="w-full h-full object-contain p-1 rounded-xl"
-              />
-            ) : (
-              <Shield className="w-6 h-6 text-white" />
-            )}
-          </div>
-          <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="text-lg font-bold tracking-tight text-white truncate">
-                {branding.appName || 'SPI SMART'}
-              </span>
-              {branding.appTagline && (
-                <span className="px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-amber-300 uppercase bg-amber-950/60 border border-amber-600/30 rounded-xs shrink-0">
-                  {branding.appTagline}
-                </span>
+        {/* Brand Header with Dynamic Logo, Name & Hide Toggle */}
+        <div className="flex items-center justify-between gap-2.5 px-4 py-4 border-b border-emerald-900/40">
+          <div className="flex items-center gap-3 min-w-0 flex-1">
+            <div
+              className="flex items-center justify-center w-10 h-10 rounded-xl shadow-md shadow-emerald-950/60 ring-2 ring-emerald-400/20 overflow-hidden shrink-0"
+              style={{
+                backgroundColor: branding.logoType === 'image' && branding.logoUrl ? '#ffffff' : (branding.logoThemeColor || '#10b981'),
+              }}
+            >
+              {branding.logoType === 'image' && branding.logoUrl ? (
+                <img
+                  src={branding.logoUrl}
+                  alt="Logo Kantor"
+                  className="w-full h-full object-contain p-1 rounded-xl"
+                />
+              ) : (
+                <Shield className="w-5 h-5 text-white" />
               )}
             </div>
-            <p className="text-xs font-medium text-emerald-300 truncate" title={branding.shortInstitutionName || branding.institutionName}>
-              {branding.shortInstitutionName || 'Perumda Tirta Saiyo Pasaman'}
-            </p>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-1.5">
+                <span className="text-base font-bold tracking-tight text-white truncate">
+                  {branding.appName || 'SPI SMART'}
+                </span>
+                {branding.appTagline && (
+                  <span className="px-1.5 py-0.5 text-[10px] font-semibold tracking-wider text-amber-300 uppercase bg-amber-950/60 border border-amber-600/30 rounded-xs shrink-0">
+                    {branding.appTagline}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs font-medium text-emerald-300 truncate" title={branding.shortInstitutionName || branding.institutionName}>
+                {branding.shortInstitutionName || 'Perumda Tirta Saiyo Pasaman'}
+              </p>
+            </div>
           </div>
+
+          {onToggleDesktopHidden && (
+            <button
+              type="button"
+              onClick={onToggleDesktopHidden}
+              className="hidden lg:inline-flex items-center justify-center p-1.5 rounded-lg text-emerald-300 hover:text-white hover:bg-emerald-800/60 border border-emerald-700/40 transition-colors shrink-0 cursor-pointer"
+              title="Sembunyikan Sidebar"
+              aria-label="Sembunyikan Sidebar"
+            >
+              <PanelLeftClose className="w-4 h-4" />
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setIsOpen(false)}
+            className="lg:hidden inline-flex items-center justify-center p-1.5 rounded-lg text-emerald-300 hover:text-white hover:bg-emerald-800/60 border border-emerald-700/40 transition-colors shrink-0 cursor-pointer"
+            title="Tutup Menu"
+            aria-label="Tutup Menu"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         {/* User Identity Preview */}
