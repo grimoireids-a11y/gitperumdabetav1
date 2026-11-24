@@ -13,6 +13,8 @@ import {
   History,
   Filter,
   RotateCcw,
+  Package,
+  Droplets,
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -26,8 +28,11 @@ import {
   FinanceBankReconciliation,
   FinanceCashBankAccount,
   FinanceGlobalFilter,
+  FinanceInventoryItem,
   FinanceJournal,
+  FinancePdamMonthlySnapshot,
   FinancePeriodClose,
+  FinancePurchaseRecord,
   FinanceReceivablePayable,
   FinanceTaxRecord,
   FinanceTransaction,
@@ -46,6 +51,8 @@ import { FinanceCashBankTab } from './FinanceCashBankTab';
 import { FinanceAccountingTab } from './FinanceAccountingTab';
 import { FinanceReceivablesPayablesTab } from './FinanceReceivablesPayablesTab';
 import { FinanceAssetsTaxTab } from './FinanceAssetsTaxTab';
+import { FinanceInventoryPurchaseTab } from './FinanceInventoryPurchaseTab';
+import { FinanceOperationsBillingTab } from './FinanceOperationsBillingTab';
 import { FinanceReportsAnalysisTab } from './FinanceReportsAnalysisTab';
 import { FinanceAuditTrailTab } from './FinanceAuditTrailTab';
 
@@ -62,6 +69,8 @@ const FINANCE_TABS: {
   { id: 'utang_piutang', label: 'Utang & Piutang', icon: FileSpreadsheet },
   { id: 'aset', label: 'Aset', icon: Building2 },
   { id: 'pajak', label: 'Pajak', icon: Receipt },
+  { id: 'persediaan_pembelian', label: 'Persediaan & Pembelian', icon: Package },
+  { id: 'operasional_pdam', label: 'Operasional & Penagihan PDAM', icon: Droplets },
   { id: 'laporan', label: 'Laporan', icon: FileText },
   { id: 'analisis', label: 'Analisis & Warning', icon: Activity },
   { id: 'audit_trail', label: 'Audit Trail', icon: History },
@@ -102,6 +111,9 @@ export const FinanceModule: React.FC = () => {
   const [receivablesPayables, setReceivablesPayables] = useState<FinanceReceivablePayable[]>([]);
   const [assets, setAssets] = useState<FinanceAsset[]>([]);
   const [taxes, setTaxes] = useState<FinanceTaxRecord[]>([]);
+  const [inventory, setInventory] = useState<FinanceInventoryItem[]>([]);
+  const [purchases, setPurchases] = useState<FinancePurchaseRecord[]>([]);
+  const [pdamSnapshots, setPdamSnapshots] = useState<FinancePdamMonthlySnapshot[]>([]);
   const [auditTrails, setAuditTrails] = useState<FinanceAuditTrail[]>([]);
 
   useEffect(() => {
@@ -152,6 +164,17 @@ export const FinanceModule: React.FC = () => {
       onSnapshot(collection(db, 'fin_taxes'), (snap) => {
         setTaxes(snap.docs.map((d) => ({ id: d.id, ...d.data() } as FinanceTaxRecord)));
       }),
+      onSnapshot(collection(db, 'fin_inventory'), (snap) => {
+        setInventory(snap.docs.map((d) => ({ id: d.id, ...d.data() } as FinanceInventoryItem)));
+      }),
+      onSnapshot(collection(db, 'fin_purchases'), (snap) => {
+        setPurchases(snap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancePurchaseRecord)));
+      }),
+      onSnapshot(collection(db, 'fin_pdam_reports'), (snap) => {
+        setPdamSnapshots(
+          snap.docs.map((d) => ({ id: d.id, ...d.data() } as FinancePdamMonthlySnapshot))
+        );
+      }),
       onSnapshot(collection(db, 'fin_audit_trails'), (snap) => {
         setAuditTrails(
           snap.docs.map((d) => ({ id: d.id, ...d.data() } as FinanceAuditTrail))
@@ -172,11 +195,13 @@ export const FinanceModule: React.FC = () => {
     ]);
     const canClosePeriod = canApprove;
     const canAudit = hasRole(['KEPALA_SPI', 'AUDITOR', 'ADMIN_SISTEM', 'DEWAN_PENGAWAS']);
+    const isSuperUser = hasRole(['KEPALA_SPI', 'ADMIN_SISTEM']);
     return {
       canOperate,
       canApprove,
       canClosePeriod,
       canAudit,
+      isSuperUser,
       isReadOnly: !canOperate && !canApprove,
     };
   }, [hasRole]);
@@ -269,6 +294,8 @@ export const FinanceModule: React.FC = () => {
         assets,
         auditTrails,
         year: filter.year,
+        pdamSnapshots,
+        inventory,
       }),
     [
       statements,
@@ -281,6 +308,8 @@ export const FinanceModule: React.FC = () => {
       assets,
       auditTrails,
       filter.year,
+      pdamSnapshots,
+      inventory,
     ]
   );
 
@@ -306,6 +335,11 @@ export const FinanceModule: React.FC = () => {
             <span>Filter Terpadu Modul Keuangan & Realisasi RKA</span>
           </div>
           <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            {permissions.isSuperUser && (
+              <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded font-semibold text-emerald-800">
+                Super User: Akses Penuh Edit & Hapus Data
+              </span>
+            )}
             {permissions.isReadOnly && (
               <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded font-semibold text-slate-700">
                 Mode Pantau (Baca / Cetak)
@@ -473,6 +507,9 @@ export const FinanceModule: React.FC = () => {
           rkaItems={rkaItems}
           rkaSubItems={rkaSubItems}
           analysis={analysis}
+          pdamSnapshots={pdamSnapshots}
+          inventory={inventory}
+          purchases={purchases}
           onNavigateSubTab={setActiveSubTab}
         />
       )}
@@ -552,6 +589,29 @@ export const FinanceModule: React.FC = () => {
         />
       )}
 
+      {activeSubTab === 'persediaan_pembelian' && (
+        <FinanceInventoryPurchaseTab
+          filter={filter}
+          inventory={inventory}
+          purchases={purchases}
+          rkaItems={rkaItems}
+          units={units}
+          actor={actor}
+          permissions={permissions}
+          onLogAudit={logFinanceAudit}
+        />
+      )}
+
+      {activeSubTab === 'operasional_pdam' && (
+        <FinanceOperationsBillingTab
+          filter={filter}
+          snapshots={pdamSnapshots}
+          actor={actor}
+          permissions={permissions}
+          onLogAudit={logFinanceAudit}
+        />
+      )}
+
       {(activeSubTab === 'laporan' || activeSubTab === 'analisis') && (
         <FinanceReportsAnalysisTab
           mode={activeSubTab === 'laporan' ? 'REPORTS' : 'ANALYSIS'}
@@ -563,6 +623,9 @@ export const FinanceModule: React.FC = () => {
           rkaSubItems={rkaSubItems}
           allTransactions={transactions}
           analysis={analysis}
+          pdamSnapshots={pdamSnapshots}
+          inventory={inventory}
+          purchases={purchases}
         />
       )}
 

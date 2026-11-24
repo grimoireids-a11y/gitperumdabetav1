@@ -181,6 +181,18 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /fin_inventory/{itemId} {
+      allow read, write: if true;
+    }
+
+    match /fin_purchases/{purchaseId} {
+      allow read, write: if true;
+    }
+
+    match /fin_pdam_reports/{reportId} {
+      allow read, write: if true;
+    }
+
     match /fin_audit_trails/{trailId} {
       allow read, write: if true;
     }

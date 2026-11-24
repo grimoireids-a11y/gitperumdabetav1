@@ -10,6 +10,7 @@ export interface FinancePermissions {
   canApprove: boolean; // BIDANG_KEUANGAN, DIREKTUR, KEPALA_SPI, ADMIN_SISTEM
   canClosePeriod: boolean; // BIDANG_KEUANGAN, DIREKTUR, KEPALA_SPI, ADMIN_SISTEM
   canAudit: boolean; // KEPALA_SPI, AUDITOR, ADMIN_SISTEM, DEWAN_PENGAWAS
+  isSuperUser: boolean; // KEPALA_SPI, ADMIN_SISTEM (Full Edit & Delete across Finance)
   isReadOnly: boolean;
 }
 

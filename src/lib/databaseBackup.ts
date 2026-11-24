@@ -230,6 +230,21 @@ export const BACKUP_COLLECTIONS: BackupCollectionMeta[] = [
     description: 'Pencatatan PPN, PPh, pajak air permukaan, bukti potong & NTPN',
   },
   {
+    key: 'fin_inventory',
+    label: 'Keuangan: Persediaan Bahan Kimia & Instalasi',
+    description: 'Stok gudang bahan kimia, pipa/aksesoris bergerak & tidak bergerak (COA 15.xx)',
+  },
+  {
+    key: 'fin_purchases',
+    label: 'Keuangan: Pembelian & Pengadaan RKA',
+    description: 'Realisasi pembelian ATK, pipa/aksesoris, dan bahan kimia terhubung RKA',
+  },
+  {
+    key: 'fin_pdam_reports',
+    label: 'Keuangan: Snapshot Operasional & Penagihan PDAM',
+    description: 'Data bulanan Permendagri 118/2018 (efisiensi penagihan, DRD, produksi NRW, SR, SDM)',
+  },
+  {
     key: 'fin_audit_trails',
     label: 'Keuangan: Audit Trail Keuangan',
     description: 'Jejak audit permanen mutasi transaksi, persetujuan & deteksi ganda',

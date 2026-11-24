@@ -5,9 +5,11 @@ import {
   CreditCard,
   History,
   AlertTriangle,
+  Edit3,
+  Trash2,
   X,
 } from 'lucide-react';
-import { doc, setDoc, writeBatch } from 'firebase/firestore';
+import { deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Unit } from '../../types/audit';
 import {
@@ -28,6 +30,7 @@ import {
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
 import { FinanceActor, FinancePermissions, LogFinanceAuditFn } from './financeShared';
+import { FinanceDeleteConfirmModal } from './FinanceDeleteConfirmModal';
 
 interface FinanceReceivablesPayablesTabProps {
   filter: FinanceGlobalFilter;
@@ -75,8 +78,9 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
   );
   const [submitting, setSubmitting] = useState(false);
 
-  // Create Modal
+  // Create / Edit Modal
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingRecord, setEditingRecord] = useState<FinanceReceivablePayable | null>(null);
   const [docNumber, setDocNumber] = useState('');
   const [partyName, setPartyName] = useState('');
   const [category, setCategory] = useState('Rekening Air / Tagihan');
@@ -98,6 +102,13 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
 
   // History Drawer Modal
   const [historyTarget, setHistoryTarget] = useState<FinanceReceivablePayable | null>(null);
+
+  // Delete Confirm Modal
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { kind: 'RECORD'; item: FinanceReceivablePayable }
+    | { kind: 'PAYMENT'; record: FinanceReceivablePayable; paymentId: string; referenceNo: string; amount: number }
+    | null
+  >(null);
 
   const filteredRecords = useMemo(() => {
     return records
@@ -151,54 +162,124 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
     setSubmitting(true);
     try {
       const now = new Date().toISOString();
-      const id = `rp-${Date.now()}`;
+      const id = editingRecord?.id || `rp-${Date.now()}`;
       const year = parseInt(txDate.slice(0, 4), 10) || new Date().getFullYear();
       const month = getMonthNameFromDate(txDate);
       const u = units.find((x) => x.id === unitId);
       const c = eligibleCoas.find((x) => x.id === coaId);
+      const roundedOrig = Math.round(amt);
+      const paid = editingRecord?.paidAmount || 0;
+      const remaining = Math.max(0, roundedOrig - paid);
+      const computedStatus: FinanceReceivablePayable['status'] =
+        remaining === 0 ? 'Lunas' : paid > 0 ? 'Sebagian' : 'Belum Lunas';
 
       const rec: FinanceReceivablePayable = sanitizeFirestoreRecord({
         id,
-        kind: kindTab,
+        kind: editingRecord?.kind || kindTab,
         documentNumber: docNumber.trim(),
         partyName: partyName.trim(),
         category: category.trim(),
         unitId: u?.id || '',
         unitName: u?.name || 'Kantor Pusat',
-        coaId: c?.id || '',
-        coaCode: c?.code || (kindTab === 'PIUTANG' ? '1-1301' : '2-1101'),
+        coaId: c?.id || editingRecord?.coaId || '',
+        coaCode: c?.code || editingRecord?.coaCode || (kindTab === 'PIUTANG' ? '1-1301' : '2-1101'),
         transactionDate: txDate,
         dueDate,
         year,
         month,
-        originalAmount: Math.round(amt),
-        paidAmount: 0,
-        remainingAmount: Math.round(amt),
-        status: 'Belum Lunas',
-        payments: [],
+        originalAmount: roundedOrig,
+        paidAmount: paid,
+        remainingAmount: remaining,
+        status: computedStatus,
+        payments: editingRecord?.payments || [],
         notes: notes.trim() || undefined,
-        createdBy: actor.displayName,
-        createdAt: now,
+        createdBy: editingRecord?.createdBy || actor.displayName,
+        createdAt: editingRecord?.createdAt || now,
         updatedAt: now,
       });
 
       await setDoc(doc(db, 'fin_receivables_payables', id), rec);
       await onLogAudit({
-        actionType: 'CREATE',
-        entityType: kindTab === 'PIUTANG' ? 'Daftar Piutang' : 'Daftar Utang',
+        actionType: editingRecord ? 'UPDATE' : 'CREATE',
+        entityType: rec.kind === 'PIUTANG' ? 'Daftar Piutang' : 'Daftar Utang',
         entityId: id,
         entityLabel: rec.documentNumber,
-        summary: `Pencatatan ${kindTab === 'PIUTANG' ? 'piutang' : 'utang'} ${rec.documentNumber} (${rec.partyName}) sebesar ${formatRp(rec.originalAmount)}`,
+        summary: `${editingRecord ? 'Pembaruan' : 'Pencatatan'} ${rec.kind === 'PIUTANG' ? 'piutang' : 'utang'} ${rec.documentNumber} (${rec.partyName}) sebesar ${formatRp(rec.originalAmount)}`,
+        beforeData: editingRecord ? (editingRecord as unknown as Record<string, unknown>) : null,
         afterData: rec as unknown as Record<string, unknown>,
         year,
       });
 
       setIsCreateOpen(false);
-      setFeedback({ type: 'success', message: `${rec.documentNumber} berhasil disimpan.` });
+      setEditingRecord(null);
+      setFeedback({
+        type: 'success',
+        message: `${rec.documentNumber} berhasil ${editingRecord ? 'diperbarui' : 'disimpan'}.`,
+      });
     } catch (err: unknown) {
       setFeedback({
         type: 'error',
         message: `Gagal menyimpan: ${err instanceof Error ? err.message : 'Error'}`,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || !permissions.isSuperUser) return;
+    setSubmitting(true);
+    try {
+      if (deleteTarget.kind === 'RECORD') {
+        const rec = deleteTarget.item;
+        await deleteDoc(doc(db, 'fin_receivables_payables', rec.id));
+        await onLogAudit({
+          actionType: 'DELETE',
+          entityType: rec.kind === 'PIUTANG' ? 'Daftar Piutang' : 'Daftar Utang',
+          entityId: rec.id,
+          entityLabel: rec.documentNumber,
+          summary: `Super User menghapus ${rec.kind.toLowerCase()} ${rec.documentNumber} (${rec.partyName})`,
+          beforeData: rec as unknown as Record<string, unknown>,
+          afterData: null,
+          year: rec.year,
+        });
+        setFeedback({ type: 'success', message: `${rec.documentNumber} berhasil dihapus permanen.` });
+      } else {
+        const { record, paymentId, referenceNo, amount } = deleteTarget;
+        const now = new Date().toISOString();
+        const remainingPayments = (record.payments || []).filter((p) => p.id !== paymentId);
+        const newPaid = remainingPayments.reduce((s, p) => s + (p.amount || 0), 0);
+        const newRem = Math.max(0, (record.originalAmount || 0) - newPaid);
+        const newStatus: FinanceReceivablePayable['status'] =
+          newRem === 0 ? 'Lunas' : newPaid > 0 ? 'Sebagian' : 'Belum Lunas';
+
+        const updated: FinanceReceivablePayable = sanitizeFirestoreRecord({
+          ...record,
+          paidAmount: newPaid,
+          remainingAmount: newRem,
+          status: newStatus,
+          payments: remainingPayments,
+          updatedAt: now,
+        });
+        await setDoc(doc(db, 'fin_receivables_payables', record.id), updated);
+        await onLogAudit({
+          actionType: 'UPDATE',
+          entityType: `Riwayat Pembayaran ${record.kind}`,
+          entityId: record.id,
+          entityLabel: record.documentNumber,
+          summary: `Super User menghapus entri pembayaran ${referenceNo} (${formatRp(amount)}) pada ${record.documentNumber}`,
+          beforeData: record as unknown as Record<string, unknown>,
+          afterData: updated as unknown as Record<string, unknown>,
+          year: record.year,
+        });
+        setHistoryTarget(updated);
+        setFeedback({ type: 'success', message: `Entri pembayaran ${referenceNo} berhasil dihapus.` });
+      }
+      setDeleteTarget(null);
+    } catch (err: unknown) {
+      setFeedback({
+        type: 'error',
+        message: `Gagal menghapus data: ${err instanceof Error ? err.message : 'Error'}`,
       });
     } finally {
       setSubmitting(false);
@@ -440,6 +521,7 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
           <button
             type="button"
             onClick={() => {
+              setEditingRecord(null);
               setDocNumber(
                 `${kindTab === 'PIUTANG' ? 'INV' : 'AP'}-${filter.year || new Date().getFullYear()}-${String(records.length + 1).padStart(3, '0')}`
               );
@@ -589,6 +671,38 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
                               <span>Bayar</span>
                             </button>
                           )}
+                          {permissions.isSuperUser && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingRecord(r);
+                                  setDocNumber(r.documentNumber);
+                                  setPartyName(r.partyName);
+                                  setCategory(r.category);
+                                  setUnitId(r.unitId || '');
+                                  setCoaId(r.coaId || '');
+                                  setTxDate(r.transactionDate);
+                                  setDueDate(r.dueDate);
+                                  setOriginalAmount(String(r.originalAmount));
+                                  setNotes(r.notes || '');
+                                  setIsCreateOpen(true);
+                                }}
+                                className="p-1.5 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded cursor-pointer"
+                                title="Edit Tagihan (Super User)"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget({ kind: 'RECORD', item: r })}
+                                className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer"
+                                title="Hapus Tagihan (Super User)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -606,9 +720,18 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
           <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-lg p-5 space-y-3.5 text-xs shadow-xl">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-900">
-                Catat {kindTab === 'PIUTANG' ? 'Piutang Baru' : 'Utang Baru'}
+                {editingRecord
+                  ? `Edit ${editingRecord.kind === 'PIUTANG' ? 'Piutang' : 'Utang'} — ${editingRecord.documentNumber}`
+                  : `Catat ${kindTab === 'PIUTANG' ? 'Piutang Baru' : 'Utang Baru'}`}
               </h3>
-              <button type="button" onClick={() => setIsCreateOpen(false)} className="cursor-pointer">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCreateOpen(false);
+                  setEditingRecord(null);
+                }}
+                className="cursor-pointer"
+              >
                 <X className="w-4 h-4 text-slate-500" />
               </button>
             </div>
@@ -703,10 +826,22 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
                 className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono font-bold"
               />
             </div>
+            <div>
+              <label className="block font-semibold mb-1">Catatan (Opsional)</label>
+              <input
+                type="text"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+              />
+            </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setIsCreateOpen(false)}
+                onClick={() => {
+                  setIsCreateOpen(false);
+                  setEditingRecord(null);
+                }}
                 className="px-3.5 py-2 border border-slate-300 rounded-lg font-semibold cursor-pointer"
               >
                 Batal
@@ -830,7 +965,7 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
             ) : (
               <div className="divide-y divide-slate-100 border border-slate-200 rounded-xl overflow-hidden">
                 {historyTarget.payments.map((p) => (
-                  <div key={p.id} className="p-3 flex items-center justify-between">
+                  <div key={p.id} className="p-3 flex items-center justify-between gap-2">
                     <div>
                       <div className="font-mono font-bold text-slate-900">
                         {formatDateShort(p.paymentDate)} · {p.referenceNo}
@@ -839,7 +974,27 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
                         {p.cashBankName} · Dicatat oleh {p.recordedBy}
                       </div>
                     </div>
-                    <div className="font-mono font-bold text-emerald-800">{formatRp(p.amount)}</div>
+                    <div className="flex items-center gap-2">
+                      <div className="font-mono font-bold text-emerald-800">{formatRp(p.amount)}</div>
+                      {permissions.isSuperUser && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setDeleteTarget({
+                              kind: 'PAYMENT',
+                              record: historyTarget,
+                              paymentId: p.id,
+                              referenceNo: p.referenceNo,
+                              amount: p.amount,
+                            })
+                          }
+                          className="p-1 text-rose-600 hover:bg-rose-50 rounded cursor-pointer"
+                          title="Hapus Entri Pembayaran (Super User)"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -847,6 +1002,30 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
           </div>
         </div>
       )}
+
+      <FinanceDeleteConfirmModal
+        isOpen={Boolean(deleteTarget)}
+        title={
+          deleteTarget?.kind === 'PAYMENT'
+            ? 'Hapus Entri Pembayaran'
+            : `Hapus Data ${kindTab === 'PIUTANG' ? 'Piutang' : 'Utang'}`
+        }
+        itemLabel={
+          deleteTarget?.kind === 'RECORD'
+            ? `${deleteTarget.item.documentNumber} - ${deleteTarget.item.partyName}`
+            : deleteTarget?.kind === 'PAYMENT'
+            ? `${deleteTarget.referenceNo} (${formatRp(deleteTarget.amount)})`
+            : ''
+        }
+        description={
+          deleteTarget?.kind === 'PAYMENT'
+            ? 'Saldo terbayar dan sisa tagihan akan dihitung ulang otomatis.'
+            : 'Data tagihan dan seluruh riwayat pembayarannya pada catatan ini akan dihapus permanen.'
+        }
+        submitting={submitting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 };

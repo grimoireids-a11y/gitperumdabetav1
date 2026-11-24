@@ -6,9 +6,11 @@ import {
   ArrowRightLeft,
   Receipt,
   CheckCircle2,
+  Edit3,
+  Trash2,
   X,
 } from 'lucide-react';
-import { doc, setDoc, writeBatch } from 'firebase/firestore';
+import { deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { RKAItem, Unit } from '../../types/audit';
 import {
@@ -32,6 +34,7 @@ import {
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
 import { FinanceActor, FinancePermissions, LogFinanceAuditFn } from './financeShared';
+import { FinanceDeleteConfirmModal } from './FinanceDeleteConfirmModal';
 
 interface FinanceAssetsTaxTabProps {
   mode: 'ASSETS' | 'TAXES';
@@ -67,6 +70,7 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
 
   // Asset Modals
   const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
+  const [editingAsset, setEditingAsset] = useState<FinanceAsset | null>(null);
   const [assetCode, setAssetCode] = useState('');
   const [assetName, setAssetName] = useState('');
   const [assetCat, setAssetCat] = useState<string>(FINANCE_ASSET_CATEGORIES[0]);
@@ -75,6 +79,8 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
   const [assetCost, setAssetCost] = useState('');
   const [assetLifeMonths, setAssetLifeMonths] = useState('60');
   const [assetSalvage, setAssetSalvage] = useState('0');
+  const [assetAccumDep, setAssetAccumDep] = useState('0');
+  const [assetStatus, setAssetStatus] = useState<FinanceAsset['status']>('Aktif');
   const [assetRkaId, setAssetRkaId] = useState('');
 
   // Asset Mutation Modal
@@ -86,6 +92,7 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
 
   // Tax Modals
   const [isTaxModalOpen, setIsTaxModalOpen] = useState(false);
+  const [editingTax, setEditingTax] = useState<FinanceTaxRecord | null>(null);
   const [taxType, setTaxType] = useState<FinanceTaxType>('PPN');
   const [withholdingNo, setWithholdingNo] = useState('');
   const [taxObject, setTaxObject] = useState('');
@@ -93,12 +100,22 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
   const [taxRate, setTaxRate] = useState('11');
   const [taxDueDate, setTaxDueDate] = useState(getTodayIso());
   const [taxUnitId, setTaxUnitId] = useState('');
+  const [taxStatusEdit, setTaxStatusEdit] = useState<FinanceTaxRecord['status']>('Terutang');
+  const [taxNtpnEdit, setTaxNtpnEdit] = useState('');
+  const [taxPayDateEdit, setTaxPayDateEdit] = useState('');
 
   // Pay Tax Modal
   const [payTaxTarget, setPayTaxTarget] = useState<FinanceTaxRecord | null>(null);
   const [taxPayDate, setTaxPayDate] = useState(getTodayIso());
   const [ntpnNo, setNtpnNo] = useState('');
   const [taxCashBankId, setTaxCashBankId] = useState('');
+
+  // Delete Confirm Modal
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { kind: 'ASSET'; item: FinanceAsset }
+    | { kind: 'TAX'; item: FinanceTaxRecord }
+    | null
+  >(null);
 
   const activeYear = filter.year !== 0 ? filter.year : new Date().getFullYear();
 
@@ -155,6 +172,7 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
     const cost = Number(assetCost);
     const life = Math.max(1, Number(assetLifeMonths) || 60);
     const salvage = Math.max(0, Number(assetSalvage) || 0);
+    const accumDep = editingAsset ? Math.max(0, Math.round(Number(assetAccumDep) || 0)) : 0;
     if (!assetCode.trim() || !assetName.trim() || !Number.isFinite(cost) || cost <= 0) {
       setFeedback({ type: 'error', message: 'Kode aset, nama aset, dan nilai perolehan > 0 wajib diisi.' });
       return;
@@ -163,9 +181,12 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
     setSubmitting(true);
     try {
       const now = new Date().toISOString();
-      const id = `ast-${Date.now()}`;
+      const id = editingAsset?.id || `ast-${Date.now()}`;
       const u = units.find((x) => x.id === assetUnitId);
       const rka = rkaItems.find((x) => x.id === assetRkaId);
+      const roundedCost = Math.round(cost);
+      const roundedSalvage = Math.round(salvage);
+      const computedBookValue = Math.max(roundedSalvage, roundedCost - accumDep);
 
       const rec: FinanceAsset = sanitizeFirestoreRecord({
         id,
@@ -175,33 +196,38 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
         unitId: u?.id || '',
         unitName: u?.name || 'Kantor Pusat',
         acquisitionDate: assetDate,
-        acquisitionCost: Math.round(cost),
+        acquisitionCost: roundedCost,
         usefulLifeMonths: Math.round(life),
-        salvageValue: Math.round(salvage),
+        salvageValue: roundedSalvage,
         depreciationMethod: 'Garis Lurus',
-        accumulatedDepreciation: 0,
-        bookValue: Math.round(cost),
+        accumulatedDepreciation: accumDep,
+        bookValue: computedBookValue,
         rkaId: rka?.id,
         rkaCode: rka?.code,
-        status: 'Aktif',
-        mutations: [],
-        createdBy: actor.displayName,
-        createdAt: now,
+        status: editingAsset ? assetStatus : 'Aktif',
+        mutations: editingAsset?.mutations || [],
+        createdBy: editingAsset?.createdBy || actor.displayName,
+        createdAt: editingAsset?.createdAt || now,
         updatedAt: now,
       });
 
       await setDoc(doc(db, 'fin_assets', id), rec);
       await onLogAudit({
-        actionType: 'CREATE',
+        actionType: editingAsset ? 'UPDATE' : 'CREATE',
         entityType: 'Registrasi Aset Tetap',
         entityId: id,
         entityLabel: `${rec.assetCode} - ${rec.name}`,
-        summary: `Registrasi aset ${rec.name} dengan nilai perolehan ${formatRp(rec.acquisitionCost)}`,
+        summary: `${editingAsset ? 'Pembaruan' : 'Registrasi'} aset ${rec.name} dengan nilai perolehan ${formatRp(rec.acquisitionCost)}`,
+        beforeData: editingAsset ? (editingAsset as unknown as Record<string, unknown>) : null,
         afterData: rec as unknown as Record<string, unknown>,
       });
 
       setIsAssetModalOpen(false);
-      setFeedback({ type: 'success', message: `Aset ${rec.name} berhasil diregistrasi.` });
+      setEditingAsset(null);
+      setFeedback({
+        type: 'success',
+        message: `Aset ${rec.name} berhasil ${editingAsset ? 'diperbarui' : 'diregistrasi'}.`,
+      });
     } catch (err: unknown) {
       setFeedback({
         type: 'error',
@@ -364,11 +390,12 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
     setSubmitting(true);
     try {
       const now = new Date().toISOString();
-      const id = `tax-${Date.now()}`;
+      const id = editingTax?.id || `tax-${Date.now()}`;
       const year = parseInt(taxDueDate.slice(0, 4), 10) || activeYear;
       const month = getMonthNameFromDate(taxDueDate);
       const u = units.find((x) => x.id === taxUnitId);
       const taxAmount = Math.round((base * rate) / 100);
+      const finalStatus = editingTax ? taxStatusEdit : 'Terutang';
 
       const rec: FinanceTaxRecord = sanitizeFirestoreRecord({
         id,
@@ -380,31 +407,91 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
         taxBaseAmount: Math.round(base),
         taxRatePct: rate,
         taxAmount,
-        status: 'Terutang',
+        status: finalStatus,
         dueDate: taxDueDate,
+        paymentDate:
+          editingTax && finalStatus !== 'Terutang'
+            ? taxPayDateEdit.trim() || editingTax.paymentDate
+            : undefined,
+        ntpnNumber:
+          editingTax && finalStatus !== 'Terutang'
+            ? taxNtpnEdit.trim() || editingTax.ntpnNumber
+            : undefined,
+        cashBankId: editingTax?.cashBankId,
+        cashBankName: editingTax?.cashBankName,
+        transactionId: editingTax?.transactionId,
+        voucherNumber: editingTax?.voucherNumber,
         unitId: u?.id || '',
         unitName: u?.name || 'Kantor Pusat',
-        createdBy: actor.displayName,
-        createdAt: now,
+        createdBy: editingTax?.createdBy || actor.displayName,
+        createdAt: editingTax?.createdAt || now,
         updatedAt: now,
       });
 
       await setDoc(doc(db, 'fin_taxes', id), rec);
       await onLogAudit({
-        actionType: 'CREATE',
+        actionType: editingTax ? 'UPDATE' : 'CREATE',
         entityType: 'Pencatatan Pajak',
         entityId: id,
         entityLabel: `${rec.taxType} · ${rec.withholdingNumber}`,
-        summary: `Pencatatan ${rec.taxType} terutang ${formatRp(rec.taxAmount)} (${rec.taxObject})`,
+        summary: `${editingTax ? 'Pembaruan' : 'Pencatatan'} ${rec.taxType} (${rec.status}) ${formatRp(rec.taxAmount)} (${rec.taxObject})`,
+        beforeData: editingTax ? (editingTax as unknown as Record<string, unknown>) : null,
         afterData: rec as unknown as Record<string, unknown>,
         year,
       });
       setIsTaxModalOpen(false);
-      setFeedback({ type: 'success', message: `Pajak ${rec.taxType} sebesar ${formatRp(taxAmount)} dicatat.` });
+      setEditingTax(null);
+      setFeedback({
+        type: 'success',
+        message: `Pajak ${rec.taxType} sebesar ${formatRp(taxAmount)} berhasil ${editingTax ? 'diperbarui' : 'dicatat'}.`,
+      });
     } catch (err: unknown) {
       setFeedback({
         type: 'error',
         message: `Gagal menyimpan pajak: ${err instanceof Error ? err.message : 'Error'}`,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || !permissions.isSuperUser) return;
+    setSubmitting(true);
+    try {
+      if (deleteTarget.kind === 'ASSET') {
+        const a = deleteTarget.item;
+        await deleteDoc(doc(db, 'fin_assets', a.id));
+        await onLogAudit({
+          actionType: 'DELETE',
+          entityType: 'Registrasi Aset Tetap',
+          entityId: a.id,
+          entityLabel: `${a.assetCode} - ${a.name}`,
+          summary: `Super User menghapus aset ${a.assetCode} (${a.name})`,
+          beforeData: a as unknown as Record<string, unknown>,
+          afterData: null,
+        });
+        setFeedback({ type: 'success', message: `Aset ${a.name} berhasil dihapus permanen.` });
+      } else {
+        const t = deleteTarget.item;
+        await deleteDoc(doc(db, 'fin_taxes', t.id));
+        await onLogAudit({
+          actionType: 'DELETE',
+          entityType: 'Pencatatan Pajak',
+          entityId: t.id,
+          entityLabel: `${t.taxType} · ${t.withholdingNumber}`,
+          summary: `Super User menghapus catatan pajak ${t.taxType} (${t.withholdingNumber})`,
+          beforeData: t as unknown as Record<string, unknown>,
+          afterData: null,
+          year: t.year,
+        });
+        setFeedback({ type: 'success', message: `Catatan pajak ${t.withholdingNumber} berhasil dihapus permanen.` });
+      }
+      setDeleteTarget(null);
+    } catch (err: unknown) {
+      setFeedback({
+        type: 'error',
+        message: `Gagal menghapus data: ${err instanceof Error ? err.message : 'Error'}`,
       });
     } finally {
       setSubmitting(false);
@@ -599,6 +686,7 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
               <button
                 type="button"
                 onClick={() => {
+                  setEditingAsset(null);
                   setAssetCode(`AST-${activeYear}-${String(assets.length + 1).padStart(3, '0')}`);
                   setAssetName('');
                   setAssetCat(FINANCE_ASSET_CATEGORIES[0]);
@@ -607,6 +695,8 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
                   setAssetCost('');
                   setAssetLifeMonths('60');
                   setAssetSalvage('0');
+                  setAssetAccumDep('0');
+                  setAssetStatus('Aktif');
                   setAssetRkaId('');
                   setIsAssetModalOpen(true);
                 }}
@@ -671,23 +761,59 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
                           {(a.mutations || []).length} riwayat mutasi
                         </div>
                       </td>
-                      <td className="py-2.5 px-3 text-right">
-                        {permissions.canOperate && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setMutateAsset(a);
-                              setMutDate(getTodayIso());
-                              setMutToUnitId(a.unitId);
-                              setMutCondition('Baik');
-                              setMutNotes('');
-                            }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md cursor-pointer"
-                          >
-                            <ArrowRightLeft className="w-3 h-3" />
-                            <span>Mutasi</span>
-                          </button>
-                        )}
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">
+                          {permissions.canOperate && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMutateAsset(a);
+                                setMutDate(getTodayIso());
+                                setMutToUnitId(a.unitId);
+                                setMutCondition('Baik');
+                                setMutNotes('');
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md cursor-pointer"
+                            >
+                              <ArrowRightLeft className="w-3 h-3" />
+                              <span>Mutasi</span>
+                            </button>
+                          )}
+                          {permissions.isSuperUser && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingAsset(a);
+                                  setAssetCode(a.assetCode);
+                                  setAssetName(a.name);
+                                  setAssetCat(a.category);
+                                  setAssetUnitId(a.unitId || '');
+                                  setAssetDate(a.acquisitionDate);
+                                  setAssetCost(String(a.acquisitionCost));
+                                  setAssetLifeMonths(String(a.usefulLifeMonths));
+                                  setAssetSalvage(String(a.salvageValue || 0));
+                                  setAssetAccumDep(String(a.accumulatedDepreciation || 0));
+                                  setAssetStatus(a.status);
+                                  setAssetRkaId(a.rkaId || '');
+                                  setIsAssetModalOpen(true);
+                                }}
+                                className="p-1.5 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded cursor-pointer"
+                                title="Edit Aset (Super User)"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteTarget({ kind: 'ASSET', item: a })}
+                                className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer"
+                                title="Hapus Aset (Super User)"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -702,8 +828,17 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
           <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-lg p-5 space-y-3.5 text-xs shadow-xl">
               <div className="flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-900">Registrasi Aset Tetap Baru</h3>
-                <button type="button" onClick={() => setIsAssetModalOpen(false)} className="cursor-pointer">
+                <h3 className="text-sm font-bold text-slate-900">
+                  {editingAsset ? `Edit Aset — ${editingAsset.assetCode}` : 'Registrasi Aset Tetap Baru'}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsAssetModalOpen(false);
+                    setEditingAsset(null);
+                  }}
+                  className="cursor-pointer"
+                >
                   <X className="w-4 h-4 text-slate-500" />
                 </button>
               </div>
@@ -811,10 +946,38 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
                   ))}
                 </select>
               </div>
+              {editingAsset && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block font-semibold mb-1">Akumulasi Penyusutan (Rp)</label>
+                    <input
+                      type="number"
+                      value={assetAccumDep}
+                      onChange={(e) => setAssetAccumDep(e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-semibold mb-1">Status Aset</label>
+                    <select
+                      value={assetStatus}
+                      onChange={(e) => setAssetStatus(e.target.value as FinanceAsset['status'])}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                    >
+                      <option value="Aktif">Aktif</option>
+                      <option value="Dalam Perbaikan">Dalam Perbaikan</option>
+                      <option value="Dihapusbukukan">Dihapusbukukan</option>
+                    </select>
+                  </div>
+                </div>
+              )}
               <div className="flex justify-end gap-2 pt-2">
                 <button
                   type="button"
-                  onClick={() => setIsAssetModalOpen(false)}
+                  onClick={() => {
+                    setIsAssetModalOpen(false);
+                    setEditingAsset(null);
+                  }}
                   className="px-3.5 py-2 border border-slate-300 rounded-lg font-semibold cursor-pointer"
                 >
                   Batal
@@ -825,7 +988,7 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
                   onClick={handleSaveAsset}
                   className="px-4 py-2 bg-emerald-700 text-white rounded-lg font-bold cursor-pointer"
                 >
-                  Simpan Aset
+                  {editingAsset ? 'Simpan Perubahan Aset' : 'Simpan Aset'}
                 </button>
               </div>
             </div>
@@ -912,6 +1075,19 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
             </div>
           </div>
         )}
+        <FinanceDeleteConfirmModal
+          isOpen={Boolean(deleteTarget)}
+          title="Hapus Data Aset Tetap"
+          itemLabel={
+            deleteTarget?.kind === 'ASSET'
+              ? `${deleteTarget.item.assetCode} - ${deleteTarget.item.name}`
+              : ''
+          }
+          description="Data registrasi aset dan seluruh riwayat mutasinya akan dihapus permanen."
+          submitting={submitting}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={handleConfirmDelete}
+        />
       </div>
     );
   }
@@ -978,6 +1154,7 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
           <button
             type="button"
             onClick={() => {
+              setEditingTax(null);
               setTaxType('PPN');
               setWithholdingNo(`BP-${activeYear}-${String(taxes.length + 1).padStart(3, '0')}`);
               setTaxObject('');
@@ -985,6 +1162,9 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
               setTaxRate('11');
               setTaxDueDate(getTodayIso());
               setTaxUnitId(units[0]?.id || '');
+              setTaxStatusEdit('Terutang');
+              setTaxNtpnEdit('');
+              setTaxPayDateEdit('');
               setIsTaxModalOpen(true);
             }}
             className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
@@ -1053,21 +1233,56 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
                         {t.status}
                       </span>
                     </td>
-                    <td className="py-2.5 px-3 text-right">
-                      {permissions.canOperate && t.status === 'Terutang' && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPayTaxTarget(t);
-                            setTaxPayDate(getTodayIso());
-                            setNtpnNo('');
-                            setTaxCashBankId(cashBankAccounts[0]?.id || '');
-                          }}
-                          className="px-2.5 py-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md cursor-pointer"
-                        >
-                          Setor Pajak
-                        </button>
-                      )}
+                    <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                      <div className="inline-flex items-center gap-1">
+                        {permissions.canOperate && t.status === 'Terutang' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPayTaxTarget(t);
+                              setTaxPayDate(getTodayIso());
+                              setNtpnNo('');
+                              setTaxCashBankId(cashBankAccounts[0]?.id || '');
+                            }}
+                            className="px-2.5 py-1 text-[11px] font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md cursor-pointer"
+                          >
+                            Setor Pajak
+                          </button>
+                        )}
+                        {permissions.isSuperUser && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingTax(t);
+                                setTaxType(t.taxType);
+                                setWithholdingNo(t.withholdingNumber);
+                                setTaxObject(t.taxObject);
+                                setTaxBase(String(t.taxBaseAmount));
+                                setTaxRate(String(t.taxRatePct));
+                                setTaxDueDate(t.dueDate);
+                                setTaxUnitId(t.unitId || '');
+                                setTaxStatusEdit(t.status);
+                                setTaxNtpnEdit(t.ntpnNumber || '');
+                                setTaxPayDateEdit(t.paymentDate || '');
+                                setIsTaxModalOpen(true);
+                              }}
+                              className="p-1.5 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded cursor-pointer"
+                              title="Edit Pajak (Super User)"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget({ kind: 'TAX', item: t })}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer"
+                              title="Hapus Pajak (Super User)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -1077,13 +1292,24 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
         </div>
       </div>
 
-      {/* Modal Catat Pajak */}
+      {/* Modal Catat / Edit Pajak */}
       {isTaxModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-lg p-5 space-y-3.5 text-xs shadow-xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900">Catat Kewajiban & Bukti Potong Pajak</h3>
-              <button type="button" onClick={() => setIsTaxModalOpen(false)} className="cursor-pointer">
+              <h3 className="text-sm font-bold text-slate-900">
+                {editingTax
+                  ? `Edit Pajak — ${editingTax.withholdingNumber}`
+                  : 'Catat Kewajiban & Bukti Potong Pajak'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTaxModalOpen(false);
+                  setEditingTax(null);
+                }}
+                className="cursor-pointer"
+              >
                 <X className="w-4 h-4 text-slate-500" />
               </button>
             </div>
@@ -1152,6 +1378,40 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
                 />
               </div>
             </div>
+            {editingTax && (
+              <div className="grid grid-cols-3 gap-3">
+                <div>
+                  <label className="block font-semibold mb-1">Status Pajak</label>
+                  <select
+                    value={taxStatusEdit}
+                    onChange={(e) => setTaxStatusEdit(e.target.value as FinanceTaxRecord['status'])}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                  >
+                    <option value="Terutang">Terutang</option>
+                    <option value="Dibayar">Dibayar</option>
+                    <option value="Dilaporkan">Dilaporkan</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Tanggal Setor</label>
+                  <input
+                    type="date"
+                    value={taxPayDateEdit}
+                    onChange={(e) => setTaxPayDateEdit(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Nomor NTPN</label>
+                  <input
+                    type="text"
+                    value={taxNtpnEdit}
+                    onChange={(e) => setTaxNtpnEdit(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono"
+                  />
+                </div>
+              </div>
+            )}
             <div className="p-3 bg-slate-50 border border-slate-200 rounded-lg flex justify-between font-bold">
               <span>Nilai Pajak Terutang:</span>
               <span className="font-mono text-emerald-800">
@@ -1161,7 +1421,10 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
             <div className="flex justify-end gap-2 pt-2">
               <button
                 type="button"
-                onClick={() => setIsTaxModalOpen(false)}
+                onClick={() => {
+                  setIsTaxModalOpen(false);
+                  setEditingTax(null);
+                }}
                 className="px-3.5 py-2 border border-slate-300 rounded-lg font-semibold cursor-pointer"
               >
                 Batal
@@ -1172,7 +1435,7 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
                 onClick={handleSaveTax}
                 className="px-4 py-2 bg-emerald-700 text-white rounded-lg font-bold cursor-pointer"
               >
-                Simpan Pajak
+                {editingTax ? 'Simpan Perubahan Pajak' : 'Simpan Pajak'}
               </button>
             </div>
           </div>
@@ -1250,6 +1513,19 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
           </div>
         </div>
       )}
+      <FinanceDeleteConfirmModal
+        isOpen={Boolean(deleteTarget)}
+        title="Hapus Catatan Pajak"
+        itemLabel={
+          deleteTarget?.kind === 'TAX'
+            ? `${deleteTarget.item.taxType} · ${deleteTarget.item.withholdingNumber} (${formatRp(deleteTarget.item.taxAmount)})`
+            : ''
+        }
+        description="Catatan pajak ini akan dihapus permanen dari daftar pajak."
+        submitting={submitting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 };

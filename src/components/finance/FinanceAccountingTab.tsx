@@ -9,7 +9,7 @@ import {
   CheckCircle2,
   Edit3,
 } from 'lucide-react';
-import { doc, setDoc, writeBatch } from 'firebase/firestore';
+import { deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import {
   FinanceAccount,
@@ -21,7 +21,12 @@ import {
   FinanceJournalType,
   FinancePeriodClose,
 } from '../../types/finance';
-import { buildDefaultCashBankAccounts, buildDefaultPDAMCoa } from '../../data/financeStandards';
+import {
+  buildDefaultCashBankAccounts,
+  buildDefaultPDAMCoa,
+  buildOfficialPDAMCashBankAccounts,
+  buildOfficialPDAMCoa,
+} from '../../data/financeStandards';
 import { FISCAL_MONTHS } from '../../lib/featureCatalog';
 import {
   AccountingStatements,
@@ -33,6 +38,7 @@ import {
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
 import { FinanceActor, FinancePermissions, LogFinanceAuditFn } from './financeShared';
+import { FinanceDeleteConfirmModal } from './FinanceDeleteConfirmModal';
 
 interface FinanceAccountingTabProps {
   filter: FinanceGlobalFilter;
@@ -75,9 +81,12 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
   const [coaNormal, setCoaNormal] = useState<'Debit' | 'Kredit'>('Debit');
   const [coaCfGroup, setCoaCfGroup] = useState<FinanceCashFlowGroup>('Operasional');
   const [coaOpening, setCoaOpening] = useState('0');
+  const [coaPrevMonth, setCoaPrevMonth] = useState('0');
+  const [coaIsContra, setCoaIsContra] = useState(false);
 
   // Journal Modal
   const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+  const [editingJournal, setEditingJournal] = useState<FinanceJournal | null>(null);
   const [jrnNumber, setJrnNumber] = useState('');
   const [jrnType, setJrnType] = useState<FinanceJournalType>('UMUM');
   const [jrnDate, setJrnDate] = useState(getTodayIso());
@@ -86,6 +95,12 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
     { coaId: '', coaCode: '', coaName: '', description: '', debit: 0, credit: 0 },
     { coaId: '', coaCode: '', coaName: '', description: '', debit: 0, credit: 0 },
   ]);
+
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { kind: 'COA'; item: FinanceAccount }
+    | { kind: 'JOURNAL'; item: FinanceJournal }
+    | null
+  >(null);
 
   const activeYear = filter.year !== 0 ? filter.year : new Date().getFullYear();
 
@@ -173,6 +188,50 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
     }
   };
 
+  const handleSeedOfficialPDAM = async () => {
+    setSubmitting(true);
+    try {
+      const targetYear = activeYear || 2026;
+      const officialCoa = buildOfficialPDAMCoa(targetYear, actor.displayName);
+      const officialCb = buildOfficialPDAMCashBankAccounts(
+        targetYear,
+        actor.displayName,
+        actor.unitId || '',
+        actor.unitName || 'Bidang Umum dan Keuangan'
+      );
+
+      const batch = writeBatch(db);
+      officialCoa.forEach((c) => {
+        batch.set(doc(db, 'fin_accounts', c.id), sanitizeFirestoreRecord(c), { merge: true });
+      });
+      officialCb.forEach((cb) => {
+        batch.set(doc(db, 'fin_cash_banks', cb.id), sanitizeFirestoreRecord(cb), { merge: true });
+      });
+      await batch.commit();
+
+      await onLogAudit({
+        actionType: 'SEED',
+        entityType: 'COA Lengkap PDAM Tirta Saiyo (11.01 - 98.02)',
+        entityId: `seed-official-${targetYear}`,
+        entityLabel: `COA Resmi Tirta Saiyo TA ${targetYear}`,
+        summary: `Memuat ${officialCoa.length} akun COA resmi (11.01.00 - 98.02.10) & ${officialCb.length} rekening Kas/Bank Tirta Saiyo TA ${targetYear}`,
+        year: targetYear,
+      });
+
+      setFeedback({
+        type: 'success',
+        message: `${officialCoa.length} akun COA lengkap & ${officialCb.length} rekening Kas/Bank resmi PDAM Tirta Saiyo TA ${targetYear} berhasil dimuat.`,
+      });
+    } catch (err: unknown) {
+      setFeedback({
+        type: 'error',
+        message: `Gagal memuat COA resmi PDAM: ${err instanceof Error ? err.message : 'Error'}`,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleSaveCoa = async () => {
     if (!coaCode.trim() || !coaName.trim()) {
       setFeedback({ type: 'error', message: 'Kode dan nama akun COA wajib diisi.' });
@@ -184,6 +243,7 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
       const id =
         editingCoa?.id || `coa-${activeYear}-${coaCode.trim().replace(/[^a-zA-Z0-9]/g, '')}`;
       const record: FinanceAccount = sanitizeFirestoreRecord({
+        ...(editingCoa || {}),
         id,
         code: coaCode.trim(),
         name: coaName.trim(),
@@ -192,6 +252,8 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
         normalBalance: coaNormal,
         cashFlowGroup: coaCfGroup,
         openingBalance: Number(coaOpening) || 0,
+        prevMonthBalance: Number(coaPrevMonth) || 0,
+        isContra: coaIsContra,
         year: editingCoa?.year || activeYear,
         isActive: true,
         createdBy: editingCoa?.createdBy || actor.displayName,
@@ -236,7 +298,7 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
     }
     const year = parseInt(jrnDate.slice(0, 4), 10) || activeYear;
     const month = getMonthNameFromDate(jrnDate);
-    if (isPeriodLocked(periodCloses, year, month)) {
+    if (!permissions.isSuperUser && isPeriodLocked(periodCloses, year, month)) {
       setFeedback({ type: 'error', message: `Periode ${month} ${year} telah ditutup buku.` });
       return;
     }
@@ -263,7 +325,7 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
     setSubmitting(true);
     try {
       const now = new Date().toISOString();
-      const id = `jrn-man-${Date.now()}`;
+      const id = editingJournal?.id || `jrn-man-${Date.now()}`;
       const record: FinanceJournal = sanitizeFirestoreRecord({
         id,
         journalNumber: jrnNumber.trim() || `JRN-${year}-${Date.now().toString().slice(-4)}`,
@@ -271,33 +333,86 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
         journalDate: jrnDate,
         year,
         month,
+        referenceNumber: editingJournal?.referenceNumber,
+        sourceTransactionId: editingJournal?.sourceTransactionId,
+        unitId: editingJournal?.unitId,
+        unitName: editingJournal?.unitName,
         description: jrnDesc.trim(),
         lines: validLines,
         totalDebit: totalJrnDebit,
         totalCredit: totalJrnCredit,
-        status: 'Posted',
-        createdBy: actor.displayName,
-        createdByUid: actor.uid,
-        createdAt: now,
+        status: editingJournal?.status || 'Posted',
+        createdBy: editingJournal?.createdBy || actor.displayName,
+        createdByUid: editingJournal?.createdByUid || actor.uid,
+        createdAt: editingJournal?.createdAt || now,
         updatedAt: now,
       });
 
       await setDoc(doc(db, 'fin_journals', id), record);
       await onLogAudit({
-        actionType: 'POST',
+        actionType: editingJournal ? 'UPDATE' : 'POST',
         entityType: `Jurnal ${record.journalType}`,
         entityId: id,
         entityLabel: record.journalNumber,
-        summary: `Posting jurnal ${record.journalNumber} (${record.journalType}) sebesar ${formatRp(record.totalDebit)}`,
+        summary: `${editingJournal ? 'Pembaruan' : 'Posting'} jurnal ${record.journalNumber} (${record.journalType}) sebesar ${formatRp(record.totalDebit)}`,
+        beforeData: editingJournal ? (editingJournal as unknown as Record<string, unknown>) : null,
         afterData: record as unknown as Record<string, unknown>,
         year,
       });
       setIsJournalModalOpen(false);
-      setFeedback({ type: 'success', message: `Jurnal ${record.journalNumber} berhasil diposting.` });
+      setEditingJournal(null);
+      setFeedback({
+        type: 'success',
+        message: `Jurnal ${record.journalNumber} berhasil ${editingJournal ? 'diperbarui' : 'diposting'}.`,
+      });
     } catch (err: unknown) {
       setFeedback({
         type: 'error',
         message: `Gagal menyimpan jurnal: ${err instanceof Error ? err.message : 'Error'}`,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || !permissions.isSuperUser) return;
+    setSubmitting(true);
+    try {
+      if (deleteTarget.kind === 'COA') {
+        const acc = deleteTarget.item;
+        await deleteDoc(doc(db, 'fin_accounts', acc.id));
+        await onLogAudit({
+          actionType: 'DELETE',
+          entityType: 'Chart of Accounts (COA)',
+          entityId: acc.id,
+          entityLabel: `${acc.code} - ${acc.name}`,
+          summary: `Super User menghapus akun COA ${acc.code} (${acc.name})`,
+          beforeData: acc as unknown as Record<string, unknown>,
+          afterData: null,
+          year: acc.year,
+        });
+        setFeedback({ type: 'success', message: `Akun COA ${acc.code} berhasil dihapus.` });
+      } else {
+        const j = deleteTarget.item;
+        await deleteDoc(doc(db, 'fin_journals', j.id));
+        await onLogAudit({
+          actionType: 'DELETE',
+          entityType: `Jurnal ${j.journalType}`,
+          entityId: j.id,
+          entityLabel: j.journalNumber,
+          summary: `Super User menghapus jurnal ${j.journalNumber} (${formatRp(j.totalDebit)})`,
+          beforeData: j as unknown as Record<string, unknown>,
+          afterData: null,
+          year: j.year,
+        });
+        setFeedback({ type: 'success', message: `Jurnal ${j.journalNumber} berhasil dihapus.` });
+      }
+      setDeleteTarget(null);
+    } catch (err: unknown) {
+      setFeedback({
+        type: 'error',
+        message: `Gagal menghapus data: ${err instanceof Error ? err.message : 'Error'}`,
       });
     } finally {
       setSubmitting(false);
@@ -394,15 +509,26 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
               type="button"
               disabled={submitting}
               onClick={handleSeedDefaults}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Database className="w-3.5 h-3.5" />
+              <span>COA Ringkas ({activeYear})</span>
+            </button>
+
+            <button
+              type="button"
+              disabled={submitting}
+              onClick={handleSeedOfficialPDAM}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
             >
               <Database className="w-3.5 h-3.5" />
-              <span>Inisialisasi COA Standar PDAM ({activeYear})</span>
+              <span>Muat COA Resmi PDAM 67 Akun ({activeYear})</span>
             </button>
 
             <button
               type="button"
               onClick={() => {
+                setEditingJournal(null);
                 setJrnNumber(`JRN-${activeYear}-${String(journals.length + 1).padStart(4, '0')}`);
                 setJrnType('UMUM');
                 setJrnDate(getTodayIso());
@@ -430,6 +556,8 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
                 setCoaNormal('Debit');
                 setCoaCfGroup('Operasional');
                 setCoaOpening('0');
+                setCoaPrevMonth('0');
+                setCoaIsContra(false);
                 setIsCoaModalOpen(true);
               }}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
@@ -468,7 +596,14 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
                   sortedAccounts.map((acc) => (
                     <tr key={acc.id} className="hover:bg-slate-50/80">
                       <td className="py-2.5 px-3 font-mono font-bold text-emerald-800">{acc.code}</td>
-                      <td className="py-2.5 px-3 font-medium text-slate-900">{acc.name}</td>
+                      <td className="py-2.5 px-3 font-medium text-slate-900">
+                        {acc.name}
+                        {acc.isContra && (
+                          <span className="ml-1.5 px-1.5 py-0.5 text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200 rounded">
+                            Kontra
+                          </span>
+                        )}
+                      </td>
                       <td className="py-2.5 px-3 text-slate-600">
                         <span className="font-semibold">{acc.type}</span> · {acc.subCategory}
                       </td>
@@ -477,26 +612,41 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums">
                         {formatRp(acc.openingBalance)}
                       </td>
-                      <td className="py-2.5 px-3 text-right">
-                        {permissions.canOperate && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingCoa(acc);
-                              setCoaCode(acc.code);
-                              setCoaName(acc.name);
-                              setCoaType(acc.type);
-                              setCoaSubCategory(acc.subCategory);
-                              setCoaNormal(acc.normalBalance);
-                              setCoaCfGroup(acc.cashFlowGroup);
-                              setCoaOpening(String(acc.openingBalance));
-                              setIsCoaModalOpen(true);
-                            }}
-                            className="p-1.5 text-slate-500 hover:text-emerald-800 rounded cursor-pointer"
-                          >
-                            <Edit3 className="w-3.5 h-3.5" />
-                          </button>
-                        )}
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">
+                          {(permissions.canOperate || permissions.isSuperUser) && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingCoa(acc);
+                                setCoaCode(acc.code);
+                                setCoaName(acc.name);
+                                setCoaType(acc.type);
+                                setCoaSubCategory(acc.subCategory);
+                                setCoaNormal(acc.normalBalance);
+                                setCoaCfGroup(acc.cashFlowGroup);
+                                setCoaOpening(String(acc.openingBalance));
+                                setCoaPrevMonth(String(acc.prevMonthBalance ?? acc.openingBalance));
+                                setCoaIsContra(Boolean(acc.isContra));
+                                setIsCoaModalOpen(true);
+                              }}
+                              className="p-1.5 text-slate-500 hover:text-emerald-800 hover:bg-emerald-50 rounded cursor-pointer"
+                              title="Edit Akun COA"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {permissions.isSuperUser && (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTarget({ kind: 'COA', item: acc })}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer"
+                              title="Hapus Akun COA (Super User)"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))
@@ -554,6 +704,43 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
                       >
                         {j.status}
                       </span>
+                      {permissions.isSuperUser && (
+                        <div className="inline-flex items-center gap-1 ml-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingJournal(j);
+                              setJrnNumber(j.journalNumber);
+                              setJrnType(j.journalType);
+                              setJrnDate(j.journalDate);
+                              setJrnDesc(j.description);
+                              setJrnLines(
+                                j.lines.map((l) => ({
+                                  coaId: l.coaId,
+                                  coaCode: l.coaCode,
+                                  coaName: l.coaName,
+                                  description: l.description || '',
+                                  debit: l.debit,
+                                  credit: l.credit,
+                                }))
+                              );
+                              setIsJournalModalOpen(true);
+                            }}
+                            className="p-1 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded cursor-pointer"
+                            title="Edit Jurnal (Super User)"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget({ kind: 'JOURNAL', item: j })}
+                            className="p-1 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded cursor-pointer"
+                            title="Hapus Jurnal (Super User)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <table className="w-full text-left border-collapse text-xs">
@@ -874,7 +1061,7 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
                 </select>
               </div>
               <div>
-                <label className="block font-semibold mb-1">Saldo Awal TA {activeYear} (Rp)</label>
+                <label className="block font-semibold mb-1">Saldo Bulan Ini / Awal TA {activeYear}</label>
                 <input
                   type="number"
                   value={coaOpening}
@@ -882,6 +1069,25 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono"
                 />
               </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3 items-center">
+              <div>
+                <label className="block font-semibold mb-1">Saldo Bulan Lalu (Komparatif)</label>
+                <input
+                  type="number"
+                  value={coaPrevMonth}
+                  onChange={(e) => setCoaPrevMonth(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono"
+                />
+              </div>
+              <label className="flex items-center gap-2 pt-4 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={coaIsContra}
+                  onChange={(e) => setCoaIsContra(e.target.checked)}
+                />
+                <span className="font-semibold text-slate-700">Akun Kontra (Penyisihan / Akum. Susut)</span>
+              </label>
             </div>
             <div className="flex justify-end gap-2 pt-2">
               <button
@@ -909,8 +1115,17 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden text-xs shadow-xl">
             <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
-              <h3 className="text-sm font-bold text-slate-900">Buat Entri Jurnal Akuntansi</h3>
-              <button type="button" onClick={() => setIsJournalModalOpen(false)} className="cursor-pointer">
+              <h3 className="text-sm font-bold text-slate-900">
+                {editingJournal ? `Edit Jurnal — ${editingJournal.journalNumber}` : 'Buat Entri Jurnal Akuntansi'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsJournalModalOpen(false);
+                  setEditingJournal(null);
+                }}
+                className="cursor-pointer"
+              >
                 <X className="w-4 h-4 text-slate-500" />
               </button>
             </div>
@@ -1091,12 +1306,32 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
                 onClick={handleSaveJournal}
                 className="px-4 py-2 bg-emerald-700 disabled:bg-slate-300 text-white rounded-lg font-bold cursor-pointer"
               >
-                Posting Jurnal
+                {editingJournal ? 'Simpan Perubahan Jurnal' : 'Posting Jurnal'}
               </button>
             </div>
           </div>
         </div>
       )}
+
+      <FinanceDeleteConfirmModal
+        isOpen={Boolean(deleteTarget)}
+        title={deleteTarget?.kind === 'COA' ? 'Hapus Akun COA' : 'Hapus Entri Jurnal'}
+        itemLabel={
+          deleteTarget?.kind === 'COA'
+            ? `${deleteTarget.item.code} - ${deleteTarget.item.name}`
+            : deleteTarget?.kind === 'JOURNAL'
+            ? `${deleteTarget.item.journalNumber} (${formatRp(deleteTarget.item.totalDebit)})`
+            : ''
+        }
+        description={
+          deleteTarget?.kind === 'JOURNAL' && deleteTarget.item.sourceTransactionId
+            ? 'Catatan: Jurnal ini berasal dari transaksi kas/bank. Menghapus jurnal tidak menghapus bukti kas/bank asalnya.'
+            : 'Data ini akan dihapus permanen dari pembukuan akuntansi.'
+        }
+        submitting={submitting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleConfirmDelete}
+      />
     </div>
   );
 };

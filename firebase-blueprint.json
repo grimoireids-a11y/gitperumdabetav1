@@ -839,6 +839,51 @@
         "summary": { "type": "string", "maxLength": 1000 }
       },
       "required": ["id", "timestamp", "actorUid", "actionType", "entityType", "entityId", "summary"]
+    },
+    "FinanceInventoryItem": {
+      "title": "FinanceInventoryItem",
+      "description": "PDAM chemical and installation inventory items linked to COA 15.xx",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "coaCode": { "type": "string", "maxLength": 32 },
+        "itemCode": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 200 },
+        "category": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "month": { "type": "string", "maxLength": 32 },
+        "endingValue": { "type": "number" }
+      },
+      "required": ["id", "coaCode", "itemCode", "name", "category", "year", "month", "endingValue"]
+    },
+    "FinancePurchaseRecord": {
+      "title": "FinancePurchaseRecord",
+      "description": "Procurement and purchase orders for ATK, pipes/accessories, and chemicals linked to RKA",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "purchaseNumber": { "type": "string", "maxLength": 64 },
+        "purchaseDate": { "type": "string", "maxLength": 32 },
+        "year": { "type": "number" },
+        "month": { "type": "string", "maxLength": 32 },
+        "category": { "type": "string", "maxLength": 64 },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Permintaan", "Realisasi", "Selesai", "Dibatalkan"] }
+      },
+      "required": ["id", "purchaseNumber", "purchaseDate", "year", "month", "category", "amount", "status"]
+    },
+    "FinancePdamMonthlySnapshot": {
+      "title": "FinancePdamMonthlySnapshot",
+      "description": "Monthly Permendagri 118/2018 financial & operational PDAM snapshot (efficiency, DRD, NRW, connections, HR, signatories)",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "month": { "type": "string", "maxLength": 32 },
+        "letterNumber": { "type": "string", "maxLength": 128 },
+        "directorName": { "type": "string", "maxLength": 128 }
+      },
+      "required": ["id", "year", "month"]
     }
   },
   "firestore": {
@@ -997,6 +1042,18 @@
     "/fin_taxes/{taxId}": {
       "schema": "FinanceTaxRecord",
       "description": "Tax obligations, withholding slips, and payments"
+    },
+    "/fin_inventory/{itemId}": {
+      "schema": "FinanceInventoryItem",
+      "description": "Chemical and installation inventory balances linked to COA 15.xx"
+    },
+    "/fin_purchases/{purchaseId}": {
+      "schema": "FinancePurchaseRecord",
+      "description": "Procurement orders and realizations linked to RKA"
+    },
+    "/fin_pdam_reports/{reportId}": {
+      "schema": "FinancePdamMonthlySnapshot",
+      "description": "Monthly Permendagri 118/2018 financial and operational PDAM snapshots"
     },
     "/fin_audit_trails/{trailId}": {
       "schema": "FinanceAuditTrail",

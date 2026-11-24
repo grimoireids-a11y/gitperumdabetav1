@@ -6,14 +6,19 @@ import {
   Landmark,
   Wallet,
   Scale,
+  Edit3,
+  Trash2,
+  Upload,
   X,
 } from 'lucide-react';
-import { doc, setDoc, writeBatch } from 'firebase/firestore';
+import * as XLSX from 'xlsx';
+import { deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
 import { Unit } from '../../types/audit';
 import {
   FinanceAccount,
   FinanceBankReconciliation,
+  FinanceBankStatementLine,
   FinanceCashBankAccount,
   FinanceCashBankKind,
   FinanceGlobalFilter,
@@ -33,6 +38,7 @@ import {
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
 import { FinanceActor, FinancePermissions, LogFinanceAuditFn } from './financeShared';
+import { FinanceDeleteConfirmModal } from './FinanceDeleteConfirmModal';
 
 interface FinanceCashBankTabProps {
   filter: FinanceGlobalFilter;
@@ -87,6 +93,7 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
 
   // Modal Transfer Antarbank / Kas
   const [isTransferOpen, setIsTransferOpen] = useState(false);
+  const [editingTransfer, setEditingTransfer] = useState<FinanceTransaction | null>(null);
   const [trVoucher, setTrVoucher] = useState('');
   const [trDate, setTrDate] = useState(getTodayIso());
   const [trSourceId, setTrSourceId] = useState('');
@@ -96,6 +103,8 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
 
   // Modal Rekonsiliasi Bank
   const [isReconcileOpen, setIsReconcileOpen] = useState(false);
+  const [editingReconciliation, setEditingReconciliation] =
+    useState<FinanceBankReconciliation | null>(null);
   const [recCashBankId, setRecCashBankId] = useState('');
   const [recDate, setRecDate] = useState(getTodayIso());
   const [recBankBalance, setRecBankBalance] = useState('0');
@@ -105,12 +114,28 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
   const [recInterest, setRecInterest] = useState('0');
   const [recNotes, setRecNotes] = useState('');
 
+  const [deleteConfirm, setDeleteConfirm] = useState<
+    | { kind: 'ACCOUNT'; item: FinanceCashBankAccount }
+    | { kind: 'TRANSFER'; item: FinanceTransaction }
+    | { kind: 'RECON'; item: FinanceBankReconciliation }
+    | null
+  >(null);
+
+  // Modal Import Rekening Koran (.csv / .xlsx)
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importBankId, setImportBankId] = useState('');
+  const [importLines, setImportLines] = useState<FinanceBankStatementLine[]>([]);
+  const [importFileName, setImportFileName] = useState('');
+
   const cashBankCoaOptions = useMemo(
     () =>
       accounts.filter(
         (a) =>
           a.isActive !== false &&
-          (a.cashFlowGroup === 'Kas' || a.code.startsWith('1-11') || a.code.startsWith('1-12'))
+          (a.cashFlowGroup === 'Kas' ||
+            a.code.startsWith('11.') ||
+            a.code.startsWith('1-11') ||
+            a.code.startsWith('1-12'))
       ),
     [accounts]
   );
@@ -258,7 +283,7 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
     }
     const year = parseInt(trDate.slice(0, 4), 10) || new Date().getFullYear();
     const month = getMonthNameFromDate(trDate);
-    if (isPeriodLocked(periodCloses, year, month)) {
+    if (!permissions.isSuperUser && isPeriodLocked(periodCloses, year, month)) {
       setFeedback({ type: 'error', message: `Periode ${month} ${year} telah ditutup buku.` });
       return;
     }
@@ -268,8 +293,8 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
       const now = new Date().toISOString();
       const src = cashBankSummary.accounts.find((a) => a.id === trSourceId)!;
       const dst = cashBankSummary.accounts.find((a) => a.id === trTargetId)!;
-      const txId = `tx-trf-${Date.now()}`;
-      const jrnId = `jrn-${txId}`;
+      const txId = editingTransfer?.id || `tx-trf-${Date.now()}`;
+      const jrnId = editingTransfer?.linkedJournalId || `jrn-${txId}`;
       const voucher = trVoucher.trim() || `TRF-${year}-${Date.now().toString().slice(-4)}`;
 
       const tx: FinanceTransaction = sanitizeFirestoreRecord({
@@ -282,9 +307,9 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
         month,
         description: trDesc.trim() || `Pemindahbukuan dari ${src.name} ke ${dst.name}`,
         counterpartyName: dst.name,
-        unitId: actor.unitId || '',
-        unitName: actor.unitName || 'Bidang Umum dan Keuangan',
-        bidangName: 'Keuangan & Penagihan',
+        unitId: editingTransfer?.unitId || actor.unitId || '',
+        unitName: editingTransfer?.unitName || actor.unitName || 'Bidang Umum dan Keuangan',
+        bidangName: editingTransfer?.bidangName || 'Keuangan & Penagihan',
         cashBankId: src.id,
         cashBankName: src.name,
         targetCashBankId: dst.id,
@@ -294,7 +319,7 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
         coaName: dst.name,
         amount: Math.round(amt),
         status: 'Disetujui / Diposting',
-        attachments: [],
+        attachments: editingTransfer?.attachments || [],
         duplicateKey: buildDuplicateKey({
           type: 'TRANSFER',
           transactionDate: trDate,
@@ -303,12 +328,12 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
           counterpartyName: dst.name,
         }),
         linkedJournalId: jrnId,
-        createdBy: actor.displayName,
-        createdByUid: actor.uid,
-        createdByRole: actor.role,
-        approvedBy: actor.displayName,
-        approvedAt: now,
-        createdAt: now,
+        createdBy: editingTransfer?.createdBy || actor.displayName,
+        createdByUid: editingTransfer?.createdByUid || actor.uid,
+        createdByRole: editingTransfer?.createdByRole || actor.role,
+        approvedBy: editingTransfer?.approvedBy || actor.displayName,
+        approvedAt: editingTransfer?.approvedAt || now,
+        createdAt: editingTransfer?.createdAt || now,
         updatedAt: now,
       });
 
@@ -345,29 +370,34 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
         totalDebit: tx.amount,
         totalCredit: tx.amount,
         status: 'Posted',
-        createdBy: actor.displayName,
-        createdByUid: actor.uid,
-        createdAt: now,
+        createdBy: editingTransfer?.createdBy || actor.displayName,
+        createdByUid: editingTransfer?.createdByUid || actor.uid,
+        createdAt: editingTransfer?.createdAt || now,
         updatedAt: now,
       };
 
       const batch = writeBatch(db);
       batch.set(doc(db, 'fin_transactions', txId), tx);
-      batch.set(doc(db, 'fin_journals', jrnId), journal);
+      batch.set(doc(db, 'fin_journals', jrnId), sanitizeFirestoreRecord(journal));
       await batch.commit();
 
       await onLogAudit({
-        actionType: 'POST',
+        actionType: editingTransfer ? 'UPDATE' : 'POST',
         entityType: 'Transfer Kas/Bank',
         entityId: txId,
         entityLabel: voucher,
-        summary: `Transfer ${formatRp(tx.amount)} dari ${src.name} ke ${dst.name}`,
+        summary: `${editingTransfer ? 'Pembaruan transfer' : 'Transfer'} ${formatRp(tx.amount)} dari ${src.name} ke ${dst.name}`,
+        beforeData: editingTransfer ? (editingTransfer as unknown as Record<string, unknown>) : null,
         afterData: tx as unknown as Record<string, unknown>,
         year,
       });
 
       setIsTransferOpen(false);
-      setFeedback({ type: 'success', message: `Transfer ${voucher} berhasil diposting.` });
+      setEditingTransfer(null);
+      setFeedback({
+        type: 'success',
+        message: `Transfer ${voucher} berhasil ${editingTransfer ? 'diperbarui' : 'diposting'}.`,
+      });
     } catch (err: unknown) {
       setFeedback({
         type: 'error',
@@ -397,7 +427,7 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
     setSubmitting(true);
     try {
       const now = new Date().toISOString();
-      const id = `rec-${Date.now()}`;
+      const id = editingReconciliation?.id || `rec-${Date.now()}`;
       const year = parseInt(recDate.slice(0, 4), 10) || new Date().getFullYear();
       const month = getMonthNameFromDate(recDate);
       const record: FinanceBankReconciliation = sanitizeFirestoreRecord({
@@ -418,22 +448,26 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
         difference: recDiff,
         status: Math.abs(recDiff) < 1 ? 'Sesuai' : 'Selisih',
         notes: recNotes.trim() || undefined,
-        reconciledBy: actor.displayName,
-        createdAt: now,
+        reconciledBy: editingReconciliation?.reconciledBy || actor.displayName,
+        createdAt: editingReconciliation?.createdAt || now,
         updatedAt: now,
       });
 
       await setDoc(doc(db, 'fin_bank_reconciliations', id), record);
       await onLogAudit({
-        actionType: 'CREATE',
+        actionType: editingReconciliation ? 'UPDATE' : 'CREATE',
         entityType: 'Rekonsiliasi Bank',
         entityId: id,
         entityLabel: `${record.cashBankName} (${record.month} ${record.year})`,
-        summary: `Rekonsiliasi ${record.cashBankName}: Status ${record.status}, Selisih ${formatRp(record.difference)}`,
+        summary: `${editingReconciliation ? 'Pembaruan' : 'Pencatatan'} rekonsiliasi ${record.cashBankName}: Status ${record.status}, Selisih ${formatRp(record.difference)}`,
+        beforeData: editingReconciliation
+          ? (editingReconciliation as unknown as Record<string, unknown>)
+          : null,
         afterData: record as unknown as Record<string, unknown>,
         year,
       });
       setIsReconcileOpen(false);
+      setEditingReconciliation(null);
       setFeedback({
         type: 'success',
         message: `Rekonsiliasi ${record.cashBankName} disimpan (${record.status}).`,
@@ -442,6 +476,343 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
       setFeedback({
         type: 'error',
         message: `Gagal menyimpan rekonsiliasi: ${err instanceof Error ? err.message : 'Error'}`,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deleteConfirm || !permissions.isSuperUser) return;
+    setSubmitting(true);
+    try {
+      if (deleteConfirm.kind === 'ACCOUNT') {
+        const acc = deleteConfirm.item;
+        await deleteDoc(doc(db, 'fin_cash_banks', acc.id));
+        await onLogAudit({
+          actionType: 'DELETE',
+          entityType: 'Rekening Kas & Bank',
+          entityId: acc.id,
+          entityLabel: `${acc.code} - ${acc.name}`,
+          summary: `Super User menghapus rekening kas/bank ${acc.code} - ${acc.name}`,
+          beforeData: acc as unknown as Record<string, unknown>,
+          afterData: null,
+        });
+        setFeedback({ type: 'success', message: `Rekening ${acc.name} berhasil dihapus.` });
+      } else if (deleteConfirm.kind === 'TRANSFER') {
+        const tx = deleteConfirm.item;
+        const batch = writeBatch(db);
+        batch.delete(doc(db, 'fin_transactions', tx.id));
+        if (tx.linkedJournalId) {
+          batch.delete(doc(db, 'fin_journals', tx.linkedJournalId));
+        }
+        await batch.commit();
+        await onLogAudit({
+          actionType: 'DELETE',
+          entityType: 'Transfer Kas/Bank',
+          entityId: tx.id,
+          entityLabel: tx.voucherNumber,
+          summary: `Super User menghapus transfer ${tx.voucherNumber} (${formatRp(tx.amount)})`,
+          beforeData: tx as unknown as Record<string, unknown>,
+          afterData: null,
+          year: tx.year,
+        });
+        setFeedback({ type: 'success', message: `Transfer ${tx.voucherNumber} berhasil dihapus.` });
+      } else if (deleteConfirm.kind === 'RECON') {
+        const rec = deleteConfirm.item;
+        await deleteDoc(doc(db, 'fin_bank_reconciliations', rec.id));
+        await onLogAudit({
+          actionType: 'DELETE',
+          entityType: 'Rekonsiliasi Bank',
+          entityId: rec.id,
+          entityLabel: `${rec.cashBankName} (${rec.month} ${rec.year})`,
+          summary: `Super User menghapus rekonsiliasi bank ${rec.cashBankName} (${rec.reconcileDate})`,
+          beforeData: rec as unknown as Record<string, unknown>,
+          afterData: null,
+          year: rec.year,
+        });
+        setFeedback({ type: 'success', message: `Data rekonsiliasi ${rec.cashBankName} berhasil dihapus.` });
+      }
+      setDeleteConfirm(null);
+    } catch (err: unknown) {
+      setFeedback({
+        type: 'error',
+        message: `Gagal menghapus data: ${err instanceof Error ? err.message : 'Error'}`,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const parseNumericCell = (raw: unknown): number => {
+    if (typeof raw === 'number') return Number.isFinite(raw) ? raw : 0;
+    const str = String(raw || '').trim();
+    if (!str) return 0;
+    // Handle Indonesian formatting like "1.250.000,50" or standard "1,250,000.50"
+    const hasCommaDec = /,\d{1,2}$/.test(str);
+    const cleaned = hasCommaDec
+      ? str.replace(/\./g, '').replace(',', '.').replace(/[^0-9.-]/g, '')
+      : str.replace(/,/g, '').replace(/[^0-9.-]/g, '');
+    const parsed = parseFloat(cleaned);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+
+  const normalizeBankDate = (raw: unknown): string => {
+    if (typeof raw === 'number' && raw > 25000 && raw < 70000) {
+      // Excel serial date
+      const d = new Date(Math.round((raw - 25569) * 86400 * 1000));
+      return d.toISOString().slice(0, 10);
+    }
+    const str = String(raw || '').trim();
+    if (!str) return getTodayIso();
+    const dmy = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})/.exec(str);
+    if (dmy) {
+      const dd = dmy[1].padStart(2, '0');
+      const mm = dmy[2].padStart(2, '0');
+      const yyyy = dmy[3].length === 2 ? `20${dmy[3]}` : dmy[3];
+      return `${yyyy}-${mm}-${dd}`;
+    }
+    const ymd = /^(\d{4})[/-](\d{1,2})[/-](\d{1,2})/.exec(str);
+    if (ymd) {
+      return `${ymd[1]}-${ymd[2].padStart(2, '0')}-${ymd[3].padStart(2, '0')}`;
+    }
+    return getTodayIso();
+  };
+
+  const handleBankStatementFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: 'array' });
+      const firstSheet = wb.Sheets[wb.SheetNames[0]];
+      const rawRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(firstSheet, {
+        defval: '',
+      });
+
+      const defaultInCoa =
+        accounts.find((a) => a.code === '81.01.10' || a.code === '4-1101')?.id || '';
+      const defaultOutCoa =
+        accounts.find((a) => a.code === '96.02.90' || a.code === '5-2102')?.id || '';
+
+      const parsed: FinanceBankStatementLine[] = rawRows
+        .map((row, idx): FinanceBankStatementLine | null => {
+          const keys = Object.keys(row);
+          const findVal = (patterns: RegExp[]) => {
+            const matchedKey = keys.find((k) => patterns.some((rx) => rx.test(k.toLowerCase())));
+            return matchedKey ? row[matchedKey] : '';
+          };
+
+          const rawDate = findVal([/tgl/, /tanggal/, /date/, /posting/]);
+          const rawDesc = String(findVal([/uraian/, /deskripsi/, /desc/, /ket/, /remark/, /berita/])).trim();
+          const rawRef = String(findVal([/ref/, /arsip/, /no\b/, /bukti/])).trim();
+          const rawDebit = parseNumericCell(findVal([/debit/, /debet/, /keluar/, /^dr$/]));
+          const rawCredit = parseNumericCell(findVal([/kredit/, /credit/, /masuk/, /^cr$/]));
+          const rawDk = String(findVal([/^d\/?k$/, /tipe/, /mutasi/])).trim().toUpperCase();
+          const rawAmount = parseNumericCell(findVal([/jumlah/, /nominal/, /amount/]));
+          const rawBal = parseNumericCell(findVal([/saldo/, /balance/]));
+
+          let direction: 'MASUK' | 'KELUAR' = 'MASUK';
+          let amount = 0;
+          let debit = rawDebit;
+          let credit = rawCredit;
+
+          if (rawCredit > 0 && rawDebit === 0) {
+            direction = 'MASUK';
+            amount = rawCredit;
+          } else if (rawDebit > 0 && rawCredit === 0) {
+            direction = 'KELUAR';
+            amount = rawDebit;
+          } else if (rawAmount > 0) {
+            direction = rawDk === 'D' || rawDk === 'DB' || rawDk === 'DEBIT' ? 'KELUAR' : 'MASUK';
+            amount = rawAmount;
+            if (direction === 'MASUK') credit = rawAmount;
+            else debit = rawAmount;
+          }
+
+          if (amount <= 0 && !rawDesc) return null;
+          return {
+            id: `stmt-${idx}-${Date.now()}`,
+            date: normalizeBankDate(rawDate),
+            description: rawDesc || `Mutasi Rekening Koran #${idx + 1}`,
+            reference: rawRef || `RK-${idx + 1}`,
+            debit,
+            credit,
+            balance: rawBal,
+            direction,
+            amount,
+            selected: amount > 0,
+            suggestedCoaId: direction === 'MASUK' ? defaultInCoa : defaultOutCoa,
+          };
+        })
+        .filter((x): x is FinanceBankStatementLine => x !== null && x.amount > 0);
+
+      setImportLines(parsed);
+      if (parsed.length === 0) {
+        setFeedback({
+          type: 'error',
+          message:
+            'Tidak ditemukan baris transaksi yang valid pada file rekening koran. Pastikan kolom Tanggal, Uraian, Debit/Kredit tersedia.',
+        });
+      }
+    } catch (err: unknown) {
+      setFeedback({
+        type: 'error',
+        message: `Gagal membaca file rekening koran: ${err instanceof Error ? err.message : 'Error'}`,
+      });
+    }
+  };
+
+  const handleApplyImportedBalanceToRecon = () => {
+    const targetBank =
+      cashBankSummary.accounts.find((a) => a.id === importBankId) || cashBankSummary.accounts[0];
+    if (!targetBank || importLines.length === 0) return;
+    const lastLine = importLines[importLines.length - 1];
+    const lastDate = lastLine.date || getTodayIso();
+    setEditingReconciliation(null);
+    setRecCashBankId(targetBank.id);
+    setRecDate(lastDate);
+    setRecBankBalance(String(lastLine.balance || targetBank.currentBalance));
+    setRecInTransit('0');
+    setRecOutstanding('0');
+    setRecAdminFee('0');
+    setRecInterest('0');
+    setRecNotes(`Dari Import Rekening Koran (${importFileName})`);
+    setIsImportModalOpen(false);
+    setIsReconcileOpen(true);
+  };
+
+  const handlePostImportedLines = async () => {
+    const selected = importLines.filter((l) => l.selected && l.amount > 0);
+    const targetBank = cashBankSummary.accounts.find((a) => a.id === importBankId);
+    if (!targetBank || selected.length === 0) {
+      setFeedback({
+        type: 'error',
+        message: 'Pilih rekening bank dan minimal 1 baris mutasi untuk diposting.',
+      });
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const now = new Date().toISOString();
+      const batch = writeBatch(db);
+      let postedCount = 0;
+
+      for (const line of selected.slice(0, 200)) {
+        const year = parseInt(line.date.slice(0, 4), 10) || new Date().getFullYear();
+        const month = getMonthNameFromDate(line.date);
+        const coa =
+          accounts.find((a) => a.id === line.suggestedCoaId) ||
+          accounts[0];
+        const txId = `tx-rk-${Date.now()}-${postedCount}`;
+        const jrnId = `jrn-rk-${Date.now()}-${postedCount}`;
+        const voucher = line.reference || `RK-${year}-${postedCount + 1}`;
+        const isIn = line.direction === 'MASUK';
+
+        const tx: FinanceTransaction = sanitizeFirestoreRecord({
+          id: txId,
+          voucherNumber: voucher,
+          type: isIn ? 'PENERIMAAN' : 'PENGELUARAN',
+          subCategory: isIn ? 'Penerimaan Lainnya' : 'Pengeluaran Operasional',
+          transactionDate: line.date,
+          year,
+          month,
+          description: line.description,
+          counterpartyName: targetBank.bankName || targetBank.name,
+          unitId: targetBank.unitId || '',
+          unitName: targetBank.unitName || 'Bidang Umum dan Keuangan',
+          bidangName: 'Keuangan & Penagihan',
+          cashBankId: targetBank.id,
+          cashBankName: targetBank.name,
+          coaId: coa?.id || targetBank.coaId,
+          coaCode: coa?.code || targetBank.coaCode,
+          coaName: coa?.name || targetBank.name,
+          amount: Math.round(line.amount),
+          status: 'Disetujui / Diposting',
+          attachments: [],
+          duplicateKey: buildDuplicateKey({
+            type: isIn ? 'PENERIMAAN' : 'PENGELUARAN',
+            transactionDate: line.date,
+            amount: Math.round(line.amount),
+            coaId: coa?.id || targetBank.coaId,
+            counterpartyName: targetBank.bankName || targetBank.name,
+          }),
+          linkedJournalId: jrnId,
+          notes: `Import Rekening Koran (${importFileName})`,
+          createdBy: actor.displayName,
+          createdByUid: actor.uid,
+          createdByRole: actor.role,
+          approvedBy: actor.displayName,
+          approvedAt: now,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        const journal: FinanceJournal = sanitizeFirestoreRecord({
+          id: jrnId,
+          journalNumber: `JRN-${voucher}`,
+          journalType: isIn ? 'PENERIMAAN' : 'PENGELUARAN',
+          journalDate: line.date,
+          year,
+          month,
+          referenceNumber: voucher,
+          sourceTransactionId: txId,
+          description: line.description,
+          unitId: tx.unitId,
+          unitName: tx.unitName,
+          lines: [
+            {
+              coaId: isIn ? targetBank.coaId : (coa?.id || targetBank.coaId),
+              coaCode: isIn ? targetBank.coaCode : (coa?.code || targetBank.coaCode),
+              coaName: isIn ? targetBank.name : (coa?.name || targetBank.name),
+              description: line.description,
+              debit: Math.round(line.amount),
+              credit: 0,
+            },
+            {
+              coaId: isIn ? (coa?.id || targetBank.coaId) : targetBank.coaId,
+              coaCode: isIn ? (coa?.code || targetBank.coaCode) : targetBank.coaCode,
+              coaName: isIn ? (coa?.name || targetBank.name) : targetBank.name,
+              description: line.description,
+              debit: 0,
+              credit: Math.round(line.amount),
+            },
+          ],
+          totalDebit: Math.round(line.amount),
+          totalCredit: Math.round(line.amount),
+          status: 'Posted',
+          createdBy: actor.displayName,
+          createdByUid: actor.uid,
+          createdAt: now,
+          updatedAt: now,
+        });
+
+        batch.set(doc(db, 'fin_transactions', txId), tx);
+        batch.set(doc(db, 'fin_journals', jrnId), journal);
+        postedCount += 1;
+      }
+
+      await batch.commit();
+      await onLogAudit({
+        actionType: 'IMPORT',
+        entityType: 'Import Rekening Koran Bank',
+        entityId: `imp-${Date.now()}`,
+        entityLabel: `${targetBank.name} (${importFileName})`,
+        summary: `Mengimpor dan memposting ${postedCount} mutasi rekening koran ke ${targetBank.name}`,
+      });
+
+      setIsImportModalOpen(false);
+      setImportLines([]);
+      setFeedback({
+        type: 'success',
+        message: `${postedCount} baris rekening koran berhasil diposting ke transaksi kas/bank & jurnal.`,
+      });
+    } catch (err: unknown) {
+      setFeedback({
+        type: 'error',
+        message: `Gagal memposting rekening koran: ${err instanceof Error ? err.message : 'Error'}`,
       });
     } finally {
       setSubmitting(false);
@@ -521,7 +892,9 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
             <button
               type="button"
               onClick={() => {
+                setEditingTransfer(null);
                 setTrVoucher(`TRF-${filter.year || new Date().getFullYear()}-${String(transactions.length + 1).padStart(3, '0')}`);
+                setTrDate(getTodayIso());
                 setTrSourceId(cashBankSummary.accounts[0]?.id || '');
                 setTrTargetId(cashBankSummary.accounts[1]?.id || '');
                 setTrAmount('');
@@ -537,8 +910,10 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
             <button
               type="button"
               onClick={() => {
+                setEditingReconciliation(null);
                 const bankAcc = cashBankSummary.accounts.find((a) => a.accountKind === 'BANK') || cashBankSummary.accounts[0];
                 setRecCashBankId(bankAcc?.id || '');
+                setRecDate(getTodayIso());
                 setRecBankBalance(String(bankAcc?.currentBalance || 0));
                 setRecInTransit('0');
                 setRecOutstanding('0');
@@ -551,6 +926,23 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
             >
               <Scale className="w-3.5 h-3.5" />
               <span>Rekonsiliasi Bank</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                const defaultBank =
+                  cashBankSummary.accounts.find((a) => a.accountKind === 'BANK') ||
+                  cashBankSummary.accounts[0];
+                setImportBankId(defaultBank?.id || '');
+                setImportLines([]);
+                setImportFileName('');
+                setIsImportModalOpen(true);
+              }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg whitespace-nowrap shrink-0 cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5" />
+              <span>Import Rekening Koran (.csv/.xlsx)</span>
             </button>
 
             <button
@@ -621,12 +1013,13 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
                   <th className="py-2.5 px-3 text-right">Masuk (Debit)</th>
                   <th className="py-2.5 px-3 text-right">Keluar (Kredit)</th>
                   <th className="py-2.5 px-3 text-right">Saldo Berjalan</th>
+                  {permissions.isSuperUser && <th className="py-2.5 px-3 text-right">Aksi</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {ledgerRows.rows.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="py-8 text-center text-slate-500">
+                    <td colSpan={permissions.isSuperUser ? 7 : 6} className="py-8 text-center text-slate-500">
                       Belum ada mutasi terposting untuk tampilan ini.
                     </td>
                   </tr>
@@ -660,6 +1053,41 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
                       <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-900">
                         {formatRp(r.runningBalance)}
                       </td>
+                      {permissions.isSuperUser && (
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                          {r.tx.type === 'TRANSFER' ? (
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingTransfer(r.tx);
+                                  setTrVoucher(r.tx.voucherNumber);
+                                  setTrDate(r.tx.transactionDate);
+                                  setTrSourceId(r.tx.cashBankId);
+                                  setTrTargetId(r.tx.targetCashBankId || '');
+                                  setTrAmount(String(r.tx.amount));
+                                  setTrDesc(r.tx.description);
+                                  setIsTransferOpen(true);
+                                }}
+                                className="p-1.5 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-md cursor-pointer"
+                                title="Edit Transfer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setDeleteConfirm({ kind: 'TRANSFER', item: r.tx })}
+                                className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-md cursor-pointer"
+                                title="Hapus Transfer"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">Via BKM/BKK</span>
+                          )}
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -682,6 +1110,7 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
                   <th className="py-2.5 px-3 text-right">Mutasi Masuk</th>
                   <th className="py-2.5 px-3 text-right">Mutasi Keluar</th>
                   <th className="py-2.5 px-3 text-right">Saldo Kini</th>
+                  {permissions.isSuperUser && <th className="py-2.5 px-3 text-right">Aksi</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -710,6 +1139,39 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
                     <td className="py-2.5 px-3 text-right font-mono tabular-nums font-bold text-slate-900">
                       {formatRp(acc.currentBalance)}
                     </td>
+                    {permissions.isSuperUser && (
+                      <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingAccount(acc);
+                              setAccCode(acc.code);
+                              setAccName(acc.name);
+                              setAccKind(acc.accountKind);
+                              setBankName(acc.bankName || '');
+                              setAccountNumber(acc.accountNumber || '');
+                              setAccCoaId(acc.coaId);
+                              setAccOpeningBalance(String(acc.openingBalance || 0));
+                              setAccUnitId(acc.unitId || '');
+                              setIsAccountModalOpen(true);
+                            }}
+                            className="p-1.5 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-md cursor-pointer"
+                            title="Edit Rekening"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setDeleteConfirm({ kind: 'ACCOUNT', item: acc })}
+                            className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-md cursor-pointer"
+                            title="Hapus Rekening"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -731,12 +1193,13 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
                   <th className="py-2.5 px-3 text-right">Bank Terkoreksi</th>
                   <th className="py-2.5 px-3 text-right">Selisih</th>
                   <th className="py-2.5 px-3">Status</th>
+                  {permissions.isSuperUser && <th className="py-2.5 px-3 text-right">Aksi</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {reconciliations.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-500">
+                    <td colSpan={permissions.isSuperUser ? 8 : 7} className="py-8 text-center text-slate-500">
                       Belum ada riwayat rekonsiliasi bank. Klik "Rekonsiliasi Bank" untuk mencatat.
                     </td>
                   </tr>
@@ -780,6 +1243,39 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
                           {r.status}
                         </span>
                       </td>
+                      {permissions.isSuperUser && (
+                        <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingReconciliation(r);
+                                setRecCashBankId(r.cashBankId);
+                                setRecDate(r.reconcileDate);
+                                setRecBankBalance(String(r.bankStatementBalance || 0));
+                                setRecInTransit(String(r.inTransitDeposits || 0));
+                                setRecOutstanding(String(r.outstandingChecks || 0));
+                                setRecAdminFee(String(r.bankAdminFee || 0));
+                                setRecInterest(String(r.bankInterest || 0));
+                                setRecNotes(r.notes || '');
+                                setIsReconcileOpen(true);
+                              }}
+                              className="p-1.5 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-md cursor-pointer"
+                              title="Edit Rekonsiliasi"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeleteConfirm({ kind: 'RECON', item: r })}
+                              className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-md cursor-pointer"
+                              title="Hapus Rekonsiliasi"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))
                 )}
@@ -949,8 +1445,19 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-lg p-5 space-y-3.5 text-xs shadow-xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900">Transfer Antarbank / Pemindahbukuan Kas</h3>
-              <button type="button" onClick={() => setIsTransferOpen(false)} className="cursor-pointer">
+              <h3 className="text-sm font-bold text-slate-900">
+                {editingTransfer
+                  ? `Edit Transfer — ${editingTransfer.voucherNumber}`
+                  : 'Transfer Antarbank / Pemindahbukuan Kas'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsTransferOpen(false);
+                  setEditingTransfer(null);
+                }}
+                className="cursor-pointer"
+              >
                 <X className="w-4 h-4 text-slate-500" />
               </button>
             </div>
@@ -1049,8 +1556,17 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-lg p-5 space-y-3.5 text-xs shadow-xl">
             <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold text-slate-900">Rekonsiliasi Bank</h3>
-              <button type="button" onClick={() => setIsReconcileOpen(false)} className="cursor-pointer">
+              <h3 className="text-sm font-bold text-slate-900">
+                {editingReconciliation ? 'Edit Rekonsiliasi Bank' : 'Rekonsiliasi Bank'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsReconcileOpen(false);
+                  setEditingReconciliation(null);
+                }}
+                className="cursor-pointer"
+              >
                 <X className="w-4 h-4 text-slate-500" />
               </button>
             </div>
@@ -1174,6 +1690,206 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
               >
                 Simpan Rekonsiliasi
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      <FinanceDeleteConfirmModal
+        isOpen={Boolean(deleteConfirm)}
+        title={
+          deleteConfirm?.kind === 'ACCOUNT'
+            ? 'Hapus Rekening Kas / Bank'
+            : deleteConfirm?.kind === 'TRANSFER'
+            ? 'Hapus Transfer Kas / Bank'
+            : 'Hapus Rekonsiliasi Bank'
+        }
+        itemLabel={
+          deleteConfirm?.kind === 'ACCOUNT'
+            ? `${deleteConfirm.item.code} - ${deleteConfirm.item.name}`
+            : deleteConfirm?.kind === 'TRANSFER'
+            ? `${deleteConfirm.item.voucherNumber} (${formatRp(deleteConfirm.item.amount)})`
+            : deleteConfirm?.kind === 'RECON'
+            ? `${deleteConfirm.item.cashBankName} (${formatDateShort(deleteConfirm.item.reconcileDate)})`
+            : ''
+        }
+        description={
+          deleteConfirm?.kind === 'TRANSFER'
+            ? 'Jurnal pemindahbukuan terkait akan ikut dihapus dan saldo rekening otomatis disesuaikan.'
+            : deleteConfirm?.kind === 'ACCOUNT'
+            ? 'Pastikan tidak ada transaksi aktif yang masih bergantung pada rekening ini.'
+            : 'Catatan hasil rekonsiliasi bank ini akan dihapus permanen.'
+        }
+        submitting={submitting}
+        onCancel={() => setDeleteConfirm(null)}
+        onConfirm={handleConfirmDelete}
+      />
+
+      {/* Modal Import Rekening Koran (.csv / .xlsx) */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden text-xs shadow-xl">
+            <div className="px-5 py-3.5 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">
+                  Import Mutasi Rekening Koran Bank (.csv / .xlsx)
+                </h3>
+                <p className="text-[11px] text-slate-500">
+                  Mendukung format Bank Nagari, BRI, BSI, BNI, dan Mandiri (otomatis mendeteksi Tanggal, Uraian, Debit, Kredit, Saldo)
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsImportModalOpen(false)}
+                className="cursor-pointer"
+              >
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+
+            <div className="p-5 overflow-y-auto space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-semibold mb-1">Pilih Rekening Bank Tujuan *</label>
+                  <select
+                    value={importBankId}
+                    onChange={(e) => setImportBankId(e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg"
+                  >
+                    {cashBankSummary.accounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.code} - {a.name} {a.accountNumber ? `(${a.accountNumber})` : ''}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block font-semibold mb-1">Unggah File Rekening Koran (.xlsx / .xls / .csv)</label>
+                  <input
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={handleBankStatementFile}
+                    className="w-full px-2.5 py-1.5 border border-slate-300 rounded-lg bg-slate-50"
+                  />
+                </div>
+              </div>
+
+              {importLines.length > 0 && (
+                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                  <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-200 flex items-center justify-between text-[11px] font-semibold">
+                    <span>
+                      Terbaca {importLines.length} baris · Dipilih:{' '}
+                      {importLines.filter((l) => l.selected).length} baris
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const allSelected = importLines.every((l) => l.selected);
+                        setImportLines(importLines.map((l) => ({ ...l, selected: !allSelected })));
+                      }}
+                      className="text-emerald-800 hover:underline cursor-pointer"
+                    >
+                      {importLines.every((l) => l.selected) ? 'Batal Pilih Semua' : 'Pilih Semua'}
+                    </button>
+                  </div>
+                  <div className="max-h-72 overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead>
+                        <tr className="bg-slate-50 border-b border-slate-200 font-semibold text-slate-600 sticky top-0">
+                          <th className="py-2 px-2.5">Pilih</th>
+                          <th className="py-2 px-2.5">Tanggal</th>
+                          <th className="py-2 px-2.5">Uraian & Ref</th>
+                          <th className="py-2 px-2.5">Arah</th>
+                          <th className="py-2 px-2.5 text-right">Nominal</th>
+                          <th className="py-2 px-2.5">Akun Lawan (COA)</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {importLines.map((line, idx) => (
+                          <tr key={line.id} className="hover:bg-slate-50">
+                            <td className="py-1.5 px-2.5">
+                              <input
+                                type="checkbox"
+                                checked={line.selected}
+                                onChange={(e) => {
+                                  const next = [...importLines];
+                                  next[idx] = { ...next[idx], selected: e.target.checked };
+                                  setImportLines(next);
+                                }}
+                              />
+                            </td>
+                            <td className="py-1.5 px-2.5 font-mono whitespace-nowrap">
+                              {formatDateShort(line.date)}
+                            </td>
+                            <td className="py-1.5 px-2.5">
+                              <div className="font-medium text-slate-900 line-clamp-1">{line.description}</div>
+                              <div className="text-[10px] font-mono text-slate-500">{line.reference}</div>
+                            </td>
+                            <td className="py-1.5 px-2.5">
+                              <span
+                                className={`px-1.5 py-0.5 rounded font-bold text-[10px] ${
+                                  line.direction === 'MASUK'
+                                    ? 'bg-emerald-50 text-emerald-800'
+                                    : 'bg-rose-50 text-rose-700'
+                                }`}
+                              >
+                                {line.direction}
+                              </span>
+                            </td>
+                            <td className="py-1.5 px-2.5 text-right font-mono font-bold">
+                              {formatRp(line.amount)}
+                            </td>
+                            <td className="py-1.5 px-2.5">
+                              <select
+                                value={line.suggestedCoaId || ''}
+                                onChange={(e) => {
+                                  const next = [...importLines];
+                                  next[idx] = { ...next[idx], suggestedCoaId: e.target.value };
+                                  setImportLines(next);
+                                }}
+                                className="w-44 px-2 py-1 border border-slate-300 rounded text-[11px]"
+                              >
+                                {accounts.map((a) => (
+                                  <option key={a.id} value={a.id}>
+                                    {a.code} - {a.name}
+                                  </option>
+                                ))}
+                              </select>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50 flex flex-wrap justify-between items-center gap-2">
+              <button
+                type="button"
+                disabled={importLines.length === 0}
+                onClick={handleApplyImportedBalanceToRecon}
+                className="px-3 py-2 text-xs font-semibold text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-200 disabled:opacity-50 rounded-lg cursor-pointer"
+              >
+                Terapkan Saldo Terakhir ke Rekonsiliasi
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsImportModalOpen(false)}
+                  className="px-3.5 py-2 border border-slate-300 rounded-lg font-semibold cursor-pointer"
+                >
+                  Tutup
+                </button>
+                <button
+                  type="button"
+                  disabled={submitting || importLines.filter((l) => l.selected).length === 0}
+                  onClick={handlePostImportedLines}
+                  className="px-4 py-2 bg-emerald-700 disabled:bg-slate-300 text-white rounded-lg font-bold cursor-pointer"
+                >
+                  Posting {importLines.filter((l) => l.selected).length} Mutasi ke Buku Bank & Jurnal
+                </button>
+              </div>
             </div>
           </div>
         </div>

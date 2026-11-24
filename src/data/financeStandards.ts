@@ -1,5 +1,40 @@
 import { FinanceAccount, FinanceCashBankAccount } from '../types/finance';
 
+export {
+  buildOfficialPDAMCashBankAccounts,
+  buildOfficialPDAMCoa,
+  buildOfficialPDAMInventory,
+  buildOfficialPDAMPurchases,
+  buildOfficialPDAMSnapshotSep2026,
+} from './pdamOfficialBaseline2026';
+
+export const FINANCE_INVENTORY_CATEGORIES = [
+  'Bahan Kimia',
+  'Bahan Instalasi Bergerak',
+  'Bahan Instalasi Tidak Bergerak',
+  'ATK & Umum',
+] as const;
+
+export const FINANCE_PURCHASE_CATEGORIES = [
+  'Alat tulis kantor',
+  'Pipa dan Accessoris',
+  'Bahan Kimia',
+  'Belanja Modal',
+  'Lainnya',
+] as const;
+
+export const PDAM_ASSET_GROUP_NAMES = [
+  '01 - Tanah dan Penyempurnaan Tanah',
+  '02 - Instalasi Sumber Air',
+  '03 - Instalasi Pompa',
+  '04 - Instalasi Pengolahan Air',
+  '05 - Instalasi Transmisi dan Distribusi',
+  '06 - Bangunan / Gedung',
+  '07 - Peralatan dan Perlengkapan',
+  '08 - Kendaraan / Alat Pengangkutan',
+  '09 - Inventaris / Perabot Kantor',
+] as const;
+
 export const FINANCE_RECEIPT_CATEGORIES = [
   'Penerimaan Rekening Air',
   'Penerimaan Sambungan Baru',

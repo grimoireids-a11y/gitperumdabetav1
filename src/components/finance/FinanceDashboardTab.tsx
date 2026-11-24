@@ -12,11 +12,16 @@ import {
   CheckCircle2,
   ShieldAlert,
   ChevronRight,
+  Package,
+  Droplets,
 } from 'lucide-react';
 import { RKAItem, RKASubItem } from '../../types/audit';
 import {
   FinanceCashBankAccount,
   FinanceGlobalFilter,
+  FinanceInventoryItem,
+  FinancePdamMonthlySnapshot,
+  FinancePurchaseRecord,
   FinanceReceivablePayable,
   FinanceTransaction,
 } from '../../types/finance';
@@ -39,6 +44,8 @@ export type FinanceSubTabId =
   | 'utang_piutang'
   | 'aset'
   | 'pajak'
+  | 'persediaan_pembelian'
+  | 'operasional_pdam'
   | 'laporan'
   | 'analisis'
   | 'audit_trail';
@@ -59,6 +66,9 @@ interface FinanceDashboardTabProps {
   rkaItems: RKAItem[];
   rkaSubItems: RKASubItem[];
   analysis: FinancialAnalysisResult;
+  pdamSnapshots?: FinancePdamMonthlySnapshot[];
+  inventory?: FinanceInventoryItem[];
+  purchases?: FinancePurchaseRecord[];
   onNavigateSubTab: (tab: FinanceSubTabId) => void;
 }
 
@@ -72,6 +82,9 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
   rkaItems,
   rkaSubItems,
   analysis,
+  pdamSnapshots = [],
+  inventory = [],
+  purchases = [],
   onNavigateSubTab,
 }) => {
   const postedFilteredTxs = useMemo(
@@ -220,6 +233,90 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
 
   const netIncome = statements.incomeStatement.netIncome;
 
+  const activePdamSnapshot = useMemo(() => {
+    const candidates = pdamSnapshots.filter(
+      (s) =>
+        (filter.year === 0 || s.year === filter.year) &&
+        (filter.month === 'ALL' || s.month.toLowerCase() === filter.month.toLowerCase())
+    );
+    const list = candidates.length > 0 ? candidates : pdamSnapshots;
+    return [...list].sort((a, b) => {
+      if (b.year !== a.year) return b.year - a.year;
+      const months = FISCAL_MONTHS as readonly string[];
+      return months.indexOf(b.month) - months.indexOf(a.month);
+    })[0];
+  }, [pdamSnapshots, filter.year, filter.month]);
+
+  const pdamKpis = useMemo(() => {
+    const invFiltered = inventory.filter(
+      (i) =>
+        (filter.year === 0 || i.year === filter.year) &&
+        (filter.unitId === 'ALL' || !i.unitId || i.unitId === filter.unitId)
+    );
+    const totalInventoryVal = invFiltered.reduce((s, i) => s + (i.endingValue || 0), 0);
+
+    const purFiltered = purchases.filter(
+      (p) =>
+        (filter.year === 0 || p.year === filter.year) &&
+        (filter.month === 'ALL' || p.month.toLowerCase() === filter.month.toLowerCase())
+    );
+    const totalPurchasesVal = purFiltered.reduce((s, p) => s + (p.amount || 0), 0);
+
+    if (!activePdamSnapshot) {
+      return {
+        hasSnapshot: false,
+        periodText: 'Belum Dimuat',
+        billingEffTotalPct: 0,
+        billingEffCurrentPct: 0,
+        nrwPct: 0,
+        activeCustomers: 0,
+        totalInventoryVal,
+        totalPurchasesVal,
+      };
+    }
+
+    const totPrevBill = activePdamSnapshot.collectionEfficiency.reduce(
+      (s, u) => s + (u.prevBilling || 0),
+      0
+    );
+    const totCurColl = activePdamSnapshot.collectionEfficiency.reduce(
+      (s, u) => s + (u.currentCollected || 0),
+      0
+    );
+    const totAllColl = activePdamSnapshot.collectionEfficiency.reduce(
+      (s, u) => s + (u.totalCollected || 0),
+      0
+    );
+    const billingEffTotalPct = totPrevBill > 0 ? (totAllColl / totPrevBill) * 100 : 0;
+    const billingEffCurrentPct = totPrevBill > 0 ? (totCurColl / totPrevBill) * 100 : 0;
+
+    const totDist = activePdamSnapshot.productionDistribution.reduce(
+      (s, u) => s + (u.distributedM3Monthly || 0),
+      0
+    );
+    const totNrw = activePdamSnapshot.productionDistribution.reduce(
+      (s, u) => s + (u.nrwM3Monthly || 0),
+      0
+    );
+    const nrwPct = totDist > 0 ? (totNrw / totDist) * 100 : 0;
+
+    const activeCustomers = activePdamSnapshot.customerConnections.reduce(
+      (s, c) => s + (c.endingActive || 0),
+      0
+    );
+
+    return {
+      hasSnapshot: true,
+      periodText: `${activePdamSnapshot.month} ${activePdamSnapshot.year}`,
+      billingEffTotalPct,
+      billingEffCurrentPct,
+      nrwPct,
+      activeCustomers,
+      totalInventoryVal,
+      totalPurchasesVal,
+    };
+  }, [activePdamSnapshot, inventory, purchases, filter.year, filter.month, filter.unitId]);
+
   return (
     <div className="space-y-5">
       {/* Early Warning Strip */}
@@ -357,6 +454,113 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
           <p className="mt-1.5 text-base font-bold text-slate-900 font-mono tabular-nums">
             {formatRp(openUtang)}
           </p>
+        </div>
+      </div>
+
+      {/* Row 2B: Ringkasan Operasional PDAM, Penagihan & Persediaan */}
+      <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
+          <div className="flex items-center gap-2">
+            <Droplets className="w-4 h-4 text-emerald-700 shrink-0" />
+            <div>
+              <h3 className="text-xs sm:text-sm font-bold text-slate-900">
+                Ringkasan Operasional PDAM, Penagihan & Gudang ({pdamKpis.periodText})
+              </h3>
+              <p className="text-[11px] text-slate-500">
+                Indikator kinerja teknik, efisiensi penagihan rekening air, persediaan kimia/pipa, dan nilai buku aktiva tetap
+              </p>
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onNavigateSubTab('persediaan_pembelian')}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg cursor-pointer"
+            >
+              <Package className="w-3.5 h-3.5 text-emerald-700" />
+              <span>Persediaan & Pembelian</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigateSubTab('operasional_pdam')}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg cursor-pointer"
+            >
+              <Droplets className="w-3.5 h-3.5 text-emerald-700" />
+              <span>{pdamKpis.hasSnapshot ? 'Kelola Data Operasional PDAM' : 'Muat Baseline PDAM Sep 2026'}</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg">
+            <span className="text-[11px] text-slate-500 font-semibold block">
+              Efisiensi Penagihan Air
+            </span>
+            <p
+              className={`mt-1 text-base font-bold font-mono tabular-nums ${
+                pdamKpis.billingEffTotalPct >= 90 ? 'text-emerald-800' : 'text-amber-700'
+              }`}
+            >
+              {pdamKpis.hasSnapshot ? `${pdamKpis.billingEffTotalPct.toFixed(2)}%` : '-'}
+            </p>
+            <span className="text-[10px] text-slate-500">
+              {pdamKpis.hasSnapshot
+                ? `Lancar bln berjalan: ${pdamKpis.billingEffCurrentPct.toFixed(2)}%`
+                : 'Belum ada snapshot bulanan'}
+            </span>
+          </div>
+
+          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg">
+            <span className="text-[11px] text-slate-500 font-semibold block">
+              Kehilangan Air (NRW)
+            </span>
+            <p
+              className={`mt-1 text-base font-bold font-mono tabular-nums ${
+                pdamKpis.nrwPct <= 25 ? 'text-emerald-800' : 'text-rose-700'
+              }`}
+            >
+              {pdamKpis.hasSnapshot ? `${pdamKpis.nrwPct.toFixed(2)}%` : '-'}
+            </p>
+            <span className="text-[10px] text-slate-500">
+              Ambang batas sehat ≤ 25%
+            </span>
+          </div>
+
+          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg">
+            <span className="text-[11px] text-slate-500 font-semibold block">
+              Pelanggan Aktif (SR)
+            </span>
+            <p className="mt-1 text-base font-bold text-slate-900 font-mono tabular-nums">
+              {pdamKpis.hasSnapshot ? `${pdamKpis.activeCustomers.toLocaleString('id-ID')} SR` : '-'}
+            </p>
+            <span className="text-[10px] text-slate-500">
+              11 Unit Pelayanan Pasaman
+            </span>
+          </div>
+
+          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg">
+            <span className="text-[11px] text-slate-500 font-semibold block">
+              Persediaan Kimia & Instalasi
+            </span>
+            <p className="mt-1 text-base font-bold text-slate-900 font-mono tabular-nums">
+              {formatRp(pdamKpis.totalInventoryVal)}
+            </p>
+            <span className="text-[10px] text-slate-500">
+              Pembelian terfilter: {formatRp(pdamKpis.totalPurchasesVal)}
+            </span>
+          </div>
+
+          <div className="p-3 bg-slate-50/80 border border-slate-200/80 rounded-lg">
+            <span className="text-[11px] text-slate-500 font-semibold block">
+              Aktiva Tetap Bersih (NBV)
+            </span>
+            <p className="mt-1 text-base font-bold text-slate-900 font-mono tabular-nums">
+              {formatRp(statements.balanceSheet.netFixedAssets)}
+            </p>
+            <span className="text-[10px] text-slate-500">
+              Setelah akumulasi penyusutan
+            </span>
+          </div>
         </div>
       </div>
 

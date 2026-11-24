@@ -18,6 +18,12 @@ export interface FinanceAccount {
   normalBalance: 'Debit' | 'Kredit';
   cashFlowGroup: FinanceCashFlowGroup;
   openingBalance: number;
+  prevMonthBalance?: number;
+  monthlyRealization?: number;
+  ytdRealization?: number;
+  budgetMonthly?: number;
+  budgetYtd?: number;
+  isContra?: boolean;
   year: number;
   isActive: boolean;
   description?: string;
@@ -325,6 +331,7 @@ export type FinanceAuditActionType =
   | 'CLOSE_PERIOD'
   | 'REOPEN_PERIOD'
   | 'SEED'
+  | 'IMPORT'
   | 'DUPLICATE_OVERRIDE';
 
 export interface FinanceAuditTrail {
@@ -354,3 +361,213 @@ export interface FinanceGlobalFilter {
   unitId: string; // 'ALL' or unit.id
   coaId: string; // 'ALL' or coa.id
 }
+
+// =========================================================================
+// PDAM PERMENDAGRI 118/2018 & OPERATIONAL-FINANCIAL EXTENSIONS
+// =========================================================================
+
+export interface FinanceInventoryItem {
+  id: string;
+  coaCode: string; // e.g., 15.01.04, 15.01.20, 15.01.30, 15.01.40, 15.03.90, 15.03.91
+  itemCode: string;
+  name: string;
+  category: 'Bahan Kimia' | 'Bahan Instalasi Bergerak' | 'Bahan Instalasi Tidak Bergerak' | 'ATK & Umum';
+  unitMeasure: string; // Kg, Liter, Batang, Buah, Unit, Paket
+  year: number;
+  month: string;
+  unitId: string;
+  unitName: string;
+  beginningQty: number;
+  inQty: number;
+  outQty: number;
+  endingQty: number;
+  unitCost: number;
+  prevMonthValue: number;
+  endingValue: number;
+  minStockQty: number;
+  notes?: string;
+  updatedBy: string;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface FinancePurchaseRecord {
+  id: string;
+  purchaseNumber: string;
+  purchaseDate: string;
+  year: number;
+  month: string;
+  category: 'Alat tulis kantor' | 'Pipa dan Accessoris' | 'Bahan Kimia' | 'Belanja Modal' | 'Lainnya';
+  itemDescription: string;
+  vendorName: string;
+  unitId: string;
+  unitName: string;
+  rkaId?: string;
+  rkaCode?: string;
+  requestedQty: number;
+  realizedQty: number;
+  unitMeasure: string;
+  amount: number;
+  status: 'Permintaan' | 'Realisasi' | 'Selesai' | 'Dibatalkan';
+  linkedTransactionId?: string;
+  notes?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FinancePdamUnitEfficiency {
+  unitName: string;
+  prevBilling: number;
+  arrearsCollected: number;
+  currentCollected: number;
+  totalCollected: number;
+  currentEfficiencyPct: number;
+  totalEfficiencyPct: number;
+}
+
+export interface FinancePdamTariffCollection {
+  tariffCode: string;
+  tariffName: string;
+  receivableMonth1: number;
+  receivableMonth2: number;
+  receivableMonth3: number;
+  receivableAbove3Months: number;
+  totalReceivable: number;
+  collectedAmount: number;
+  effectivenessPct: number;
+}
+
+export interface FinancePdamDrdRow {
+  tariffGroup: string;
+  tariffName: string;
+  customerCount: number;
+  billedSlipsMonthly: number;
+  cubicMetersMonthly: number;
+  billedAmountMonthly: number;
+  billedSlipsYtd: number;
+  cubicMetersYtd: number;
+  billedAmountYtd: number;
+}
+
+export interface FinancePdamAssetGroupRow {
+  groupCode: string;
+  groupName: string;
+  acquisitionCost: number;
+  accumDepPrevYear: number;
+  depreciationMonthly: number;
+  depreciationYtd: number;
+  accumDepEnding: number;
+  bookValueEnding: number;
+}
+
+export interface FinancePdamProductionUnit {
+  unitName: string;
+  installedCapacityLps: number;
+  realCapacityLps: number;
+  producedM3Monthly: number;
+  distributedM3Monthly: number;
+  soldM3Monthly: number;
+  nrwM3Monthly: number;
+  nrwPctMonthly: number;
+  producedM3Ytd: number;
+  distributedM3Ytd: number;
+  soldM3Ytd: number;
+  nrwM3Ytd: number;
+  nrwPctYtd: number;
+}
+
+export interface FinancePdamConnectionRow {
+  unitName: string;
+  beginningActive: number;
+  inactiveCount: number;
+  disconnectedCount: number;
+  reconnectedCount: number;
+  newConnectionsCount: number;
+  endingActive: number;
+}
+
+export interface FinancePdamHrUnitRow {
+  unitName: string;
+  direksiCount: number;
+  permanentCount: number;
+  contractCount: number;
+  totalCount: number;
+}
+
+export interface FinancePdamSummaryMetric {
+  code: string;
+  label: string;
+  section: 'KEUANGAN' | 'PRODUKSI_DISTRIBUSI';
+  unit: string;
+  monthlyReal: number;
+  monthlyBudget: number;
+  ytdReal: number;
+  ytdBudget: number;
+}
+
+export interface FinancePdamIndirectCashFlow {
+  netIncomeMonthly: number;
+  depreciationAddBack: number;
+  workingCapitalChanges: { label: string; amount: number }[];
+  netOperatingCashFlow: number;
+  investingCashFlow: number;
+  financingCashFlow: number;
+  netCashChange: number;
+  beginningCash: number;
+  endingCash: number;
+}
+
+export interface FinancePdamPurchaseSummaryRow {
+  category: string;
+  requestedMonthly: number;
+  realizedMonthly: number;
+  amountMonthly: number;
+  requestedYtd: number;
+  realizedYtd: number;
+  amountYtd: number;
+}
+
+export interface FinancePdamMonthlySnapshot {
+  id: string; // e.g., pdam-2026-September
+  year: number;
+  month: string;
+  letterNumber: string;
+  letterDate: string;
+  recipient: string;
+  legalBasis: string;
+  directorName: string;
+  kabidKeuName: string;
+  kabidKeuNik: string;
+  kasubidKeuName: string;
+  kasubidKeuNik: string;
+  summaryMetrics: FinancePdamSummaryMetric[];
+  indirectCashFlow: FinancePdamIndirectCashFlow;
+  collectionEfficiency: FinancePdamUnitEfficiency[];
+  tariffEffectiveness: FinancePdamTariffCollection[];
+  purchaseSummary: FinancePdamPurchaseSummaryRow[];
+  drdSummary: FinancePdamDrdRow[];
+  assetGroupSummary: FinancePdamAssetGroupRow[];
+  productionDistribution: FinancePdamProductionUnit[];
+  customerConnections: FinancePdamConnectionRow[];
+  employeeComposition: FinancePdamHrUnitRow[];
+  notes?: string;
+  updatedBy: string;
+  updatedAt: string;
+  createdAt: string;
+}
+
+export interface FinanceBankStatementLine {
+  id: string;
+  date: string;
+  description: string;
+  reference: string;
+  debit: number;
+  credit: number;
+  balance: number;
+  direction: 'MASUK' | 'KELUAR';
+  amount: number;
+  selected: boolean;
+  suggestedCoaId?: string;
+}
+

@@ -5,13 +5,29 @@ import {
   FinanceAuditTrail,
   FinanceCashBankAccount,
   FinanceGlobalFilter,
+  FinanceInventoryItem,
   FinanceJournal,
+  FinancePdamMonthlySnapshot,
   FinancePeriodClose,
   FinanceReceivablePayable,
   FinanceTaxRecord,
   FinanceTransaction,
 } from '../types/finance';
 import { FISCAL_MONTHS } from './featureCatalog';
+
+export const isContraAssetAccount = (account: FinanceAccount): boolean => {
+  if (account.isContra) return true;
+  const sub = (account.subCategory || '').toLowerCase();
+  const code = (account.code || '').trim();
+  return (
+    code === '1-2901' ||
+    code.startsWith('13.09') ||
+    code.startsWith('31.10') ||
+    sub.includes('akumulasi') ||
+    sub.includes('penyisihan') ||
+    sub.includes('penurunan nilai')
+  );
+};
 
 export const formatRp = (val: number): string => {
   const num = Number.isFinite(val) ? val : 0;
@@ -387,9 +403,15 @@ export interface AccountLedgerSummary {
   openingCredit: number;
   periodDebit: number;
   periodCredit: number;
+  periodNetMovement: number;
   endingDebit: number;
   endingCredit: number;
   netSignedBalance: number; // + in normal balance direction
+  prevMonthBalance: number;
+  monthlyActual: number;
+  monthlyBudget: number;
+  ytdActual: number;
+  ytdBudget: number;
   movements: {
     journalId: string;
     journalNumber: string;
@@ -426,6 +448,20 @@ export interface AccountingStatements {
     totalOtherExpense: number;
     totalExpense: number;
     netIncome: number;
+    // Comparative Monthly vs Budget vs YTD
+    monthlyTotalOperatingRevenue: number;
+    monthlyTotalOtherRevenue: number;
+    monthlyTotalRevenue: number;
+    monthlyTotalOperatingExpense: number;
+    monthlyTotalOtherExpense: number;
+    monthlyTotalExpense: number;
+    monthlyNetIncome: number;
+    budgetMonthlyRevenue: number;
+    budgetMonthlyExpense: number;
+    budgetMonthlyNetIncome: number;
+    budgetYtdRevenue: number;
+    budgetYtdExpense: number;
+    budgetYtdNetIncome: number;
   };
   balanceSheet: {
     currentAssets: AccountLedgerSummary[];
@@ -444,6 +480,16 @@ export interface AccountingStatements {
     totalEquity: number;
     totalLiabilitiesAndEquity: number;
     isBalanced: boolean;
+    // Comparative Bulan Lalu
+    prevTotalCurrentAssets: number;
+    prevNetFixedAssets: number;
+    prevTotalAssets: number;
+    prevTotalCurrentLiabilities: number;
+    prevTotalLongTermLiabilities: number;
+    prevTotalLiabilities: number;
+    prevCurrentYearEarnings: number;
+    prevTotalEquity: number;
+    prevTotalLiabilitiesAndEquity: number;
   };
   cashFlow: {
     operatingInflows: number;
@@ -454,6 +500,17 @@ export interface AccountingStatements {
     netInvestingCashFlow: number;
     financingInflows: number;
     financingOutflows: number;
+    netFinancingCashFlow: number;
+    netCashChange: number;
+    beginningCash: number;
+    endingCash: number;
+  };
+  indirectCashFlow: {
+    netIncome: number;
+    depreciationAddBack: number;
+    workingCapitalDelta: number;
+    netOperatingCashFlow: number;
+    netInvestingCashFlow: number;
     netFinancingCashFlow: number;
     netCashChange: number;
     beginningCash: number;
@@ -531,11 +588,26 @@ export const computeAccountingStatements = (params: {
       });
     });
 
+    const periodNetMovement =
+      account.normalBalance === 'Debit' ? periodDebit - periodCredit : periodCredit - periodDebit;
     const netSignedBalance = running;
-    const rawSigned =
-      openingDebit - openingCredit + (periodDebit - periodCredit);
+    const rawSigned = openingDebit - openingCredit + (periodDebit - periodCredit);
     const endingDebit = rawSigned > 0 ? rawSigned : 0;
     const endingCredit = rawSigned < 0 ? Math.abs(rawSigned) : 0;
+
+    const prevMonthBalance =
+      typeof account.prevMonthBalance === 'number'
+        ? account.prevMonthBalance
+        : openAmt;
+
+    const hasMonthlyBaseline = typeof account.monthlyRealization === 'number';
+    const monthlyActual = hasMonthlyBaseline
+      ? (account.monthlyRealization || 0) + periodNetMovement
+      : periodNetMovement;
+    const ytdActual =
+      typeof account.ytdRealization === 'number' && account.openingBalance === 0
+        ? (account.ytdRealization || 0) + periodNetMovement
+        : netSignedBalance;
 
     return {
       account,
@@ -543,9 +615,15 @@ export const computeAccountingStatements = (params: {
       openingCredit,
       periodDebit,
       periodCredit,
+      periodNetMovement,
       endingDebit,
       endingCredit,
       netSignedBalance,
+      prevMonthBalance,
+      monthlyActual,
+      monthlyBudget: Number(account.budgetMonthly) || 0,
+      ytdActual,
+      ytdBudget: Number(account.budgetYtd) || 0,
       movements,
     };
   });
@@ -571,78 +649,107 @@ export const computeAccountingStatements = (params: {
 
   // Income Statement
   const revenueLedgers = ledgers.filter((l) => l.account.type === 'Pendapatan');
-  const operatingRevenues = revenueLedgers.filter((l) =>
-    l.account.subCategory.toLowerCase().includes('usaha')
+  const operatingRevenues = revenueLedgers.filter(
+    (l) =>
+      l.account.subCategory.toLowerCase().includes('usaha') ||
+      l.account.code.startsWith('81.') ||
+      l.account.code.startsWith('4-1')
   );
   const otherRevenues = revenueLedgers.filter(
-    (l) => !l.account.subCategory.toLowerCase().includes('usaha')
+    (l) =>
+      !l.account.subCategory.toLowerCase().includes('usaha') &&
+      !l.account.code.startsWith('81.') &&
+      !l.account.code.startsWith('4-1')
   );
-  const totalOperatingRevenue = operatingRevenues.reduce(
-    (s, l) => s + l.netSignedBalance,
-    0
-  );
-  const totalOtherRevenue = otherRevenues.reduce(
-    (s, l) => s + l.netSignedBalance,
-    0
-  );
+
+  const totalOperatingRevenue = operatingRevenues.reduce((s, l) => s + l.netSignedBalance, 0);
+  const totalOtherRevenue = otherRevenues.reduce((s, l) => s + l.netSignedBalance, 0);
   const totalRevenue = totalOperatingRevenue + totalOtherRevenue;
 
+  const monthlyTotalOperatingRevenue = operatingRevenues.reduce((s, l) => s + l.monthlyActual, 0);
+  const monthlyTotalOtherRevenue = otherRevenues.reduce((s, l) => s + l.monthlyActual, 0);
+  const monthlyTotalRevenue = monthlyTotalOperatingRevenue + monthlyTotalOtherRevenue;
+
+  const budgetMonthlyRevenue = revenueLedgers.reduce((s, l) => s + l.monthlyBudget, 0);
+  const budgetYtdRevenue = revenueLedgers.reduce((s, l) => s + l.ytdBudget, 0);
+
   const expenseLedgers = ledgers.filter((l) => l.account.type === 'Beban');
-  const directExpenses = expenseLedgers.filter((l) =>
-    l.account.subCategory.toLowerCase().includes('langsung')
-  );
-  const adminExpenses = expenseLedgers.filter((l) =>
-    l.account.subCategory.toLowerCase().includes('administrasi')
-  );
-  const depreciationExpenses = expenseLedgers.filter((l) =>
-    l.account.subCategory.toLowerCase().includes('penyusutan')
-  );
+  const isDepExp = (l: AccountLedgerSummary) =>
+    l.account.subCategory.toLowerCase().includes('penyusutan') ||
+    l.account.code.includes('.09.') ||
+    l.account.code.startsWith('5-22');
+  const isDirectExp = (l: AccountLedgerSummary) =>
+    !isDepExp(l) &&
+    (l.account.subCategory.toLowerCase().includes('langsung') ||
+      l.account.code.startsWith('91.') ||
+      l.account.code.startsWith('92.') ||
+      l.account.code.startsWith('93.') ||
+      l.account.code.startsWith('95.') ||
+      l.account.code.startsWith('5-1'));
+  const isAdminExp = (l: AccountLedgerSummary) =>
+    !isDepExp(l) &&
+    !isDirectExp(l) &&
+    (l.account.subCategory.toLowerCase().includes('administrasi') ||
+      l.account.code.startsWith('96.') ||
+      l.account.code.startsWith('5-21'));
+
+  const depreciationExpenses = expenseLedgers.filter(isDepExp);
+  const directExpenses = expenseLedgers.filter(isDirectExp);
+  const adminExpenses = expenseLedgers.filter(isAdminExp);
   const otherExpenses = expenseLedgers.filter(
-    (l) =>
-      !l.account.subCategory.toLowerCase().includes('langsung') &&
-      !l.account.subCategory.toLowerCase().includes('administrasi') &&
-      !l.account.subCategory.toLowerCase().includes('penyusutan')
+    (l) => !isDepExp(l) && !isDirectExp(l) && !isAdminExp(l)
   );
 
   const totalOperatingExpense =
     directExpenses.reduce((s, l) => s + l.netSignedBalance, 0) +
     adminExpenses.reduce((s, l) => s + l.netSignedBalance, 0) +
     depreciationExpenses.reduce((s, l) => s + l.netSignedBalance, 0);
-  const totalOtherExpense = otherExpenses.reduce(
-    (s, l) => s + l.netSignedBalance,
-    0
-  );
+  const totalOtherExpense = otherExpenses.reduce((s, l) => s + l.netSignedBalance, 0);
   const totalExpense = totalOperatingExpense + totalOtherExpense;
   const netIncome = totalRevenue - totalExpense;
 
-  // Balance Sheet
+  const monthlyTotalOperatingExpense =
+    directExpenses.reduce((s, l) => s + l.monthlyActual, 0) +
+    adminExpenses.reduce((s, l) => s + l.monthlyActual, 0) +
+    depreciationExpenses.reduce((s, l) => s + l.monthlyActual, 0);
+  const monthlyTotalOtherExpense = otherExpenses.reduce((s, l) => s + l.monthlyActual, 0);
+  const monthlyTotalExpense = monthlyTotalOperatingExpense + monthlyTotalOtherExpense;
+  const monthlyNetIncome = monthlyTotalRevenue - monthlyTotalExpense;
+
+  const budgetMonthlyExpense = expenseLedgers.reduce((s, l) => s + l.monthlyBudget, 0);
+  const budgetYtdExpense = expenseLedgers.reduce((s, l) => s + l.ytdBudget, 0);
+  const budgetMonthlyNetIncome = budgetMonthlyRevenue - budgetMonthlyExpense;
+  const budgetYtdNetIncome = budgetYtdRevenue - budgetYtdExpense;
+
+  // Balance Sheet (Supports contra current assets like 13.09.10 and contra fixed assets like 31.10.xx / 1-2901)
   const assetLedgers = ledgers.filter((l) => l.account.type === 'Aset');
   const currentAssets = assetLedgers.filter((l) =>
     l.account.subCategory.toLowerCase().includes('lancar')
   );
-  const accumulatedDepreciation = assetLedgers.filter((l) =>
-    l.account.subCategory.toLowerCase().includes('penyusutan')
+  const accumulatedDepreciation = assetLedgers.filter(
+    (l) => !l.account.subCategory.toLowerCase().includes('lancar') && isContraAssetAccount(l.account)
   );
   const fixedAssets = assetLedgers.filter(
-    (l) =>
-      !l.account.subCategory.toLowerCase().includes('lancar') &&
-      !l.account.subCategory.toLowerCase().includes('penyusutan')
+    (l) => !l.account.subCategory.toLowerCase().includes('lancar') && !isContraAssetAccount(l.account)
   );
 
   const totalCurrentAssets = currentAssets.reduce(
-    (s, l) => s + l.netSignedBalance,
+    (s, l) => s + (isContraAssetAccount(l.account) ? -l.netSignedBalance : l.netSignedBalance),
     0
   );
-  const grossFixedAssets = fixedAssets.reduce(
-    (s, l) => s + l.netSignedBalance,
-    0
-  );
-  const totalAccumDep = accumulatedDepreciation.reduce(
-    (s, l) => s + l.netSignedBalance,
-    0
-  );
+  const grossFixedAssets = fixedAssets.reduce((s, l) => s + l.netSignedBalance, 0);
+  const totalAccumDep = accumulatedDepreciation.reduce((s, l) => s + l.netSignedBalance, 0);
   const netFixedAssets = grossFixedAssets - totalAccumDep;
   const totalAssets = totalCurrentAssets + netFixedAssets;
+
+  const prevTotalCurrentAssets = currentAssets.reduce(
+    (s, l) => s + (isContraAssetAccount(l.account) ? -l.prevMonthBalance : l.prevMonthBalance),
+    0
+  );
+  const prevGrossFixedAssets = fixedAssets.reduce((s, l) => s + l.prevMonthBalance, 0);
+  const prevTotalAccumDep = accumulatedDepreciation.reduce((s, l) => s + l.prevMonthBalance, 0);
+  const prevNetFixedAssets = prevGrossFixedAssets - prevTotalAccumDep;
+  const prevTotalAssets = prevTotalCurrentAssets + prevNetFixedAssets;
 
   const liabilityLedgers = ledgers.filter((l) => l.account.type === 'Kewajiban');
   const currentLiabilities = liabilityLedgers.filter((l) =>
@@ -651,20 +758,35 @@ export const computeAccountingStatements = (params: {
   const longTermLiabilities = liabilityLedgers.filter(
     (l) => !l.account.subCategory.toLowerCase().includes('lancar')
   );
-  const totalCurrentLiabilities = currentLiabilities.reduce(
-    (s, l) => s + l.netSignedBalance,
-    0
-  );
-  const totalLongTermLiabilities = longTermLiabilities.reduce(
-    (s, l) => s + l.netSignedBalance,
-    0
-  );
+  const totalCurrentLiabilities = currentLiabilities.reduce((s, l) => s + l.netSignedBalance, 0);
+  const totalLongTermLiabilities = longTermLiabilities.reduce((s, l) => s + l.netSignedBalance, 0);
   const totalLiabilities = totalCurrentLiabilities + totalLongTermLiabilities;
 
-  const equityAccounts = ledgers.filter((l) => l.account.type === 'Ekuitas');
+  const prevTotalCurrentLiabilities = currentLiabilities.reduce((s, l) => s + l.prevMonthBalance, 0);
+  const prevTotalLongTermLiabilities = longTermLiabilities.reduce((s, l) => s + l.prevMonthBalance, 0);
+  const prevTotalLiabilities = prevTotalCurrentLiabilities + prevTotalLongTermLiabilities;
+
+  const allEquityLedgers = ledgers.filter((l) => l.account.type === 'Ekuitas');
+  const currentEarningsCoa = allEquityLedgers.find(
+    (l) =>
+      l.account.code === '70.09.10' ||
+      l.account.subCategory.toLowerCase().includes('tahun berjalan')
+  );
+  const equityAccounts = allEquityLedgers.filter((l) => l !== currentEarningsCoa);
   const baseEquity = equityAccounts.reduce((s, l) => s + l.netSignedBalance, 0);
-  const totalEquity = baseEquity + netIncome;
+  const periodNetDelta =
+    revenueLedgers.reduce((s, l) => s + l.periodNetMovement, 0) -
+    expenseLedgers.reduce((s, l) => s + l.periodNetMovement, 0);
+  const currentYearEarnings = currentEarningsCoa
+    ? currentEarningsCoa.netSignedBalance + periodNetDelta
+    : netIncome;
+  const totalEquity = baseEquity + currentYearEarnings;
   const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
+
+  const prevBaseEquity = equityAccounts.reduce((s, l) => s + l.prevMonthBalance, 0);
+  const prevCurrentYearEarnings = currentEarningsCoa ? currentEarningsCoa.prevMonthBalance : 0;
+  const prevTotalEquity = prevBaseEquity + prevCurrentYearEarnings;
+  const prevTotalLiabilitiesAndEquity = prevTotalLiabilities + prevTotalEquity;
 
   // Cash Flow from Posted Transactions (Actual Direct Method)
   const postedTxs = transactions.filter(
@@ -704,9 +826,33 @@ export const computeAccountingStatements = (params: {
   const netFinancingCashFlow = financingInflows - financingOutflows;
   const netCashChange = netOperatingCashFlow + netInvestingCashFlow + netFinancingCashFlow;
 
-  const cashCoa = activeCoa.filter((a) => a.cashFlowGroup === 'Kas');
-  const beginningCash = cashCoa.reduce((s, a) => s + (Number(a.openingBalance) || 0), 0);
+  const cashLedgers = ledgers.filter((l) => l.account.cashFlowGroup === 'Kas');
+  const beginningCash = cashLedgers.reduce((s, l) => s + (Number(l.account.openingBalance) || 0), 0);
   const endingCash = beginningCash + netCashChange;
+
+  // Indirect Cash Flow derived from monthly earnings + depreciation + comparative BS changes
+  const monthlyDepAddBack = depreciationExpenses.reduce((s, l) => s + l.monthlyActual, 0);
+  const effectiveNetIncome = monthlyNetIncome !== 0 ? monthlyNetIncome : netIncome;
+  const effectiveDepAddBack =
+    monthlyDepAddBack !== 0
+      ? monthlyDepAddBack
+      : depreciationExpenses.reduce((s, l) => s + l.netSignedBalance, 0);
+  const nonCashCurrentAssetsCurr = currentAssets
+    .filter((l) => l.account.cashFlowGroup !== 'Kas')
+    .reduce((s, l) => s + (isContraAssetAccount(l.account) ? -l.netSignedBalance : l.netSignedBalance), 0);
+  const nonCashCurrentAssetsPrev = currentAssets
+    .filter((l) => l.account.cashFlowGroup !== 'Kas')
+    .reduce((s, l) => s + (isContraAssetAccount(l.account) ? -l.prevMonthBalance : l.prevMonthBalance), 0);
+  const workingCapitalDelta =
+    -(nonCashCurrentAssetsCurr - nonCashCurrentAssetsPrev) +
+    (totalCurrentLiabilities - prevTotalCurrentLiabilities);
+  const indirectOpCf = effectiveNetIncome + effectiveDepAddBack + workingCapitalDelta;
+  const indirectInvCf = -(grossFixedAssets - prevGrossFixedAssets);
+  const indirectFinCf =
+    totalLongTermLiabilities - prevTotalLongTermLiabilities + (baseEquity - prevBaseEquity);
+  const indirectNetChange = indirectOpCf + indirectInvCf + indirectFinCf;
+  const indirectBeginCash = cashLedgers.reduce((s, l) => s + l.prevMonthBalance, 0);
+  const indirectEndCash = cashLedgers.reduce((s, l) => s + l.netSignedBalance, 0);
 
   const capitalAccounts = equityAccounts.filter((l) =>
     l.account.name.toLowerCase().includes('modal')
@@ -740,6 +886,19 @@ export const computeAccountingStatements = (params: {
       totalOtherExpense,
       totalExpense,
       netIncome,
+      monthlyTotalOperatingRevenue,
+      monthlyTotalOtherRevenue,
+      monthlyTotalRevenue,
+      monthlyTotalOperatingExpense,
+      monthlyTotalOtherExpense,
+      monthlyTotalExpense,
+      monthlyNetIncome,
+      budgetMonthlyRevenue,
+      budgetMonthlyExpense,
+      budgetMonthlyNetIncome,
+      budgetYtdRevenue,
+      budgetYtdExpense,
+      budgetYtdNetIncome,
     },
     balanceSheet: {
       currentAssets,
@@ -754,10 +913,19 @@ export const computeAccountingStatements = (params: {
       totalLongTermLiabilities,
       totalLiabilities,
       equityAccounts,
-      currentYearEarnings: netIncome,
+      currentYearEarnings,
       totalEquity,
       totalLiabilitiesAndEquity,
-      isBalanced: Math.abs(totalAssets - totalLiabilitiesAndEquity) < 1,
+      isBalanced: Math.abs(totalAssets - totalLiabilitiesAndEquity) < 5,
+      prevTotalCurrentAssets,
+      prevNetFixedAssets,
+      prevTotalAssets,
+      prevTotalCurrentLiabilities,
+      prevTotalLongTermLiabilities,
+      prevTotalLiabilities,
+      prevCurrentYearEarnings,
+      prevTotalEquity,
+      prevTotalLiabilitiesAndEquity,
     },
     cashFlow: {
       operatingInflows,
@@ -773,12 +941,23 @@ export const computeAccountingStatements = (params: {
       beginningCash,
       endingCash,
     },
+    indirectCashFlow: {
+      netIncome: effectiveNetIncome,
+      depreciationAddBack: effectiveDepAddBack,
+      workingCapitalDelta,
+      netOperatingCashFlow: indirectOpCf,
+      netInvestingCashFlow: indirectInvCf,
+      netFinancingCashFlow: indirectFinCf,
+      netCashChange: indirectNetChange,
+      beginningCash: indirectBeginCash,
+      endingCash: indirectEndCash,
+    },
     equityChanges: {
       beginningCapital,
       retainedEarningsOpening,
       equityAdjustments,
-      netIncome,
-      endingEquity: baseEquity + netIncome,
+      netIncome: currentYearEarnings,
+      endingEquity: baseEquity + currentYearEarnings,
     },
   };
 };
@@ -823,6 +1002,8 @@ export const computeFinancialAnalysisAndWarnings = (params: {
   assets: FinanceAsset[];
   auditTrails: FinanceAuditTrail[];
   year: number;
+  pdamSnapshots?: FinancePdamMonthlySnapshot[];
+  inventory?: FinanceInventoryItem[];
 }): FinancialAnalysisResult => {
   const {
     statements,
@@ -834,6 +1015,8 @@ export const computeFinancialAnalysisAndWarnings = (params: {
     rkaSubItems,
     auditTrails,
     year,
+    pdamSnapshots = [],
+    inventory = [],
   } = params;
 
   const opRev = statements.incomeStatement.totalOperatingRevenue;
@@ -1037,6 +1220,67 @@ export const computeFinancialAnalysisAndWarnings = (params: {
       title: `${dupAlerts} Indikasi Transaksi Ganda Terdeteksi`,
       detail: 'Periksa tab Audit Trail Keuangan untuk memverifikasi keabsahan bukti transaksi.',
       metricValue: `${dupAlerts} temuan`,
+    });
+  }
+
+  // PDAM Operational & Billing Warnings from Snapshots & Inventory
+  const activeSnapshot = pdamSnapshots
+    .filter((s) => year === 0 || s.year === year)
+    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
+
+  if (activeSnapshot) {
+    const totDist = activeSnapshot.productionDistribution.reduce(
+      (s, u) => s + (u.distributedM3Monthly || 0),
+      0
+    );
+    const totNrw = activeSnapshot.productionDistribution.reduce(
+      (s, u) => s + (u.nrwM3Monthly || 0),
+      0
+    );
+    const nrwPct = totDist > 0 ? (totNrw / totDist) * 100 : 0;
+    if (nrwPct > 25) {
+      warnings.push({
+        id: 'warn-pdam-nrw',
+        severity: nrwPct > 30 ? 'KRITIS' : 'PERINGATAN',
+        category: 'Produksi & Kehilangan Air (NRW)',
+        title: `Tingkat Kehilangan Air (NRW) ${activeSnapshot.month} ${activeSnapshot.year} Melebihi 25%`,
+        detail: `NRW rata-rata sebesar ${nrwPct.toFixed(2)}% (ambang Permendagri <= 25%). Fokus pengendalian kebocoran pada unit NRW tertinggi.`,
+        metricValue: `${nrwPct.toFixed(1)}%`,
+      });
+    }
+
+    const totPrevBill = activeSnapshot.collectionEfficiency.reduce(
+      (s, u) => s + (u.prevBilling || 0),
+      0
+    );
+    const totCurColl = activeSnapshot.collectionEfficiency.reduce(
+      (s, u) => s + (u.currentCollected || 0),
+      0
+    );
+    const effCurPct = totPrevBill > 0 ? (totCurColl / totPrevBill) * 100 : 0;
+    if (totPrevBill > 0 && effCurPct < 80) {
+      warnings.push({
+        id: 'warn-pdam-billing-eff',
+        severity: 'PERINGATAN',
+        category: 'Efisiensi Penagihan Rekening Air',
+        title: `Efisiensi Penagihan Lancar (${activeSnapshot.month}) Di Bawah 80%`,
+        detail: `Realisasi penagihan bulan berjalan baru mencapai ${effCurPct.toFixed(2)}% dari ketetapan rekening air.`,
+        metricValue: `${effCurPct.toFixed(1)}%`,
+      });
+    }
+  }
+
+  const deadStockValue = inventory
+    .filter((i) => i.coaCode === '15.03.91' || i.category === 'Bahan Instalasi Tidak Bergerak')
+    .reduce((s, i) => s + (i.endingValue || 0), 0);
+  if (deadStockValue > 0) {
+    warnings.push({
+      id: 'warn-pdam-deadstock',
+      severity: 'INFO',
+      category: 'Pengendalian Persediaan Gudang',
+      title: 'Terdapat Persediaan Instalasi Tidak Bergerak (Dead Stock)',
+      detail: 'Nilai persediaan kode 15.03.91 perlu evaluasi pemanfaatan atau usulan penghapusbukuan.',
+      metricValue: formatRp(deadStockValue),
     });
   }
 

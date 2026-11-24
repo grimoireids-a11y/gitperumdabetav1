@@ -51,6 +51,7 @@ import {
   getTxStatusStyle,
   readAttachmentAsInlineData,
 } from './financeShared';
+import { FinanceDeleteConfirmModal } from './FinanceDeleteConfirmModal';
 
 interface FinanceTransactionsTabProps {
   mode: 'PENERIMAAN' | 'PENGELUARAN';
@@ -126,6 +127,7 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
     action: 'APPROVE' | 'REJECT' | 'CANCEL';
   } | null>(null);
   const [actionNotes, setActionNotes] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<FinanceTransaction | null>(null);
 
   const eligibleCoaList = useMemo(() => {
     const targetTypes = isReceipt
@@ -350,59 +352,67 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
     setAttachmentLabelInput('');
   };
 
-  // Helper to sync RKA realization counts strictly from posted finance transactions + pre-finance baseline (Anti-Double-Counting)
-  const applyRkaSyncToBatch = (
+  // Helper to sync RKA realization counts across one or more affected parent/sub RKA IDs (Anti-Double-Counting)
+  const syncMultipleRkasToBatch = (
     batch: ReturnType<typeof writeBatch>,
-    targetRkaId: string | undefined,
-    targetRkaSubId: string | undefined,
+    targets: Array<{ rkaId?: string; rkaSubId?: string }>,
     updatedAllTxs: FinanceTransaction[],
     txDate: string
   ) => {
-    if (!targetRkaId) return;
-    const parentRka = rkaItems.find((r) => r.id === targetRkaId);
-    if (!parentRka) return;
-
-    const subsForParent = rkaSubItems.filter((s) => s.parentRkaId === parentRka.id);
-    const parentBaseline = getRkaBaselineRealization(parentRka, subsForParent);
-    const postedParentTotal = updatedAllTxs
-      .filter(
-        (t) =>
-          t.type === 'PENGELUARAN' &&
-          t.status === 'Disetujui / Diposting' &&
-          t.rkaId === parentRka.id
-      )
-      .reduce((s, t) => s + (Number(t.amount) || 0), 0);
-
-    batch.update(doc(db, 'rka_items', parentRka.id), {
-      financeBaselineRealization: parentBaseline,
-      financePostedRealization: postedParentTotal,
-      realizationAmount: parentBaseline + postedParentTotal,
-      realizationDate: txDate,
-      updatedAt: new Date().toISOString(),
+    const parentIds = new Set<string>();
+    const subIds = new Set<string>();
+    targets.forEach((t) => {
+      if (t.rkaId) parentIds.add(t.rkaId);
+      if (t.rkaSubId) subIds.add(t.rkaSubId);
     });
 
-    if (targetRkaSubId) {
-      const subItem = rkaSubItems.find((s) => s.id === targetRkaSubId);
-      if (subItem) {
-        const subBaseline = getRkaBaselineRealization(parentRka, subsForParent, subItem);
-        const postedSubTotal = updatedAllTxs
-          .filter(
-            (t) =>
-              t.type === 'PENGELUARAN' &&
-              t.status === 'Disetujui / Diposting' &&
-              t.rkaSubId === subItem.id
-          )
-          .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    parentIds.forEach((pid) => {
+      const parentRka = rkaItems.find((r) => r.id === pid);
+      if (!parentRka) return;
+      const subsForParent = rkaSubItems.filter((s) => s.parentRkaId === parentRka.id);
+      const parentBaseline = getRkaBaselineRealization(parentRka, subsForParent);
+      const postedParentTotal = updatedAllTxs
+        .filter(
+          (t) =>
+            t.type === 'PENGELUARAN' &&
+            t.status === 'Disetujui / Diposting' &&
+            t.rkaId === parentRka.id
+        )
+        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
 
-        batch.update(doc(db, 'rka_sub_items', subItem.id), {
-          financeBaselineRealization: subBaseline,
-          financePostedRealization: postedSubTotal,
-          realizationAmount: subBaseline + postedSubTotal,
-          realizationDate: txDate,
-          updatedAt: new Date().toISOString(),
-        });
-      }
-    }
+      batch.update(doc(db, 'rka_items', parentRka.id), {
+        financeBaselineRealization: parentBaseline,
+        financePostedRealization: postedParentTotal,
+        realizationAmount: parentBaseline + postedParentTotal,
+        realizationDate: txDate,
+        updatedAt: new Date().toISOString(),
+      });
+    });
+
+    subIds.forEach((sid) => {
+      const subItem = rkaSubItems.find((s) => s.id === sid);
+      if (!subItem) return;
+      const parentRka = rkaItems.find((r) => r.id === subItem.parentRkaId);
+      if (!parentRka) return;
+      const subsForParent = rkaSubItems.filter((s) => s.parentRkaId === parentRka.id);
+      const subBaseline = getRkaBaselineRealization(parentRka, subsForParent, subItem);
+      const postedSubTotal = updatedAllTxs
+        .filter(
+          (t) =>
+            t.type === 'PENGELUARAN' &&
+            t.status === 'Disetujui / Diposting' &&
+            t.rkaSubId === subItem.id
+        )
+        .reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+      batch.update(doc(db, 'rka_sub_items', subItem.id), {
+        financeBaselineRealization: subBaseline,
+        financePostedRealization: postedSubTotal,
+        realizationAmount: subBaseline + postedSubTotal,
+        realizationDate: txDate,
+        updatedAt: new Date().toISOString(),
+      });
+    });
   };
 
   const buildAutoJournalForTransaction = (
@@ -495,7 +505,7 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
       });
       return;
     }
-    if (isPeriodLocked(periodCloses, txYear, txMonth)) {
+    if (!permissions.isSuperUser && isPeriodLocked(periodCloses, txYear, txMonth)) {
       setFeedback({
         type: 'error',
         message: `Periode ${txMonth} ${txYear} sudah ditutup buku. Buka tutup buku terlebih dahulu jika ada koreksi resmi.`,
@@ -526,7 +536,7 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
 
       const linkedJournalId = shouldAutoPost
         ? editingTx?.linkedJournalId || `jrn-${txId}`
-        : editingTx?.linkedJournalId;
+        : undefined;
 
       const payload: FinanceTransaction = sanitizeFirestoreRecord({
         id: txId,
@@ -577,8 +587,8 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
         createdBy: editingTx?.createdBy || actor.displayName,
         createdByUid: editingTx?.createdByUid || actor.uid,
         createdByRole: editingTx?.createdByRole || actor.role,
-        approvedBy: shouldAutoPost ? actor.displayName : editingTx?.approvedBy,
-        approvedAt: shouldAutoPost ? now : editingTx?.approvedAt,
+        approvedBy: shouldAutoPost ? editingTx?.approvedBy || actor.displayName : undefined,
+        approvedAt: shouldAutoPost ? editingTx?.approvedAt || now : undefined,
         createdAt: editingTx?.createdAt || now,
         updatedAt: now,
       });
@@ -589,14 +599,23 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
       if (shouldAutoPost && linkedJournalId) {
         const journal = buildAutoJournalForTransaction(payload, linkedJournalId);
         batch.set(doc(db, 'fin_journals', linkedJournalId), sanitizeFirestoreRecord(journal));
+      } else if (!shouldAutoPost && editingTx?.linkedJournalId) {
+        batch.delete(doc(db, 'fin_journals', editingTx.linkedJournalId));
+      }
 
-        const updatedAllTxs = [
-          ...allTransactions.filter((t) => t.id !== txId),
-          payload,
-        ];
-        if (!isReceipt && payload.rkaId) {
-          applyRkaSyncToBatch(batch, payload.rkaId, payload.rkaSubId, updatedAllTxs, payload.transactionDate);
-        }
+      const updatedAllTxs = [
+        ...allTransactions.filter((t) => t.id !== txId),
+        payload,
+      ];
+      const rkaTargets: Array<{ rkaId?: string; rkaSubId?: string }> = [];
+      if (editingTx?.type === 'PENGELUARAN' && editingTx.rkaId) {
+        rkaTargets.push({ rkaId: editingTx.rkaId, rkaSubId: editingTx.rkaSubId });
+      }
+      if (!isReceipt && payload.rkaId) {
+        rkaTargets.push({ rkaId: payload.rkaId, rkaSubId: payload.rkaSubId });
+      }
+      if (rkaTargets.length > 0) {
+        syncMultipleRkasToBatch(batch, rkaTargets, updatedAllTxs, payload.transactionDate);
       }
 
       await batch.commit();
@@ -605,10 +624,10 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
         actionType:
           duplicateMatches.length > 0
             ? 'DUPLICATE_OVERRIDE'
-            : shouldAutoPost
-            ? 'POST'
             : editingTx
             ? 'UPDATE'
+            : shouldAutoPost
+            ? 'POST'
             : 'CREATE',
         entityType: isReceipt ? 'Penerimaan (BKM)' : 'Pengeluaran (BKK)',
         entityId: txId,
@@ -637,10 +656,57 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
     }
   };
 
+  const handleDeleteTransaction = async () => {
+    if (!deleteTarget || !permissions.isSuperUser) return;
+    setSubmitting(true);
+    try {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'fin_transactions', deleteTarget.id));
+      if (deleteTarget.linkedJournalId) {
+        batch.delete(doc(db, 'fin_journals', deleteTarget.linkedJournalId));
+      }
+
+      const remainingTxs = allTransactions.filter((t) => t.id !== deleteTarget.id);
+      if (deleteTarget.type === 'PENGELUARAN' && deleteTarget.rkaId) {
+        syncMultipleRkasToBatch(
+          batch,
+          [{ rkaId: deleteTarget.rkaId, rkaSubId: deleteTarget.rkaSubId }],
+          remainingTxs,
+          getTodayIso()
+        );
+      }
+
+      await batch.commit();
+      await onLogAudit({
+        actionType: 'DELETE',
+        entityType: isReceipt ? 'Penerimaan (BKM)' : 'Pengeluaran (BKK)',
+        entityId: deleteTarget.id,
+        entityLabel: deleteTarget.voucherNumber,
+        summary: `Super User menghapus transaksi ${deleteTarget.voucherNumber} (${formatRp(deleteTarget.amount)})`,
+        beforeData: deleteTarget as unknown as Record<string, unknown>,
+        afterData: null,
+        year: deleteTarget.year,
+      });
+
+      setDeleteTarget(null);
+      setFeedback({
+        type: 'success',
+        message: `Transaksi ${deleteTarget.voucherNumber} berhasil dihapus permanen.`,
+      });
+    } catch (err: unknown) {
+      setFeedback({
+        type: 'error',
+        message: `Gagal menghapus transaksi: ${err instanceof Error ? err.message : 'Error'}`,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleExecuteAction = async () => {
     if (!actionModal) return;
     const { tx, action } = actionModal;
-    if (isPeriodLocked(periodCloses, tx.year, tx.month)) {
+    if (!permissions.isSuperUser && isPeriodLocked(periodCloses, tx.year, tx.month)) {
       setFeedback({
         type: 'error',
         message: `Periode ${tx.month} ${tx.year} sudah ditutup buku.`,
@@ -687,7 +753,12 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
         item.id === tx.id ? updatedTx : item
       );
       if (tx.type === 'PENGELUARAN' && tx.rkaId) {
-        applyRkaSyncToBatch(batch, tx.rkaId, tx.rkaSubId, updatedAllTxs, tx.transactionDate);
+        syncMultipleRkasToBatch(
+          batch,
+          [{ rkaId: tx.rkaId, rkaSubId: tx.rkaSubId }],
+          updatedAllTxs,
+          tx.transactionDate
+        );
       }
 
       await batch.commit();
@@ -916,17 +987,18 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
                     </td>
                     <td className="py-2.5 px-3 text-right whitespace-nowrap">
                       <div className="inline-flex items-center gap-1">
-                        {permissions.canOperate &&
-                          (tx.status === 'Draft' || tx.status === 'Menunggu Persetujuan') && (
-                            <button
-                              type="button"
-                              onClick={() => openEditModal(tx)}
-                              className="p-1.5 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-md cursor-pointer"
-                              title="Edit Transaksi"
-                            >
-                              <Edit3 className="w-3.5 h-3.5" />
-                            </button>
-                          )}
+                        {(permissions.isSuperUser ||
+                          (permissions.canOperate &&
+                            (tx.status === 'Draft' || tx.status === 'Menunggu Persetujuan'))) && (
+                          <button
+                            type="button"
+                            onClick={() => openEditModal(tx)}
+                            className="p-1.5 text-slate-600 hover:text-emerald-800 hover:bg-emerald-50 rounded-md cursor-pointer"
+                            title="Edit Transaksi"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
                         {permissions.canApprove &&
                           (tx.status === 'Draft' || tx.status === 'Menunggu Persetujuan') && (
                             <>
@@ -956,6 +1028,16 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
                             title="Batalkan & Balik Jurnal / Realisasi RKA"
                           >
                             <Ban className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        {permissions.isSuperUser && (
+                          <button
+                            type="button"
+                            onClick={() => setDeleteTarget(tx)}
+                            className="p-1.5 text-rose-600 hover:text-rose-800 hover:bg-rose-50 rounded-md cursor-pointer"
+                            title="Hapus Transaksi (Super User)"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         )}
                       </div>
@@ -1391,7 +1473,9 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
                   onClick={() => handleSaveTransaction('Disetujui / Diposting')}
                   className="px-4 py-2 text-xs font-bold text-white bg-emerald-700 hover:bg-emerald-800 rounded-lg cursor-pointer"
                 >
-                  Simpan & Posting
+                  {editingTx?.status === 'Disetujui / Diposting'
+                    ? 'Simpan Perubahan (Terposting)'
+                    : 'Simpan & Posting'}
                 </button>
               )}
             </div>
@@ -1458,6 +1542,23 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
           </div>
         </div>
       )}
+      <FinanceDeleteConfirmModal
+        isOpen={Boolean(deleteTarget)}
+        title={`Hapus ${isReceipt ? 'Bukti Kas Masuk (BKM)' : 'Bukti Kas Keluar (BKK)'}`}
+        itemLabel={
+          deleteTarget
+            ? `${deleteTarget.voucherNumber} (${formatRp(deleteTarget.amount)})`
+            : ''
+        }
+        description={
+          deleteTarget?.linkedJournalId || deleteTarget?.rkaCode
+            ? 'Jurnal akuntansi otomatis terkait akan ikut dihapus dan penyerapan anggaran RKA akan dihitung ulang.'
+            : 'Data transaksi ini akan dihapus permanen dari database.'
+        }
+        submitting={submitting}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleDeleteTransaction}
+      />
     </div>
   );
 };
