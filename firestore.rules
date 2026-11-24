@@ -197,6 +197,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /fin_performance_audits/{auditId} {
+      allow read, write: if true;
+    }
+
     // Catch-all
     match /{document=**} {
       allow read, write: if true;

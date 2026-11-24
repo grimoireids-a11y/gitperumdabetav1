@@ -26,6 +26,7 @@ import {
   PanelLeftClose,
   X,
   Landmark,
+  Scale,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppBranding } from '../../context/AppBrandingContext';
@@ -50,6 +51,7 @@ export type ActiveTab =
   | 'work_papers'
   | 'audit_reports'
   | 'spi_periodic_reports'
+  | 'financial_performance_audit'
   | 'findings'
   | 'follow_ups'
   | 'wbs_management'
@@ -186,6 +188,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             { id: 'work_papers', label: 'Kertas Kerja Audit (KKA)', icon: BookOpen, hideFor: ['AUDITEE'] },
             { id: 'audit_reports', label: 'Laporan Hasil Audit (LHA)', icon: FileText },
             { id: 'spi_periodic_reports', label: 'Laporan SPI (Bulanan/Tahunan)', icon: FileBarChart2 },
+            { id: 'financial_performance_audit', label: 'Audit Kinerja Keuangan', icon: Scale },
           ],
         },
         {
@@ -314,6 +317,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
               label: 'Manajemen Keuangan',
               icon: Landmark,
               roles: ['DIREKTUR', 'DEWAN_PENGAWAS', 'AUDITOR'],
+            },
+          ],
+        },
+        {
+          sectionKey: 'pelaksanaan_audit',
+          title: 'Pelaksanaan Audit',
+          items: [
+            {
+              id: 'financial_performance_audit',
+              label: 'Audit Kinerja Keuangan',
+              icon: Scale,
+              roles: ['AUDITOR', 'DIREKTUR', 'DEWAN_PENGAWAS'],
             },
           ],
         },

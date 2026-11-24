@@ -92,6 +92,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         return getFeatureTitle('audit_reports', 'Laporan Hasil Audit (LHA) & Pengawasan SPI (Asistensi AI)');
       case 'spi_periodic_reports':
         return getFeatureTitle('spi_periodic_reports', 'Laporan Pengawasan SPI (Bulanan & Tahunan)');
+      case 'financial_performance_audit':
+        return getFeatureTitle('financial_performance_audit', 'Audit Kinerja Keuangan Terpadu (3E, BPKP & Lintas Lini)');
       case 'findings':
         return getFeatureTitle('findings', 'Matriks Temuan Audit 5C & Potensi Kerugian');
       case 'follow_ups':

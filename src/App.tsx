@@ -26,6 +26,7 @@ import { AuditProgramModule } from './components/audit/AuditProgramModule';
 import { WorkPaperModule } from './components/audit/WorkPaperModule';
 import { AuditReportModule } from './components/audit/AuditReportModule';
 import { SPIPeriodicReportModule } from './components/audit/SPIPeriodicReportModule';
+import { FinancialPerformanceAuditModule } from './components/audit/FinancialPerformanceAuditModule';
 import { FindingsModule } from './components/findings/FindingsModule';
 import { FollowUpModule } from './components/findings/FollowUpModule';
 import { InvestigationModule } from './components/investigation/InvestigationModule';
@@ -109,6 +110,13 @@ const AppContent: React.FC = () => {
         );
       }
       if (tab === 'finance') return canViewFinance;
+      if (tab === 'financial_performance_audit') {
+        return (
+          userProfile?.role === 'AUDITOR' ||
+          userProfile?.role === 'DIREKTUR' ||
+          userProfile?.role === 'DEWAN_PENGAWAS'
+        );
+      }
       return (
         tab === 'dashboard' ||
         tab === 'risk_register' ||
@@ -116,7 +124,7 @@ const AppContent: React.FC = () => {
         tab === 'follow_ups'
       );
     },
-    [isFullAccess, isViewer, isExternalAuditor, isBidangKeuangan, canViewFinance]
+    [isFullAccess, isViewer, isExternalAuditor, isBidangKeuangan, canViewFinance, userProfile?.role]
   );
 
   // Guard routes per role
@@ -311,6 +319,8 @@ const AppContent: React.FC = () => {
         );
       case 'spi_periodic_reports':
         return <SPIPeriodicReportModule />;
+      case 'financial_performance_audit':
+        return <FinancialPerformanceAuditModule />;
       case 'findings':
         return (
           <FindingsModule

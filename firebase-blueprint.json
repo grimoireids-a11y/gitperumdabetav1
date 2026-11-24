@@ -884,6 +884,32 @@
         "directorName": { "type": "string", "maxLength": 128 }
       },
       "required": ["id", "year", "month"]
+    },
+    "FinancialPerformanceAudit": {
+      "title": "FinancialPerformanceAudit",
+      "description": "Integrated monthly and annual Financial Performance Audit workpapers (3E & BPKP) and comprehensive 9-chapter audit reports",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "auditNumber": { "type": "string", "maxLength": 128 },
+        "auditTitle": { "type": "string", "maxLength": 256 },
+        "periodType": { "type": "string", "enum": ["BULANAN", "TAHUNAN"] },
+        "year": { "type": "number" },
+        "month": { "type": "number" },
+        "auditDate": { "type": "string", "maxLength": 32 },
+        "totalScore": { "type": "number" },
+        "predicate": { "type": "string", "maxLength": 128 },
+        "status": {
+          "type": "string",
+          "enum": [
+            "Draft",
+            "Review Pengendali Teknis",
+            "Persetujuan Kepala SPI",
+            "Final / Disahkan ke Direksi & Dewas"
+          ]
+        }
+      },
+      "required": ["id", "auditNumber", "auditTitle", "periodType", "year", "totalScore", "status"]
     }
   },
   "firestore": {
@@ -1058,6 +1084,10 @@
     "/fin_audit_trails/{trailId}": {
       "schema": "FinanceAuditTrail",
       "description": "Immutable financial audit logs and duplicate transaction alerts"
+    },
+    "/fin_performance_audits/{auditId}": {
+      "schema": "FinancialPerformanceAudit",
+      "description": "Monthly and annual Financial Performance Audit workpapers and 9-chapter comprehensive reports"
     }
   }
 }

@@ -250,6 +250,11 @@ export const BACKUP_COLLECTIONS: BackupCollectionMeta[] = [
     description: 'Jejak audit permanen mutasi transaksi, persetujuan & deteksi ganda',
   },
   {
+    key: 'fin_performance_audits',
+    label: 'Audit Kinerja Keuangan (Bulanan & Tahunan)',
+    description: 'Kertas kerja 12 indikator 3E/BPKP dan laporan hasil audit kinerja keuangan lintas lini',
+  },
+  {
     key: 'app_settings',
     label: 'Logo, Identitas & Pengaturan Aplikasi',
     description: 'Konfigurasi nama aplikasi, nama instansi, alamat, dan logo kantor',

@@ -17,6 +17,7 @@ export type AppFeatureId =
   | 'work_papers'
   | 'audit_reports'
   | 'spi_periodic_reports'
+  | 'financial_performance_audit'
   | 'findings'
   | 'follow_ups'
   | 'wbs_management'
@@ -176,6 +177,13 @@ export const APP_FEATURES: AppFeatureCatalogItem[] = [
     defaultLabel: 'Laporan SPI (Bulanan/Tahunan)',
     defaultNavbarTitle: 'Laporan Pengawasan SPI (Bulanan & Tahunan)',
     description: 'Laporan berkala bulanan dan tahunan aktivitas pengawasan SPI & WBS.',
+  },
+  {
+    id: 'financial_performance_audit',
+    sectionKey: 'pelaksanaan_audit',
+    defaultLabel: 'Audit Kinerja Keuangan',
+    defaultNavbarTitle: 'Audit Kinerja Keuangan Terpadu (3E, BPKP & Lintas Lini)',
+    description: 'Evaluasi kinerja keuangan terintegrasi lintas modul (Keuangan, RKA, PDAM, Risiko, SPIP, KPI & 5C) dengan laporan bulanan dan tahunan.',
   },
   {
     id: 'findings',
