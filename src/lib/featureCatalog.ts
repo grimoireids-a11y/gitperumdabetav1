@@ -9,6 +9,7 @@ export type AppFeatureId =
   | 'bpkp_assessment'
   | 'kpi_management'
   | 'rka'
+  | 'finance'
   | 'pkpt'
   | 'spi_programs'
   | 'audit_assignments'
@@ -42,6 +43,7 @@ export interface AppFeatureCatalogItem {
 export const APP_SECTIONS: AppSectionCatalogItem[] = [
   { key: 'pusat_komando', defaultTitle: 'Pusat Komando' },
   { key: 'perencanaan_risiko', defaultTitle: 'Perencanaan Berbasis Risiko' },
+  { key: 'manajemen_keuangan', defaultTitle: 'Manajemen Keuangan' },
   { key: 'pelaksanaan_audit', defaultTitle: 'Pelaksanaan Audit' },
   { key: 'temuan_tl', defaultTitle: 'Temuan & Tindak Lanjut' },
   { key: 'investigasi_regulasi', defaultTitle: 'Investigasi & Regulasi' },
@@ -111,6 +113,13 @@ export const APP_FEATURES: AppFeatureCatalogItem[] = [
     defaultLabel: 'Input RKA Manual',
     defaultNavbarTitle: 'Rencana Kerja dan Anggaran (Input Manual RKA)',
     description: 'Input manual RKA, bidang program, waktu pelaksanaan, pagu & bobot materialitas PKPT.',
+  },
+  {
+    id: 'finance',
+    sectionKey: 'manajemen_keuangan',
+    defaultLabel: 'Manajemen Keuangan',
+    defaultNavbarTitle: 'Modul Manajemen Keuangan Terpadu (Integrasi RKA & Akuntansi)',
+    description: 'Penerimaan, pengeluaran RKA, kas/bank, akuntansi COA/jurnal, utang/piutang, aset, pajak, laporan, rasio & audit trail.',
   },
   {
     id: 'audit_universe',

@@ -133,6 +133,8 @@ export interface RKAItem {
   category: RKACategory;
   budgetAmount: number;
   realizationAmount?: number;
+  financeBaselineRealization?: number;
+  financePostedRealization?: number;
   realizationDate?: string;
   strategicPriority: 'Tinggi' | 'Sedang' | 'Rendah';
   executionMonth?: string;
@@ -162,6 +164,8 @@ export interface RKASubItem {
   locationName?: string;
   allocatedBudget: number;
   realizationAmount: number;
+  financeBaselineRealization?: number;
+  financePostedRealization?: number;
   realizationDate?: string;
   pic: string;
   notes?: string;

@@ -25,6 +25,7 @@ import {
   Target,
   PanelLeftClose,
   X,
+  Landmark,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppBranding } from '../../context/AppBrandingContext';
@@ -41,6 +42,7 @@ export type ActiveTab =
   | 'bpkp_assessment'
   | 'kpi_management'
   | 'rka'
+  | 'finance'
   | 'pkpt'
   | 'spi_programs'
   | 'audit_assignments'
@@ -169,6 +171,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
+          sectionKey: 'manajemen_keuangan',
+          title: 'Manajemen Keuangan',
+          items: [
+            { id: 'finance', label: 'Manajemen Keuangan', icon: Landmark },
+          ],
+        },
+        {
           sectionKey: 'pelaksanaan_audit',
           title: 'Pelaksanaan Audit',
           items: [
@@ -266,6 +275,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           ],
         },
         {
+          sectionKey: 'manajemen_keuangan',
+          title: 'Manajemen Keuangan',
+          items: [
+            { id: 'finance', label: 'Manajemen Keuangan', icon: Landmark },
+          ],
+        },
+        {
           sectionKey: 'temuan_tl',
           title: 'Pemantauan & Tindak Lanjut',
           items: [
@@ -287,6 +303,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
           items: [
             { id: 'risk_register', label: 'Register Risiko Korporat (5x5)', icon: AlertTriangle },
             { id: 'kpi_management', label: 'KPI & Cascading Kinerja', icon: Target },
+          ],
+        },
+        {
+          sectionKey: 'manajemen_keuangan',
+          title: 'Manajemen Keuangan',
+          items: [
+            {
+              id: 'finance',
+              label: 'Manajemen Keuangan',
+              icon: Landmark,
+              roles: ['DIREKTUR', 'DEWAN_PENGAWAS', 'AUDITOR'],
+            },
           ],
         },
         {

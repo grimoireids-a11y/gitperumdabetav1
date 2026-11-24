@@ -592,6 +592,8 @@
         "category": { "type": "string", "maxLength": 128 },
         "budgetAmount": { "type": "number" },
         "realizationAmount": { "type": "number" },
+        "financeBaselineRealization": { "type": "number" },
+        "financePostedRealization": { "type": "number" },
         "realizationDate": { "type": "string", "maxLength": 32 },
         "strategicPriority": { "type": "string", "enum": ["Tinggi", "Sedang", "Rendah"] },
         "executionMonth": { "type": "string", "maxLength": 32 },
@@ -622,6 +624,8 @@
         "locationName": { "type": "string", "maxLength": 128 },
         "allocatedBudget": { "type": "number" },
         "realizationAmount": { "type": "number" },
+        "financeBaselineRealization": { "type": "number" },
+        "financePostedRealization": { "type": "number" },
         "realizationDate": { "type": "string", "maxLength": 32 },
         "pic": { "type": "string", "maxLength": 128 },
         "notes": { "type": "string", "maxLength": 1000 },
@@ -672,6 +676,169 @@
         "institutionName": { "type": "string", "maxLength": 256 },
         "initialized": { "type": "boolean" }
       }
+    },
+    "FinanceAccount": {
+      "title": "FinanceAccount",
+      "description": "Chart of Accounts (COA) master for BUMD Air Minum financial accounting",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "code": { "type": "string", "maxLength": 32 },
+        "name": { "type": "string", "maxLength": 200 },
+        "type": { "type": "string", "enum": ["Aset", "Kewajiban", "Ekuitas", "Pendapatan", "Beban"] },
+        "subCategory": { "type": "string", "maxLength": 128 },
+        "normalBalance": { "type": "string", "enum": ["Debit", "Kredit"] },
+        "cashFlowGroup": { "type": "string", "enum": ["Kas", "Operasional", "Investasi", "Pendanaan", "Non-Kas"] },
+        "openingBalance": { "type": "number" },
+        "year": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "code", "name", "type", "normalBalance", "year", "isActive"]
+    },
+    "FinanceCashBankAccount": {
+      "title": "FinanceCashBankAccount",
+      "description": "Cash registers, petty cash, and bank accounts linked to COA and Units",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "code": { "type": "string", "maxLength": 32 },
+        "name": { "type": "string", "maxLength": 128 },
+        "accountKind": { "type": "string", "enum": ["KAS_BESAR", "KAS_KECIL", "BANK"] },
+        "coaId": { "type": "string", "maxLength": 64 },
+        "coaCode": { "type": "string", "maxLength": 32 },
+        "openingBalance": { "type": "number" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["id", "code", "name", "accountKind", "coaId", "isActive"]
+    },
+    "FinanceTransaction": {
+      "title": "FinanceTransaction",
+      "description": "Cash receipt (BKM), cash disbursement (BKK) linked to RKA, and interbank transfers",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "voucherNumber": { "type": "string", "maxLength": 64 },
+        "type": { "type": "string", "enum": ["PENERIMAAN", "PENGELUARAN", "TRANSFER"] },
+        "subCategory": { "type": "string", "maxLength": 128 },
+        "transactionDate": { "type": "string", "maxLength": 32 },
+        "year": { "type": "number" },
+        "month": { "type": "string", "maxLength": 32 },
+        "amount": { "type": "number" },
+        "rkaId": { "type": "string", "maxLength": 64 },
+        "rkaSubId": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["Draft", "Menunggu Persetujuan", "Disetujui / Diposting", "Ditolak", "Dibatalkan"] },
+        "duplicateKey": { "type": "string", "maxLength": 256 }
+      },
+      "required": ["id", "voucherNumber", "type", "transactionDate", "year", "month", "amount", "status"]
+    },
+    "FinanceBankReconciliation": {
+      "title": "FinanceBankReconciliation",
+      "description": "Bank reconciliation matching book balance vs bank statement balance",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "cashBankId": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "month": { "type": "string", "maxLength": 32 },
+        "reconcileDate": { "type": "string", "maxLength": 32 },
+        "bookBalance": { "type": "number" },
+        "bankStatementBalance": { "type": "number" },
+        "difference": { "type": "number" },
+        "status": { "type": "string", "enum": ["Sesuai", "Selisih"] }
+      },
+      "required": ["id", "cashBankId", "year", "month", "reconcileDate", "status"]
+    },
+    "FinanceJournal": {
+      "title": "FinanceJournal",
+      "description": "Balanced double-entry accounting journal entries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "journalNumber": { "type": "string", "maxLength": 64 },
+        "journalType": { "type": "string", "enum": ["UMUM", "PENERIMAAN", "PENGELUARAN", "PENYESUAIAN", "TUTUP_BUKU"] },
+        "journalDate": { "type": "string", "maxLength": 32 },
+        "year": { "type": "number" },
+        "month": { "type": "string", "maxLength": 32 },
+        "totalDebit": { "type": "number" },
+        "totalCredit": { "type": "number" },
+        "status": { "type": "string", "enum": ["Draft", "Posted", "Reversed"] }
+      },
+      "required": ["id", "journalNumber", "journalType", "journalDate", "year", "totalDebit", "totalCredit", "status"]
+    },
+    "FinancePeriodClose": {
+      "title": "FinancePeriodClose",
+      "description": "Monthly and annual accounting period closing lock status",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "month": { "type": "string", "maxLength": 32 },
+        "isClosed": { "type": "boolean" }
+      },
+      "required": ["id", "year", "month", "isClosed"]
+    },
+    "FinanceReceivablePayable": {
+      "title": "FinanceReceivablePayable",
+      "description": "Accounts receivable and payable ledger with due dates and payment history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "kind": { "type": "string", "enum": ["PIUTANG", "UTANG"] },
+        "documentNumber": { "type": "string", "maxLength": 64 },
+        "partyName": { "type": "string", "maxLength": 200 },
+        "dueDate": { "type": "string", "maxLength": 32 },
+        "originalAmount": { "type": "number" },
+        "remainingAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Belum Lunas", "Sebagian", "Lunas"] }
+      },
+      "required": ["id", "kind", "documentNumber", "partyName", "dueDate", "originalAmount", "status"]
+    },
+    "FinanceAsset": {
+      "title": "FinanceAsset",
+      "description": "Fixed assets registry with straight-line depreciation and unit mutation history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "assetCode": { "type": "string", "maxLength": 64 },
+        "name": { "type": "string", "maxLength": 200 },
+        "unitId": { "type": "string", "maxLength": 64 },
+        "acquisitionCost": { "type": "number" },
+        "bookValue": { "type": "number" },
+        "status": { "type": "string", "enum": ["Aktif", "Dalam Perbaikan", "Dihapusbukukan"] }
+      },
+      "required": ["id", "assetCode", "name", "unitId", "acquisitionCost", "status"]
+    },
+    "FinanceTaxRecord": {
+      "title": "FinanceTaxRecord",
+      "description": "Tax obligations, withholding slips (bukti potong), and NTPN payment tracking",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "taxType": { "type": "string", "enum": ["PPN", "PPh 21", "PPh 22", "PPh 23", "PPh Final 4(2)", "Pajak Air Permukaan", "Lainnya"] },
+        "year": { "type": "number" },
+        "month": { "type": "string", "maxLength": 32 },
+        "withholdingNumber": { "type": "string", "maxLength": 128 },
+        "taxAmount": { "type": "number" },
+        "status": { "type": "string", "enum": ["Terutang", "Dibayar", "Dilaporkan"] }
+      },
+      "required": ["id", "taxType", "year", "month", "taxAmount", "status"]
+    },
+    "FinanceAuditTrail": {
+      "title": "FinanceAuditTrail",
+      "description": "Immutable financial audit trail with before/after snapshots, actor identity, approvals, and duplicate detection flags",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "actorUid": { "type": "string", "maxLength": 64 },
+        "actorName": { "type": "string", "maxLength": 128 },
+        "actorRole": { "type": "string", "maxLength": 64 },
+        "actionType": { "type": "string", "maxLength": 64 },
+        "entityType": { "type": "string", "maxLength": 64 },
+        "entityId": { "type": "string", "maxLength": 64 },
+        "summary": { "type": "string", "maxLength": 1000 }
+      },
+      "required": ["id", "timestamp", "actorUid", "actionType", "entityType", "entityId", "summary"]
     }
   },
   "firestore": {
@@ -794,6 +961,46 @@
     "/app_settings/{settingId}": {
       "schema": "AppSettings",
       "description": "Application branding, custom feature names, and initialization metadata"
+    },
+    "/fin_accounts/{accountId}": {
+      "schema": "FinanceAccount",
+      "description": "Chart of Accounts (COA) per year"
+    },
+    "/fin_cash_banks/{cashBankId}": {
+      "schema": "FinanceCashBankAccount",
+      "description": "Cash registers, petty cash, and bank accounts"
+    },
+    "/fin_transactions/{txId}": {
+      "schema": "FinanceTransaction",
+      "description": "Receipts (BKM), expenses (BKK) linked to RKA, and interbank transfers"
+    },
+    "/fin_bank_reconciliations/{recId}": {
+      "schema": "FinanceBankReconciliation",
+      "description": "Monthly bank reconciliation records"
+    },
+    "/fin_journals/{journalId}": {
+      "schema": "FinanceJournal",
+      "description": "Balanced accounting journal entries"
+    },
+    "/fin_period_closes/{closeId}": {
+      "schema": "FinancePeriodClose",
+      "description": "Monthly and annual accounting period closing locks"
+    },
+    "/fin_receivables_payables/{rpId}": {
+      "schema": "FinanceReceivablePayable",
+      "description": "Accounts receivable and payable items with aging & payment history"
+    },
+    "/fin_assets/{assetId}": {
+      "schema": "FinanceAsset",
+      "description": "Fixed assets registry, depreciation, and unit mutations"
+    },
+    "/fin_taxes/{taxId}": {
+      "schema": "FinanceTaxRecord",
+      "description": "Tax obligations, withholding slips, and payments"
+    },
+    "/fin_audit_trails/{trailId}": {
+      "schema": "FinanceAuditTrail",
+      "description": "Immutable financial audit logs and duplicate transaction alerts"
     }
   }
 }

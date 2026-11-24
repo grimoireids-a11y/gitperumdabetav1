@@ -76,6 +76,8 @@ export const Navbar: React.FC<NavbarProps> = ({
         return getFeatureTitle('kpi_management', 'Sistem Manajemen KPI, Cascading 5 Tingkat & Kamus Kinerja');
       case 'rka':
         return getFeatureTitle('rka', 'Rencana Kerja dan Anggaran (Input Manual RKA)');
+      case 'finance':
+        return getFeatureTitle('finance', 'Modul Manajemen Keuangan Terpadu (Integrasi RKA & Akuntansi)');
       case 'pkpt':
         return getFeatureTitle('pkpt', 'Penyusunan Program Kerja Pengawasan Tahunan (PKPT)');
       case 'spi_programs':

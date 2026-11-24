@@ -18,6 +18,7 @@ import { RCSAModule } from './components/risk/RCSAModule';
 import { SelfAssessmentBPKPModule } from './components/assessment/SelfAssessmentBPKPModule';
 import { KPIModule } from './components/kpi/KPIModule';
 import { RKAModule } from './components/pkpt/RKAModule';
+import { FinanceModule } from './components/finance/FinanceModule';
 import { PKPTModule } from './components/pkpt/PKPTModule';
 import { SPIProgramsModule } from './components/pkpt/SPIProgramsModule';
 import { AuditAssignmentModule } from './components/audit/AuditAssignmentModule';
@@ -84,6 +85,13 @@ const AppContent: React.FC = () => {
   const isViewer = userProfile?.role === 'VIEWER';
   const isExternalAuditor = userProfile?.role === 'AUDITOR_EKSTERNAL';
   const isBidangKeuangan = userProfile?.role === 'BIDANG_KEUANGAN';
+  const canViewFinance =
+    isFullAccess ||
+    isViewer ||
+    isBidangKeuangan ||
+    userProfile?.role === 'DIREKTUR' ||
+    userProfile?.role === 'DEWAN_PENGAWAS' ||
+    userProfile?.role === 'AUDITOR';
 
   const canAccessTab = React.useCallback(
     (tab: ActiveTab) => {
@@ -94,11 +102,13 @@ const AppContent: React.FC = () => {
         return (
           tab === 'dashboard' ||
           tab === 'rka' ||
+          tab === 'finance' ||
           tab === 'risk_register' ||
           tab === 'kpi_management' ||
           tab === 'follow_ups'
         );
       }
+      if (tab === 'finance') return canViewFinance;
       return (
         tab === 'dashboard' ||
         tab === 'risk_register' ||
@@ -106,7 +116,7 @@ const AppContent: React.FC = () => {
         tab === 'follow_ups'
       );
     },
-    [isFullAccess, isViewer, isExternalAuditor, isBidangKeuangan]
+    [isFullAccess, isViewer, isExternalAuditor, isBidangKeuangan, canViewFinance]
   );
 
   // Guard routes per role
@@ -235,6 +245,8 @@ const AppContent: React.FC = () => {
             }
           />
         );
+      case 'finance':
+        return <FinanceModule />;
       case 'pkpt':
         return (
           <PKPTModule

@@ -145,6 +145,46 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /fin_accounts/{accountId} {
+      allow read, write: if true;
+    }
+
+    match /fin_cash_banks/{cashBankId} {
+      allow read, write: if true;
+    }
+
+    match /fin_transactions/{txId} {
+      allow read, write: if true;
+    }
+
+    match /fin_bank_reconciliations/{recId} {
+      allow read, write: if true;
+    }
+
+    match /fin_journals/{journalId} {
+      allow read, write: if true;
+    }
+
+    match /fin_period_closes/{closeId} {
+      allow read, write: if true;
+    }
+
+    match /fin_receivables_payables/{rpId} {
+      allow read, write: if true;
+    }
+
+    match /fin_assets/{assetId} {
+      allow read, write: if true;
+    }
+
+    match /fin_taxes/{taxId} {
+      allow read, write: if true;
+    }
+
+    match /fin_audit_trails/{trailId} {
+      allow read, write: if true;
+    }
+
     // Catch-all
     match /{document=**} {
       allow read, write: if true;

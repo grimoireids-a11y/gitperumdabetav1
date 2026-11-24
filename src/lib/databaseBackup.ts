@@ -185,6 +185,56 @@ export const BACKUP_COLLECTIONS: BackupCollectionMeta[] = [
     description: 'Aturan ceiling cap, gating mutu air, bobot perspektif, dan tata kelola KPI',
   },
   {
+    key: 'fin_accounts',
+    label: 'Keuangan: Chart of Accounts (COA)',
+    description: 'Master kode rekening akuntansi, tipe akun, dan saldo awal tahun buku',
+  },
+  {
+    key: 'fin_cash_banks',
+    label: 'Keuangan: Kas & Rekening Bank',
+    description: 'Daftar kas besar, kas kecil, dan rekening bank operasional perusahaan',
+  },
+  {
+    key: 'fin_transactions',
+    label: 'Keuangan: Transaksi BKM, BKK & Transfer',
+    description: 'Seluruh transaksi penerimaan, pengeluaran terkait RKA, transfer antarbank & bukti',
+  },
+  {
+    key: 'fin_bank_reconciliations',
+    label: 'Keuangan: Rekonsiliasi Bank',
+    description: 'Catatan pencocokan saldo pembukuan dengan rekening koran bank',
+  },
+  {
+    key: 'fin_journals',
+    label: 'Keuangan: Jurnal Akuntansi',
+    description: 'Jurnal umum, penerimaan, pengeluaran, penyesuaian & penutupan buku',
+  },
+  {
+    key: 'fin_period_closes',
+    label: 'Keuangan: Kunci Tutup Buku Periode',
+    description: 'Status penutupan periode akuntansi bulanan dan tahunan',
+  },
+  {
+    key: 'fin_receivables_payables',
+    label: 'Keuangan: Daftar Utang & Piutang',
+    description: 'Catatan utang usaha, piutang pelanggan, jatuh tempo & riwayat angsuran',
+  },
+  {
+    key: 'fin_assets',
+    label: 'Keuangan: Aset Tetap & Penyusutan',
+    description: 'Registrasi aset perusahaan, nilai perolehan, penyusutan & mutasi unit',
+  },
+  {
+    key: 'fin_taxes',
+    label: 'Keuangan: Perpajakan & Bukti Potong',
+    description: 'Pencatatan PPN, PPh, pajak air permukaan, bukti potong & NTPN',
+  },
+  {
+    key: 'fin_audit_trails',
+    label: 'Keuangan: Audit Trail Keuangan',
+    description: 'Jejak audit permanen mutasi transaksi, persetujuan & deteksi ganda',
+  },
+  {
     key: 'app_settings',
     label: 'Logo, Identitas & Pengaturan Aplikasi',
     description: 'Konfigurasi nama aplikasi, nama instansi, alamat, dan logo kantor',
