@@ -274,6 +274,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           items: [
             { id: 'rka', label: 'Input RKA Manual', icon: Wallet },
             { id: 'risk_register', label: 'Register Risiko 5x5', icon: AlertTriangle },
+            { id: 'bpkp_assessment', label: 'Self Assessment SPIP', icon: Award },
             { id: 'kpi_management', label: 'KPI & Cascading Kinerja', icon: Target },
           ],
         },
@@ -305,6 +306,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
           title: 'Manajemen Risiko & Kinerja KPI',
           items: [
             { id: 'risk_register', label: 'Register Risiko Korporat (5x5)', icon: AlertTriangle },
+            {
+              id: 'bpkp_assessment',
+              label: 'Self Assessment SPIP',
+              icon: Award,
+              roles: ['AUDITOR', 'DIREKTUR', 'DEWAN_PENGAWAS'],
+            },
             { id: 'kpi_management', label: 'KPI & Cascading Kinerja', icon: Target },
           ],
         },

@@ -105,11 +105,19 @@ const AppContent: React.FC = () => {
           tab === 'rka' ||
           tab === 'finance' ||
           tab === 'risk_register' ||
+          tab === 'bpkp_assessment' ||
           tab === 'kpi_management' ||
           tab === 'follow_ups'
         );
       }
       if (tab === 'finance') return canViewFinance;
+      if (tab === 'bpkp_assessment') {
+        return (
+          userProfile?.role === 'AUDITOR' ||
+          userProfile?.role === 'DIREKTUR' ||
+          userProfile?.role === 'DEWAN_PENGAWAS'
+        );
+      }
       if (tab === 'financial_performance_audit') {
         return (
           userProfile?.role === 'AUDITOR' ||

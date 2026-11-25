@@ -910,6 +910,35 @@
         }
       },
       "required": ["id", "auditNumber", "auditTitle", "periodType", "year", "totalScore", "status"]
+    },
+    "BPKPSelfAssessment": {
+      "title": "BPKPSelfAssessment",
+      "description": "Monthly and annual BPKP BUMD Air Minum & SPIP self assessments auto-synced across finance, PDAM, RKA, risk, KPI, and audit modules",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "year": { "type": "number" },
+        "periodType": { "type": "string", "enum": ["BULANAN", "TAHUNAN"] },
+        "month": { "type": "number" },
+        "periodLabel": { "type": "string", "maxLength": 64 },
+        "assessmentTitle": { "type": "string", "maxLength": 256 },
+        "assessmentDate": { "type": "string", "maxLength": 32 },
+        "evaluatorName": { "type": "string", "maxLength": 128 },
+        "status": {
+          "type": "string",
+          "enum": ["Draft", "Verifikasi SPI", "Disetujui Direktur", "Final Terverifikasi"]
+        },
+        "kinerjaScore": { "type": "number" },
+        "kinerjaCategory": {
+          "type": "string",
+          "enum": ["SEHAT - BAIK SEKALI", "SEHAT - BAIK", "SEHAT - CUKUP", "KURANG SEHAT", "SAKIT"]
+        },
+        "spipMaturityScore": { "type": "number" },
+        "spipMaturityLevel": { "type": "string", "maxLength": 64 },
+        "isAutoSynced": { "type": "boolean" },
+        "lastSyncedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "year", "assessmentTitle", "status", "kinerjaScore", "spipMaturityScore"]
     }
   },
   "firestore": {
@@ -1088,6 +1117,10 @@
     "/fin_performance_audits/{auditId}": {
       "schema": "FinancialPerformanceAudit",
       "description": "Monthly and annual Financial Performance Audit workpapers and 9-chapter comprehensive reports"
+    },
+    "/bpkp_assessments/{assessmentId}": {
+      "schema": "BPKPSelfAssessment",
+      "description": "Monthly and annual automated BPKP & SPIP Self Assessments synchronized across finance and supervision modules"
     }
   }
 }

@@ -544,11 +544,15 @@ export function buildCorporateRiskAnalytics(params: {
     return getEffectiveInherentScore(b) - getEffectiveInherentScore(a);
   });
 
-  // BPKP SPIP Integration (match year or latest available)
+  // BPKP SPIP Integration (prefer annual assessment for matching year, else latest annual/any)
+  const annualBpkp = [...bpkpList]
+    .filter((b) => b.periodType !== 'BULANAN')
+    .sort((a, b) => b.year - a.year);
   const matchingBpkp =
     (year === 0
-      ? [...bpkpList].sort((a, b) => b.year - a.year)[0]
-      : bpkpList.find((b) => b.year === year)) ||
+      ? annualBpkp[0] || [...bpkpList].sort((a, b) => b.year - a.year)[0]
+      : annualBpkp.find((b) => b.year === year) || bpkpList.find((b) => b.year === year)) ||
+    annualBpkp[0] ||
     [...bpkpList].sort((a, b) => b.year - a.year)[0];
 
   const riskElements = matchingBpkp

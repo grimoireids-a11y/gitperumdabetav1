@@ -343,6 +343,10 @@ export function buildSpiPeriodicAnalytics(params: {
   }).length;
 
   const bpkpYear =
+    (periodType === 'BULANAN' && activeMonth
+      ? bpkpList.find((b) => b.year === year && b.periodType === 'BULANAN' && b.month === activeMonth)
+      : undefined) ||
+    bpkpList.find((b) => b.year === year && b.periodType !== 'BULANAN') ||
     bpkpList.find((b) => b.year === year) ||
     [...bpkpList].sort((a, b) => b.year - a.year)[0];
 

@@ -553,6 +553,10 @@ export type SPIPMaturityLevel =
   | 'Level 4 - Terkelola & Terukur'
   | 'Level 5 - Optimum';
 
+export type BPKPPeriodType = 'BULANAN' | 'TAHUNAN';
+
+export type BPKPDataSourceMode = 'OTOMATIS' | 'SEMI_OTOMATIS' | 'MANUAL';
+
 export interface BPKPIndicatorAssessment {
   id: string;
   aspect: BPKPKinerjaAspect;
@@ -568,6 +572,11 @@ export interface BPKPIndicatorAssessment {
   evidenceRef: string;
   notes: string;
   spiVerificationNotes?: string;
+  dataSource?: BPKPDataSourceMode;
+  sourceModule?: string;
+  autoComputedValue?: number;
+  autoComputedScore?: number;
+  lastSyncedAt?: string;
 }
 
 export interface SPIPElementAssessment {
@@ -582,11 +591,77 @@ export interface SPIPElementAssessment {
   improvementPlan: string;
   spiReviewRating?: number;
   spiVerificationNotes?: string;
+  dataSource?: BPKPDataSourceMode;
+  sourceModule?: string;
+  autoComputedRating?: number;
+  autoEvidenceSummary?: string;
+  lastSyncedAt?: string;
+}
+
+export interface BPKPCrossModuleSyncSummary {
+  syncedAt: string;
+  periodType: BPKPPeriodType;
+  year: number;
+  month?: number;
+  periodLabel: string;
+  // Financial statements & cash
+  totalRevenue: number;
+  totalOperatingRevenue: number;
+  totalExpense: number;
+  totalOperatingExpense: number;
+  netIncome: number;
+  totalAssets: number;
+  totalCurrentAssets: number;
+  totalCurrentLiabilities: number;
+  totalLiabilities: number;
+  totalEquity: number;
+  totalCashAndBank: number;
+  fcrPct: number;
+  roePct: number;
+  operatingRatio: number;
+  cashRatioPct: number;
+  currentRatioPct: number;
+  solvabilitasPct: number;
+  // PDAM Permendagri 118/2018
+  collectionEfficiencyPct: number;
+  nrwPct: number;
+  productionEfficiencyPct: number;
+  activeConnections: number;
+  customerGrowthPct: number;
+  avgDomesticConsumptionM3: number;
+  employeePer1000Ratio: number;
+  // RKA & Budget
+  rkaTotalBudget: number;
+  rkaTotalRealization: number;
+  rkaAbsorptionPct: number;
+  // Risk, RCSA, KPI, Audit, TLR, WBS
+  totalRisks: number;
+  riskReductionPct: number;
+  effectiveControlPct: number;
+  rcsaReviewedCount: number;
+  kpiAvgAchievementPct: number;
+  kpiVerifiedCount: number;
+  pkptRealizationPct: number;
+  completedAuditReports: number;
+  findingsOpenCount: number;
+  findingsPotentialLoss: number;
+  tlrCompletionPct: number;
+  wbsTotalCount: number;
+  activeRegulationsCount: number;
+  bankReconciliationMatchedCount: number;
+  periodClosedCount: number;
+  duplicateAuditTrailCount: number;
+  overdueTaxCount: number;
+  financialAuditScore?: number;
+  financialAuditPredicate?: string;
 }
 
 export interface BPKPSelfAssessment {
   id: string;
   year: number;
+  periodType?: BPKPPeriodType; // 'TAHUNAN' (default for legacy docs) or 'BULANAN'
+  month?: number; // 1..12 when periodType === 'BULANAN'
+  periodLabel?: string;
   assessmentTitle: string;
   assessmentDate: string;
   evaluatorName: string;
@@ -606,7 +681,12 @@ export interface BPKPSelfAssessment {
   spipMaturityScore: number; // 1.00 - 5.00
   spipMaturityLevel: SPIPMaturityLevel;
   spipElements: SPIPElementAssessment[];
-  // AI Diagnostic & Recommendations
+  // Cross-module Automation Metadata
+  isAutoSynced?: boolean;
+  lastSyncedAt?: string;
+  syncedModules?: string[];
+  crossModuleSummary?: BPKPCrossModuleSyncSummary;
+  // AI / Automated Diagnostic & Recommendations
   aiExecutiveSummary?: string;
   aiStrategicRecommendations?: string;
   // Verification & Approval

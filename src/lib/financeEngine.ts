@@ -64,14 +64,32 @@ export const formatDateShort = (dateStr?: string): string => {
   return dateStr.slice(0, 10);
 };
 
-export const sanitizeFirestoreRecord = <T extends object>(obj: T): T => {
+const sanitizeFirestoreValue = (value: unknown): unknown => {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => sanitizeFirestoreValue(item))
+      .filter((item) => item !== undefined);
+  }
+  const proto = Object.getPrototypeOf(value);
+  if (proto !== Object.prototype && proto !== null) {
+    return value;
+  }
   const clean: Record<string, unknown> = {};
-  Object.entries(obj as Record<string, unknown>).forEach(([k, v]) => {
+  Object.entries(value as Record<string, unknown>).forEach(([k, v]) => {
     if (v !== undefined) {
-      clean[k] = v;
+      const sanitized = sanitizeFirestoreValue(v);
+      if (sanitized !== undefined) {
+        clean[k] = sanitized;
+      }
     }
   });
-  return clean as T;
+  return clean;
+};
+
+export const sanitizeFirestoreRecord = <T extends object>(obj: T): T => {
+  return sanitizeFirestoreValue(obj) as T;
 };
 
 export const isPeriodLocked = (

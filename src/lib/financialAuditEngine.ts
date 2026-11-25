@@ -655,7 +655,13 @@ export const buildFinancialPerformanceAuditData = (
     (r) => r.controlEffectiveness === 'Tidak Efektif'
   ).length;
 
-  const yearBpkp = bpkpAssessments.find((b) => b.year === year) || bpkpAssessments[0];
+  const yearBpkp =
+    (periodType === 'BULANAN'
+      ? bpkpAssessments.find((b) => b.year === year && b.periodType === 'BULANAN' && b.month === month)
+      : undefined) ||
+    bpkpAssessments.find((b) => b.year === year && b.periodType !== 'BULANAN') ||
+    bpkpAssessments.find((b) => b.year === year) ||
+    bpkpAssessments[0];
   const bpkpKinerjaScore = yearBpkp?.kinerjaScore || 0;
   const bpkpKeuanganAspectScore = yearBpkp?.aspectScores?.keuangan || 0;
   const spipMaturityScore = yearBpkp?.spipMaturityScore || 0;
