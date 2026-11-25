@@ -102,11 +102,13 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
     | null
   >(null);
 
-  const activeYear = filter.year !== 0 ? filter.year : new Date().getFullYear();
+  const activeYear = filter.year !== 0 ? filter.year : 2026;
 
   const sortedAccounts = useMemo(() => {
-    const filtered = accounts.filter((a) => filter.year === 0 || a.year === filter.year);
-    return (filtered.length > 0 ? filtered : accounts).sort((a, b) =>
+    const maxCoaYear = accounts.reduce((m, a) => Math.max(m, a.year || 0), 0);
+    const targetYear = filter.year !== 0 ? filter.year : maxCoaYear;
+    const filtered = accounts.filter((a) => targetYear === 0 || a.year === targetYear);
+    return [...(filtered.length > 0 ? filtered : accounts)].sort((a, b) =>
       a.code.localeCompare(b.code)
     );
   }, [accounts, filter.year]);

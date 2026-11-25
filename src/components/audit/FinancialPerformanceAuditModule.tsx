@@ -2416,7 +2416,7 @@ export const FinancialPerformanceAuditModule: React.FC = () => {
                     <td>{snapshot.isBalanceSheetBalanced ? 'Neraca Seimbang' : 'Ada Selisih Neraca'}</td>
                   </tr>
                   <tr>
-                    <td>Total Pendapatan / Total Beban / Laba Bersih</td>
+                    <td>Total Pendapatan / Total Beban / {snapshot.netIncome < 0 ? 'Rugi Bersih' : 'Laba Bersih'}</td>
                     <td className="text-right font-mono">{formatRp(snapshot.totalRevenue)} / {formatRp(snapshot.totalExpense)} / {formatRp(snapshot.netIncome)}</td>
                     <td>Anggaran Pendapatan: {formatRp(snapshot.budgetRevenue)}</td>
                   </tr>

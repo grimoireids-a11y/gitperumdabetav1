@@ -439,7 +439,8 @@ export function runBpkpCrossModuleAutomation(input: BPKPAutomationInput): BPKPAu
   const cashBankSummary = computeCashBankBalances(
     cashBanks.filter((c) => c.isActive !== false),
     txYtd,
-    cutoffDate
+    cutoffDate,
+    year
   );
 
   // Scoped RKA
@@ -517,6 +518,27 @@ export function runBpkpCrossModuleAutomation(input: BPKPAutomationInput): BPKPAu
     })
   );
 
+  const assetSnapshotYears = Array.from(
+    new Set(
+      assets
+        .map((a) => /^ast-(\d{4})-(dec|jan)-/.exec(a.id))
+        .filter((m): m is RegExpExecArray => Boolean(m))
+        .map((m) => parseInt(m[1], 10))
+    )
+  ).sort((a, b) => a - b);
+  const targetAssetYear = (() => {
+    if (assetSnapshotYears.length === 0) return 0;
+    if (assetSnapshotYears.includes(year)) return year;
+    const prior = assetSnapshotYears.filter((y) => y <= year);
+    return prior.length > 0 ? prior[prior.length - 1] : assetSnapshotYears[0];
+  })();
+  const scopedAssets = assets.filter((a) => {
+    const snapMatch = /^ast-(\d{4})-(dec|jan)-/.exec(a.id);
+    if (snapMatch) return parseInt(snapMatch[1], 10) === targetAssetYear;
+    const acqYear = parseInt(a.acquisitionDate?.slice(0, 4) || '0', 10);
+    return acqYear === 0 || acqYear <= year;
+  });
+
   const analysis = computeFinancialAnalysisAndWarnings({
     statements,
     totalCashAndBank: cashBankSummary.totalLiquidBalance,
@@ -525,7 +547,7 @@ export function runBpkpCrossModuleAutomation(input: BPKPAutomationInput): BPKPAu
     taxes: scopedTaxes,
     rkaItems: scopedRkaParents,
     rkaSubItems: scopedRkaSubs,
-    assets,
+    assets: scopedAssets,
     auditTrails: scopedAuditTrails,
     year,
     pdamSnapshots: targetSnapshot ? [targetSnapshot] : yearSnapshots,
@@ -840,7 +862,7 @@ export function runBpkpCrossModuleAutomation(input: BPKPAutomationInput): BPKPAu
       dataSource = 'OTOMATIS';
       sourceModule = 'Akuntansi Neraca & Laba Rugi';
       autoValue = roePct;
-      evidenceRef = `Neraca & Laba Rugi ${periodLabel} · Laba Bersih ${formatRp(finalNetIncome)} / Ekuitas ${formatRp(totalEquity)}`;
+      evidenceRef = `Neraca & Laba Rugi ${periodLabel} · ${finalNetIncome < 0 ? 'Rugi Bersih' : 'Laba Bersih'} ${formatRp(finalNetIncome)} / Ekuitas ${formatRp(totalEquity)}`;
       notes = `Otomatis dari Laporan Akuntansi: ROE ${roePct.toFixed(2)}%`;
     } else if (ind.code === 'K.2' && finalOpRevenue > 0) {
       dataSource = 'OTOMATIS';

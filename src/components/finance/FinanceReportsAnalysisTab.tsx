@@ -97,8 +97,9 @@ const REPORT_OPTIONS: { id: FinanceReportId; label: string; group: 'PDAM' | 'AKU
 ];
 
 const pctVal = (real: number, budget: number): string => {
-  if (!budget || Math.abs(budget) < 0.001) return '0,00%';
-  return `${((real / budget) * 100).toFixed(2)}%`;
+  if (!budget || Math.abs(budget) < 0.001) return '-';
+  const variancePct = ((real - budget) / budget) * 100;
+  return `${variancePct.toFixed(2)}%`;
 };
 
 export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps> = ({
@@ -165,12 +166,34 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
   }, [rkaItems, rkaSubItems, allTransactions, filter.year, filter.bidang, filter.unitId]);
 
   const filteredInventory = useMemo(() => {
+    const maxInvYear = inventory.reduce((m, i) => Math.max(m, i.year || 0), 0);
+    const effectiveYear =
+      filter.year === 0
+        ? maxInvYear
+        : inventory.some((i) => i.year === filter.year)
+        ? filter.year
+        : maxInvYear;
     return inventory.filter(
       (i) =>
-        (filter.year === 0 || i.year === filter.year) &&
+        (effectiveYear === 0 || i.year === effectiveYear) &&
         (filter.unitId === 'ALL' || !i.unitId || i.unitId === filter.unitId)
     );
   }, [inventory, filter.year, filter.unitId]);
+
+  const filteredReceivablesPayables = useMemo(() => {
+    const maxRpYear = receivablesPayables.reduce((m, r) => Math.max(m, r.year || 0), 0);
+    const effectiveYear =
+      filter.year === 0
+        ? maxRpYear
+        : receivablesPayables.some((r) => r.year === filter.year)
+        ? filter.year
+        : maxRpYear;
+    return receivablesPayables.filter(
+      (rp) =>
+        (effectiveYear === 0 || (rp.year || effectiveYear) === effectiveYear) &&
+        (filter.unitId === 'ALL' || !rp.unitId || rp.unitId === filter.unitId)
+    );
+  }, [receivablesPayables, filter.year, filter.unitId]);
 
   const filteredPurchases = useMemo(() => {
     return purchases.filter(
@@ -313,25 +336,60 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
         break;
       }
       case 'LABA_RUGI': {
+        const is = statements.incomeStatement;
         const rows = [
-          ...statements.incomeStatement.operatingRevenues.map((l) => ({ grp: 'Pendapatan Usaha', l })),
-          ...statements.incomeStatement.otherRevenues.map((l) => ({ grp: 'Pendapatan Lain-Lain', l })),
-          ...statements.incomeStatement.directExpenses.map((l) => ({ grp: 'Beban Operasi Langsung', l })),
-          ...statements.incomeStatement.adminExpenses.map((l) => ({ grp: 'Beban Administrasi & Umum', l })),
-          ...statements.incomeStatement.depreciationExpenses.map((l) => ({ grp: 'Beban Penyusutan', l })),
-          ...statements.incomeStatement.otherExpenses.map((l) => ({ grp: 'Beban Lain-Lain', l })),
+          ...is.operatingRevenues.map((l) => ({ grp: 'Pendapatan Usaha', l })),
+          ...is.grossOperatingExpenses.map((l) => ({ grp: 'Beban Langsung Usaha', l })),
+          ...is.adminTotalExpenses.map((l) => ({ grp: 'Biaya Administrasi & Umum', l })),
+          ...is.otherRevenues.map((l) => ({ grp: 'Pendapatan Lain-Lain', l })),
+          ...is.otherExpenses.map((l) => ({ grp: 'Beban Lain-Lain & Pajak Tangguhan', l })),
         ];
-        sheetData = rows.map(({ grp, l }) => ({
-          Kelompok: grp,
-          Kode: l.account.code,
-          Akun: l.account.name,
-          Bulan_Ini_Real: l.monthlyActual,
-          Bulan_Ini_Anggaran: l.monthlyBudget,
-          Bulan_Ini_Selisih: l.monthlyActual - l.monthlyBudget,
-          SD_Bulan_Ini_Real: l.netSignedBalance,
-          SD_Bulan_Ini_Anggaran: l.ytdBudget,
-          SD_Bulan_Ini_Selisih: l.netSignedBalance - l.ytdBudget,
-        }));
+        sheetData = [
+          ...rows.map(({ grp, l }) => ({
+            Kelompok: grp,
+            Kode: l.account.code,
+            Akun: l.account.name,
+            Bulan_Ini_Real: l.monthlyActual,
+            Bulan_Ini_Anggaran: l.monthlyBudget,
+            Bulan_Ini_Selisih: l.monthlyActual - l.monthlyBudget,
+            SD_Bulan_Ini_Real: l.netSignedBalance,
+            SD_Bulan_Ini_Anggaran: l.ytdBudget,
+            SD_Bulan_Ini_Selisih: l.netSignedBalance - l.ytdBudget,
+          })),
+          {
+            Kelompok: 'IKHTISAR',
+            Kode: 'LABA_KOTOR',
+            Akun: is.grossProfit < 0 ? 'Rugi Kotor Usaha' : 'Laba Kotor Usaha',
+            Bulan_Ini_Real: is.monthlyGrossProfit,
+            Bulan_Ini_Anggaran: is.budgetMonthlyGrossProfit,
+            Bulan_Ini_Selisih: is.monthlyGrossProfit - is.budgetMonthlyGrossProfit,
+            SD_Bulan_Ini_Real: is.grossProfit,
+            SD_Bulan_Ini_Anggaran: is.budgetYtdGrossProfit,
+            SD_Bulan_Ini_Selisih: is.grossProfit - is.budgetYtdGrossProfit,
+          },
+          {
+            Kelompok: 'IKHTISAR',
+            Kode: 'LABA_USAHA',
+            Akun: is.operatingIncome < 0 ? 'Rugi Usaha' : 'Laba Usaha',
+            Bulan_Ini_Real: is.monthlyOperatingIncome,
+            Bulan_Ini_Anggaran: is.budgetMonthlyOperatingIncome,
+            Bulan_Ini_Selisih: is.monthlyOperatingIncome - is.budgetMonthlyOperatingIncome,
+            SD_Bulan_Ini_Real: is.operatingIncome,
+            SD_Bulan_Ini_Anggaran: is.budgetYtdOperatingIncome,
+            SD_Bulan_Ini_Selisih: is.operatingIncome - is.budgetYtdOperatingIncome,
+          },
+          {
+            Kelompok: 'IKHTISAR',
+            Kode: 'LABA_BERSIH',
+            Akun: is.netIncome < 0 ? 'Rugi Bersih' : 'Laba Bersih',
+            Bulan_Ini_Real: is.monthlyNetIncome,
+            Bulan_Ini_Anggaran: is.budgetMonthlyNetIncome,
+            Bulan_Ini_Selisih: is.monthlyNetIncome - is.budgetMonthlyNetIncome,
+            SD_Bulan_Ini_Real: is.netIncome,
+            SD_Bulan_Ini_Anggaran: is.budgetYtdNetIncome,
+            SD_Bulan_Ini_Selisih: is.netIncome - is.budgetYtdNetIncome,
+          },
+        ];
         break;
       }
       case 'ARUS_KAS': {
@@ -527,7 +585,7 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
         break;
       }
       case 'UTANG_PIUTANG': {
-        sheetData = receivablesPayables.map((rp) => ({
+        sheetData = filteredReceivablesPayables.map((rp) => ({
           Jenis: rp.kind,
           Nomor_Dokumen: rp.documentNumber,
           Pihak: rp.partyName,
@@ -690,18 +748,35 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {keu.map((m) => (
-                    <tr key={m.code} className={m.code === '4' ? 'bg-emerald-50/70 font-bold' : ''}>
-                      <td className="py-1.5 px-3 font-mono font-bold text-slate-600">{m.code}</td>
-                      <td className="py-1.5 px-3">{m.label}</td>
-                      <td className="py-1.5 px-3 text-right font-mono">{fmtMetric(m.monthlyReal, m.unit)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono text-slate-500">{fmtMetric(m.monthlyBudget, m.unit)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono">{pctVal(m.monthlyReal, m.monthlyBudget)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono font-semibold">{fmtMetric(m.ytdReal, m.unit)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono text-slate-500">{fmtMetric(m.ytdBudget, m.unit)}</td>
-                      <td className="py-1.5 px-3 text-right font-mono font-semibold">{pctVal(m.ytdReal, m.ytdBudget)}</td>
-                    </tr>
-                  ))}
+                  {keu.map((m) => {
+                    const isResultRow = m.code === '4' || m.code === '5';
+                    const isLossRow = isResultRow && (m.monthlyReal < 0 || m.ytdReal < 0);
+                    return (
+                      <tr
+                        key={m.code}
+                        className={
+                          isLossRow
+                            ? 'bg-rose-50/90 text-rose-950 font-bold'
+                            : isResultRow
+                            ? 'bg-emerald-50/70 text-emerald-950 font-bold'
+                            : ''
+                        }
+                      >
+                        <td className="py-1.5 px-3 font-mono font-bold text-slate-600">{m.code}</td>
+                        <td className="py-1.5 px-3">{m.label}</td>
+                        <td className={`py-1.5 px-3 text-right font-mono ${m.monthlyReal < 0 ? 'text-rose-700' : ''}`}>
+                          {fmtMetric(m.monthlyReal, m.unit)}
+                        </td>
+                        <td className="py-1.5 px-3 text-right font-mono text-slate-500">{fmtMetric(m.monthlyBudget, m.unit)}</td>
+                        <td className="py-1.5 px-3 text-right font-mono">{pctVal(m.monthlyReal, m.monthlyBudget)}</td>
+                        <td className={`py-1.5 px-3 text-right font-mono font-semibold ${m.ytdReal < 0 ? 'text-rose-700' : ''}`}>
+                          {fmtMetric(m.ytdReal, m.unit)}
+                        </td>
+                        <td className="py-1.5 px-3 text-right font-mono text-slate-500">{fmtMetric(m.ytdBudget, m.unit)}</td>
+                        <td className="py-1.5 px-3 text-right font-mono font-semibold">{pctVal(m.ytdReal, m.ytdBudget)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -915,41 +990,101 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
 
       case 'LABA_RUGI': {
         const is = statements.incomeStatement;
+        const grossLabel = is.grossProfit < 0 ? 'RUGI KOTOR USAHA' : 'LABA KOTOR USAHA';
+        const opLabel = is.operatingIncome < 0 ? 'RUGI USAHA' : 'LABA USAHA';
+        const netLabel = is.netIncome < 0 ? 'RUGI BERSIH' : 'LABA BERSIH';
+
         if (incomeLayout === 'COMPACT') {
           return (
             <div className="border border-slate-200 rounded-xl overflow-hidden">
               <table className={tblClass}>
                 <tbody className="divide-y divide-slate-100">
                   <tr className="bg-slate-50 font-bold text-slate-800">
-                    <td colSpan={2} className="py-2 px-3">PENDAPATAN USAHA &amp; LAIN-LAIN</td>
+                    <td colSpan={2} className="py-2 px-3">A. PENDAPATAN USAHA</td>
                   </tr>
-                  {[...is.operatingRevenues, ...is.otherRevenues].map((l) => (
+                  {is.operatingRevenues.map((l) => (
                     <tr key={l.account.id}>
                       <td className="py-1.5 px-3">{l.account.code} · {l.account.name}</td>
                       <td className="py-1.5 px-3 text-right font-mono tabular-nums">{formatRp(l.netSignedBalance)}</td>
                     </tr>
                   ))}
                   <tr className="bg-slate-50 font-bold">
-                    <td className="py-2 px-3">Total Pendapatan</td>
-                    <td className="py-2 px-3 text-right font-mono tabular-nums text-emerald-800">{formatRp(is.totalRevenue)}</td>
+                    <td className="py-2 px-3">Jumlah Pendapatan Usaha</td>
+                    <td className="py-2 px-3 text-right font-mono tabular-nums text-emerald-800">{formatRp(is.totalOperatingRevenue)}</td>
                   </tr>
 
                   <tr className="bg-slate-50 font-bold text-slate-800">
-                    <td colSpan={2} className="py-2 px-3">BEBAN OPERASIONAL, ADMINISTRASI, PENYUSUTAN &amp; LAINNYA</td>
+                    <td colSpan={2} className="py-2 px-3">B. BEBAN LANGSUNG USAHA (TERMASUK PENYUSUTAN LANGSUNG)</td>
                   </tr>
-                  {[...is.directExpenses, ...is.adminExpenses, ...is.depreciationExpenses, ...is.otherExpenses].map((l) => (
+                  {is.grossOperatingExpenses.map((l) => (
                     <tr key={l.account.id}>
                       <td className="py-1.5 px-3">{l.account.code} · {l.account.name}</td>
                       <td className="py-1.5 px-3 text-right font-mono tabular-nums">{formatRp(l.netSignedBalance)}</td>
                     </tr>
                   ))}
-                  <tr className="bg-slate-50 font-bold">
-                    <td className="py-2 px-3">Total Beban</td>
-                    <td className="py-2 px-3 text-right font-mono tabular-nums text-rose-700">{formatRp(is.totalExpense)}</td>
+                  <tr
+                    className={`font-bold ${
+                      is.grossProfit < 0 ? 'bg-rose-50 text-rose-900' : 'bg-emerald-50/70 text-emerald-950'
+                    }`}
+                  >
+                    <td className="py-2 px-3">C. {grossLabel} (A − B)</td>
+                    <td className="py-2 px-3 text-right font-mono tabular-nums">{formatRp(is.grossProfit)}</td>
                   </tr>
 
-                  <tr className="bg-emerald-50 font-bold text-emerald-950 border-t-2 border-emerald-200">
-                    <td className="py-2.5 px-3">LABA / (RUGI) BERSIH</td>
+                  <tr className="bg-slate-50 font-bold text-slate-800">
+                    <td colSpan={2} className="py-2 px-3">D. BIAYA ADMINISTRASI &amp; UMUM</td>
+                  </tr>
+                  {is.adminTotalExpenses.map((l) => (
+                    <tr key={l.account.id}>
+                      <td className="py-1.5 px-3">{l.account.code} · {l.account.name}</td>
+                      <td className="py-1.5 px-3 text-right font-mono tabular-nums">{formatRp(l.netSignedBalance)}</td>
+                    </tr>
+                  ))}
+                  <tr
+                    className={`font-bold border-t ${
+                      is.operatingIncome < 0
+                        ? 'bg-rose-50 text-rose-900 border-rose-200'
+                        : 'bg-emerald-50/80 text-emerald-950 border-emerald-200'
+                    }`}
+                  >
+                    <td className="py-2 px-3">E. {opLabel} (C − D)</td>
+                    <td className="py-2 px-3 text-right font-mono tabular-nums">{formatRp(is.operatingIncome)}</td>
+                  </tr>
+
+                  {(is.otherRevenues.length > 0 || is.otherExpenses.length > 0) && (
+                    <>
+                      <tr className="bg-slate-50 font-bold text-slate-800">
+                        <td colSpan={2} className="py-2 px-3">F. PENDAPATAN &amp; (BEBAN) LAIN-LAIN / PAJAK TANGGUHAN</td>
+                      </tr>
+                      {is.otherRevenues.map((l) => (
+                        <tr key={l.account.id}>
+                          <td className="py-1.5 px-3">{l.account.code} · {l.account.name}</td>
+                          <td className="py-1.5 px-3 text-right font-mono tabular-nums text-emerald-800">{formatRp(l.netSignedBalance)}</td>
+                        </tr>
+                      ))}
+                      {is.otherExpenses.map((l) => (
+                        <tr key={l.account.id}>
+                          <td className="py-1.5 px-3">{l.account.code} · {l.account.name}</td>
+                          <td className="py-1.5 px-3 text-right font-mono tabular-nums text-rose-700">{formatRp(-l.netSignedBalance)}</td>
+                        </tr>
+                      ))}
+                      <tr className="bg-slate-50 font-bold">
+                        <td className="py-2 px-3">Pendapatan / (Beban) Lain-Lain Bersih</td>
+                        <td className={`py-2 px-3 text-right font-mono tabular-nums ${is.netOtherIncome < 0 ? 'text-rose-700' : 'text-emerald-800'}`}>
+                          {formatRp(is.netOtherIncome)}
+                        </td>
+                      </tr>
+                    </>
+                  )}
+
+                  <tr
+                    className={`font-bold border-t-2 ${
+                      is.netIncome < 0
+                        ? 'bg-rose-100 text-rose-950 border-rose-300'
+                        : 'bg-emerald-100 text-emerald-950 border-emerald-300'
+                    }`}
+                  >
+                    <td className="py-2.5 px-3">G. {netLabel}</td>
                     <td className="py-2.5 px-3 text-right font-mono tabular-nums">{formatRp(is.netIncome)}</td>
                   </tr>
                 </tbody>
@@ -1000,6 +1135,37 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
           );
         };
 
+        const renderSummaryBand = (
+          label: string,
+          mReal: number,
+          mBudget: number,
+          yReal: number,
+          yBudget: number,
+          strong = false
+        ) => {
+          const isLoss = mReal < 0 || yReal < 0;
+          const bandCls = strong
+            ? isLoss
+              ? 'bg-rose-100 text-rose-950 border-t-2 border-rose-300'
+              : 'bg-emerald-100 text-emerald-950 border-t-2 border-emerald-300'
+            : isLoss
+            ? 'bg-rose-50 text-rose-900 border-t border-rose-200'
+            : 'bg-emerald-50/80 text-emerald-950 border-t border-emerald-200';
+          return (
+            <tr className={`font-bold ${bandCls}`}>
+              <td className={strong ? 'py-2 px-2.5' : 'py-1.5 px-2.5'}>{label}</td>
+              <td className="py-1.5 px-2 text-right font-mono">{formatRp(mReal)}</td>
+              <td className="py-1.5 px-2 text-right font-mono">{formatRp(mBudget)}</td>
+              <td className="py-1.5 px-2 text-right font-mono">{formatRp(mReal - mBudget)}</td>
+              <td className="py-1.5 px-2 text-right font-mono">{pctVal(mReal, mBudget)}</td>
+              <td className="py-1.5 px-2 text-right font-mono">{formatRp(yReal)}</td>
+              <td className="py-1.5 px-2 text-right font-mono">{formatRp(yBudget)}</td>
+              <td className="py-1.5 px-2 text-right font-mono">{formatRp(yReal - yBudget)}</td>
+              <td className="py-1.5 px-2 text-right font-mono">{pctVal(yReal, yBudget)}</td>
+            </tr>
+          );
+        };
+
         return (
           <div className="border border-slate-200 rounded-xl overflow-x-auto">
             <table className={tblClass}>
@@ -1025,48 +1191,48 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {renderSectionRows('PENDAPATAN USAHA', is.operatingRevenues, 'Jumlah Pendapatan Usaha')}
-                {renderSectionRows('PENDAPATAN LAIN-LAIN', is.otherRevenues, 'Jumlah Pendapatan Lain-Lain')}
-                <tr className="bg-emerald-50/60 font-bold text-emerald-950">
-                  <td className="py-1.5 px-2.5">JUMLAH PENDAPATAN</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.monthlyTotalRevenue)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.budgetMonthlyRevenue)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.monthlyTotalRevenue - is.budgetMonthlyRevenue)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{pctVal(is.monthlyTotalRevenue, is.budgetMonthlyRevenue)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.totalRevenue)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.budgetYtdRevenue)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.totalRevenue - is.budgetYtdRevenue)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{pctVal(is.totalRevenue, is.budgetYtdRevenue)}</td>
-                </tr>
+                {renderSectionRows('A. PENDAPATAN USAHA', is.operatingRevenues, 'Jumlah Pendapatan Usaha')}
+                {renderSectionRows('B. BEBAN LANGSUNG USAHA', is.grossOperatingExpenses, 'Jumlah Beban Langsung Usaha')}
+                {renderSummaryBand(
+                  `C. ${grossLabel} (A − B)`,
+                  is.monthlyGrossProfit,
+                  is.budgetMonthlyGrossProfit,
+                  is.grossProfit,
+                  is.budgetYtdGrossProfit
+                )}
+                {renderSectionRows('D. BIAYA ADMINISTRASI & UMUM', is.adminTotalExpenses, 'Jumlah Biaya Administrasi & Umum')}
+                {renderSummaryBand(
+                  `E. ${opLabel} (C − D)`,
+                  is.monthlyOperatingIncome,
+                  is.budgetMonthlyOperatingIncome,
+                  is.operatingIncome,
+                  is.budgetYtdOperatingIncome
+                )}
 
-                {renderSectionRows('BEBAN OPERASI LANGSUNG', is.directExpenses, 'Jumlah Beban Operasi Langsung')}
-                {renderSectionRows('BEBAN ADMINISTRASI & UMUM', is.adminExpenses, 'Jumlah Beban Administrasi & Umum')}
-                {renderSectionRows('BEBAN PENYUSUTAN', is.depreciationExpenses, 'Jumlah Beban Penyusutan')}
-                {is.otherExpenses.length > 0 && renderSectionRows('BEBAN LAIN-LAIN', is.otherExpenses, 'Jumlah Beban Lain-Lain')}
+                {(is.otherRevenues.length > 0 || is.otherExpenses.length > 0) && (
+                  <>
+                    {is.otherRevenues.length > 0 &&
+                      renderSectionRows('F.1 PENDAPATAN LAIN-LAIN', is.otherRevenues, 'Jumlah Pendapatan Lain-Lain')}
+                    {is.otherExpenses.length > 0 &&
+                      renderSectionRows('F.2 BEBAN LAIN-LAIN & PAJAK TANGGUHAN', is.otherExpenses, 'Jumlah Beban Lain-Lain')}
+                    {renderSummaryBand(
+                      'F. PENDAPATAN / (BEBAN) LAIN-LAIN BERSIH',
+                      is.monthlyNetOtherIncome,
+                      is.budgetMonthlyNetOtherIncome,
+                      is.netOtherIncome,
+                      is.budgetYtdNetOtherIncome
+                    )}
+                  </>
+                )}
 
-                <tr className="bg-rose-50/60 font-bold text-rose-950">
-                  <td className="py-1.5 px-2.5">JUMLAH BEBAN</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.monthlyTotalExpense)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.budgetMonthlyExpense)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.monthlyTotalExpense - is.budgetMonthlyExpense)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{pctVal(is.monthlyTotalExpense, is.budgetMonthlyExpense)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.totalExpense)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.budgetYtdExpense)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{formatRp(is.totalExpense - is.budgetYtdExpense)}</td>
-                  <td className="py-1.5 px-2 text-right font-mono">{pctVal(is.totalExpense, is.budgetYtdExpense)}</td>
-                </tr>
-
-                <tr className="bg-emerald-100 font-bold text-emerald-950 border-t-2 border-emerald-300">
-                  <td className="py-2 px-2.5">LABA / (RUGI) BERSIH</td>
-                  <td className="py-2 px-2 text-right font-mono">{formatRp(is.monthlyNetIncome)}</td>
-                  <td className="py-2 px-2 text-right font-mono">{formatRp(is.budgetMonthlyNetIncome)}</td>
-                  <td className="py-2 px-2 text-right font-mono">{formatRp(is.monthlyNetIncome - is.budgetMonthlyNetIncome)}</td>
-                  <td className="py-2 px-2 text-right font-mono">{pctVal(is.monthlyNetIncome, is.budgetMonthlyNetIncome)}</td>
-                  <td className="py-2 px-2 text-right font-mono">{formatRp(is.netIncome)}</td>
-                  <td className="py-2 px-2 text-right font-mono">{formatRp(is.budgetYtdNetIncome)}</td>
-                  <td className="py-2 px-2 text-right font-mono">{formatRp(is.netIncome - is.budgetYtdNetIncome)}</td>
-                  <td className="py-2 px-2 text-right font-mono">{pctVal(is.netIncome, is.budgetYtdNetIncome)}</td>
-                </tr>
+                {renderSummaryBand(
+                  `G. ${netLabel} (E + F)`,
+                  is.monthlyNetIncome,
+                  is.budgetMonthlyNetIncome,
+                  is.netIncome,
+                  is.budgetYtdNetIncome,
+                  true
+                )}
               </tbody>
             </table>
           </div>
@@ -1220,6 +1386,15 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
       case 'EFISIENSI_PENAGIHAN': {
         if (!activeSnapshot) return renderMissingSnapshotNotice();
         const rows = activeSnapshot.collectionEfficiency;
+        if (rows.length === 0) {
+          return (
+            <div className="p-6 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50 text-xs text-slate-600">
+              Tabel Efisiensi Penagihan per Unit tidak tercantum pada berkas laporan periode{' '}
+              <strong>{activeSnapshot.month} {activeSnapshot.year}</strong>. Data tersedia lengkap pada periode{' '}
+              <strong>Januari 2026</strong> atau dapat dilengkapi manual melalui tab Operasional &amp; Penagihan PDAM.
+            </div>
+          );
+        }
         const totPrev = rows.reduce((s, r) => s + r.prevBilling, 0);
         const totArr = rows.reduce((s, r) => s + r.arrearsCollected, 0);
         const totCur = rows.reduce((s, r) => s + r.currentCollected, 0);
@@ -1268,6 +1443,14 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
       case 'EFEKTIVITAS_PENAGIHAN': {
         if (!activeSnapshot) return renderMissingSnapshotNotice();
         const rows = activeSnapshot.tariffEffectiveness;
+        if (rows.length === 0) {
+          return (
+            <div className="p-6 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50 text-xs text-slate-600">
+              Tabel Efektivitas Penagihan per Golongan Tarif tidak tercantum pada berkas laporan periode{' '}
+              <strong>{activeSnapshot.month} {activeSnapshot.year}</strong>. Rincian saldo piutang rekening air per akhir periode tersedia pada laporan <strong>Utang dan Piutang</strong>.
+            </div>
+          );
+        }
         const totRec = rows.reduce((s, r) => s + r.totalReceivable, 0);
         const totCol = rows.reduce((s, r) => s + r.collectedAmount, 0);
         return (
@@ -1404,6 +1587,15 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
       case 'IKHTISAR_REKENING_AIR': {
         if (!activeSnapshot) return renderMissingSnapshotNotice();
         const rows = activeSnapshot.drdSummary;
+        if (rows.length === 0) {
+          return (
+            <div className="p-6 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50 text-xs text-slate-600">
+              Ikhtisar Rekening Air (DRD) tidak tercantum pada berkas laporan periode{' '}
+              <strong>{activeSnapshot.month} {activeSnapshot.year}</strong>. Data lengkap tersedia pada periode{' '}
+              <strong>Januari 2026</strong>.
+            </div>
+          );
+        }
         const totCust = rows.reduce((s, r) => s + r.customerCount, 0);
         const totM3M = rows.reduce((s, r) => s + r.cubicMetersMonthly, 0);
         const totRpM = rows.reduce((s, r) => s + r.billedAmountMonthly, 0);
@@ -1507,6 +1699,15 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
       case 'PRODUKSI_DISTRIBUSI': {
         if (!activeSnapshot) return renderMissingSnapshotNotice();
         const rows = activeSnapshot.productionDistribution;
+        if (rows.length === 0) {
+          return (
+            <div className="p-6 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50 text-xs text-slate-600">
+              Laporan Produksi, Distribusi &amp; NRW tidak tercantum pada berkas laporan periode{' '}
+              <strong>{activeSnapshot.month} {activeSnapshot.year}</strong>. Data lengkap tersedia pada periode{' '}
+              <strong>Januari 2026</strong>.
+            </div>
+          );
+        }
         const totProdM = rows.reduce((s, r) => s + r.producedM3Monthly, 0);
         const totDistM = rows.reduce((s, r) => s + r.distributedM3Monthly, 0);
         const totSoldM = rows.reduce((s, r) => s + r.soldM3Monthly, 0);
@@ -1560,6 +1761,15 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
       case 'SAMBUNGAN_LANGGANAN': {
         if (!activeSnapshot) return renderMissingSnapshotNotice();
         const rows = activeSnapshot.customerConnections;
+        if (rows.length === 0) {
+          return (
+            <div className="p-6 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50 text-xs text-slate-600">
+              Laporan Sambungan Langganan (SR) tidak tercantum pada berkas laporan periode{' '}
+              <strong>{activeSnapshot.month} {activeSnapshot.year}</strong>. Data lengkap tersedia pada periode{' '}
+              <strong>Januari 2026</strong>.
+            </div>
+          );
+        }
         const tBeg = rows.reduce((s, r) => s + r.beginningActive, 0);
         const tInact = rows.reduce((s, r) => s + r.inactiveCount, 0);
         const tDisc = rows.reduce((s, r) => s + r.disconnectedCount, 0);
@@ -1610,6 +1820,15 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
       case 'KONDISI_KARYAWAN': {
         if (!activeSnapshot) return renderMissingSnapshotNotice();
         const rows = activeSnapshot.employeeComposition;
+        if (rows.length === 0) {
+          return (
+            <div className="p-6 text-center border border-dashed border-slate-300 rounded-xl bg-slate-50 text-xs text-slate-600">
+              Laporan Kondisi Karyawan tidak tercantum pada berkas laporan periode{' '}
+              <strong>{activeSnapshot.month} {activeSnapshot.year}</strong>. Data lengkap tersedia pada periode{' '}
+              <strong>Januari 2026</strong>.
+            </div>
+          );
+        }
         const tDir = rows.reduce((s, r) => s + r.direksiCount, 0);
         const tPerm = rows.reduce((s, r) => s + r.permanentCount, 0);
         const tCont = rows.reduce((s, r) => s + r.contractCount, 0);
@@ -1760,7 +1979,7 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {receivablesPayables.map((rp) => (
+                {filteredReceivablesPayables.map((rp) => (
                   <tr key={rp.id}>
                     <td className="py-1.5 px-3 font-bold">{rp.kind}</td>
                     <td className="py-1.5 px-3 font-mono">{rp.documentNumber}</td>
@@ -2033,6 +2252,9 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
     if (!activeSnapshot) {
       return {
         hasSnap: false,
+        hasBillingEff: false,
+        hasProduction: false,
+        hasConnections: false,
         nrwPct: 0,
         billingEffPct: 0,
         activeSr: 0,
@@ -2050,6 +2272,9 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
     const activeSr = activeSnapshot.customerConnections.reduce((s, c) => s + (c.endingActive || 0), 0);
     return {
       hasSnap: true,
+      hasBillingEff: activeSnapshot.collectionEfficiency.length > 0,
+      hasProduction: activeSnapshot.productionDistribution.length > 0,
+      hasConnections: activeSnapshot.customerConnections.length > 0,
       nrwPct,
       billingEffPct,
       activeSr,
@@ -2085,10 +2310,12 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
         <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between">
           <div>
             <span className="text-[11px] font-semibold text-slate-500">Efisiensi Penagihan Rekening Air</span>
-            <p className={`text-lg font-bold font-mono mt-0.5 ${opMetrics.billingEffPct >= 90 ? 'text-emerald-800' : 'text-amber-700'}`}>
-              {opMetrics.hasSnap ? `${opMetrics.billingEffPct.toFixed(2)}%` : '-'}
+            <p className={`text-lg font-bold font-mono mt-0.5 ${!opMetrics.hasBillingEff ? 'text-slate-500' : opMetrics.billingEffPct >= 90 ? 'text-emerald-800' : 'text-amber-700'}`}>
+              {opMetrics.hasBillingEff ? `${opMetrics.billingEffPct.toFixed(2)}%` : '-'}
             </p>
-            <span className="text-[10px] text-slate-500">Total tertagih / ketetapan bulan lalu</span>
+            <span className="text-[10px] text-slate-500">
+              {opMetrics.hasBillingEff ? 'Total tertagih / ketetapan bulan lalu' : 'Belum tersedia pada periode ini'}
+            </span>
           </div>
           <Droplets className="w-5 h-5 text-emerald-700 shrink-0" />
         </div>
@@ -2096,14 +2323,14 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
         <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between">
           <div>
             <span className="text-[11px] font-semibold text-slate-500">Kehilangan Air (NRW) &amp; Pelanggan</span>
-            <p className={`text-lg font-bold font-mono mt-0.5 ${opMetrics.nrwPct <= 25 ? 'text-emerald-800' : 'text-rose-700'}`}>
-              {opMetrics.hasSnap ? `${opMetrics.nrwPct.toFixed(2)}%` : '-'}
+            <p className={`text-lg font-bold font-mono mt-0.5 ${!opMetrics.hasProduction ? 'text-slate-500' : opMetrics.nrwPct <= 25 ? 'text-emerald-800' : 'text-rose-700'}`}>
+              {opMetrics.hasProduction ? `${opMetrics.nrwPct.toFixed(2)}%` : '-'}
             </p>
             <span className="text-[10px] text-slate-500">
-              {opMetrics.hasSnap ? `${opMetrics.activeSr.toLocaleString('id-ID')} SR aktif · Target NRW ≤ 25%` : 'Muat snapshot di tab Operasional PDAM'}
+              {opMetrics.hasProduction ? `${opMetrics.activeSr.toLocaleString('id-ID')} SR aktif · Target NRW ≤ 25%` : 'Belum tersedia pada periode ini'}
             </span>
           </div>
-          <AlertTriangle className={`w-5 h-5 shrink-0 ${opMetrics.nrwPct > 25 ? 'text-rose-600' : 'text-emerald-600'}`} />
+          <AlertTriangle className={`w-5 h-5 shrink-0 ${!opMetrics.hasProduction ? 'text-slate-400' : opMetrics.nrwPct > 25 ? 'text-rose-600' : 'text-emerald-600'}`} />
         </div>
 
         <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center justify-between">
@@ -2134,6 +2361,7 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
               { label: 'Beban Operasi Langsung', val: statements.incomeStatement.directExpenses.reduce((s, l) => s + l.netSignedBalance, 0), color: 'bg-rose-600' },
               { label: 'Beban Administrasi & Umum', val: statements.incomeStatement.adminExpenses.reduce((s, l) => s + l.netSignedBalance, 0), color: 'bg-amber-600' },
               { label: 'Beban Penyusutan', val: statements.incomeStatement.depreciationExpenses.reduce((s, l) => s + l.netSignedBalance, 0), color: 'bg-slate-500' },
+              { label: 'Beban Lain-Lain & Pajak Tangguhan', val: statements.incomeStatement.totalOtherExpense, color: 'bg-rose-800' },
             ].map((row) => {
               const base = Math.max(1, statements.incomeStatement.totalRevenue, statements.incomeStatement.totalExpense);
               const widthPct = Math.min(100, Math.round((Math.abs(row.val) / base) * 100));
@@ -2149,6 +2377,20 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
                 </div>
               );
             })}
+          </div>
+          <div className="pt-2 border-t border-slate-100 grid grid-cols-2 gap-2 text-xs">
+            <div className={`p-2.5 rounded-lg border ${statements.incomeStatement.operatingIncome < 0 ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
+              <span className="text-[10px] font-semibold block">
+                {statements.incomeStatement.operatingIncome < 0 ? 'Rugi Usaha' : 'Laba Usaha'}
+              </span>
+              <span className="font-mono font-bold">{formatRp(statements.incomeStatement.operatingIncome)}</span>
+            </div>
+            <div className={`p-2.5 rounded-lg border ${statements.incomeStatement.netIncome < 0 ? 'bg-rose-50 border-rose-200 text-rose-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900'}`}>
+              <span className="text-[10px] font-semibold block">
+                {statements.incomeStatement.netIncome < 0 ? 'Rugi Bersih' : 'Laba Bersih'}
+              </span>
+              <span className="font-mono font-bold">{formatRp(statements.incomeStatement.netIncome)}</span>
+            </div>
           </div>
         </div>
 

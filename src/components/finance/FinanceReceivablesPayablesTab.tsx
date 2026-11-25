@@ -111,6 +111,9 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
   >(null);
 
   const filteredRecords = useMemo(() => {
+    const maxRpYear = records.reduce((m, r) => Math.max(m, r.year || 0), 0);
+    const effectiveFilter: FinanceGlobalFilter =
+      filter.year === 0 && maxRpYear > 0 ? { ...filter, year: maxRpYear } : filter;
     return records
       .filter((r) => {
         if (r.kind !== kindTab) return false;
@@ -123,7 +126,7 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
             unitId: r.unitId,
             coaId: r.coaId,
           },
-          filter
+          effectiveFilter
         );
       })
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));

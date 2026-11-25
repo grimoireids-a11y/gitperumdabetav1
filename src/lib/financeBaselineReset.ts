@@ -9,6 +9,15 @@ import {
 import { db } from './firebase';
 import { sanitizeFirestoreRecord } from './financeEngine';
 import {
+  buildOfficialPDAMAssetsDec2025,
+  buildOfficialPDAMCashBankAccountsDec2025,
+  buildOfficialPDAMCoaDec2025,
+  buildOfficialPDAMInventoryDec2025,
+  buildOfficialPDAMReceivablesPayablesDec2025,
+  buildOfficialPDAMSnapshotDec2025,
+  buildOfficialPDAMTaxesDec2025,
+} from '../data/pdamOfficialBaselineDec2025';
+import {
   buildOfficialPDAMAssetsJan2026,
   buildOfficialPDAMCashBankAccountsJan2026,
   buildOfficialPDAMCoaJan2026,
@@ -20,7 +29,7 @@ import {
 } from '../data/pdamOfficialBaselineJan2026';
 import { FinanceAuditTrail } from '../types/finance';
 
-export const FINANCE_BASELINE_JAN2026_MARKER_DOC = 'finance_baseline_jan2026_v1';
+export const FINANCE_BASELINE_JAN2026_MARKER_DOC = 'finance_baseline_dec2025_jan2026_v1';
 
 export const FINANCE_COLLECTIONS_TO_CLEAR = [
   'fin_transactions',
@@ -65,7 +74,8 @@ export async function clearAndSeedJan2026Baseline(params: {
   actorRole: string;
   year?: number;
 }): Promise<ClearAndSeedJan2026Result> {
-  const year = params.year ?? 2026;
+  const janYear = params.year ?? 2026;
+  const decYear = janYear - 1;
   const now = new Date().toISOString();
 
   // 1. Collect and delete all existing finance documents across all 13 collections
@@ -81,30 +91,69 @@ export async function clearAndSeedJan2026Baseline(params: {
     await batch.commit();
   }
 
-  // 2. Build complete official January 2026 baseline dataset
-  const coa = buildOfficialPDAMCoaJan2026(year, params.actorName);
-  const cashBanks = buildOfficialPDAMCashBankAccountsJan2026(year, params.actorName);
-  const receivablesPayables = buildOfficialPDAMReceivablesPayablesJan2026(
-    year,
-    params.actorName
-  );
-  const assets = buildOfficialPDAMAssetsJan2026(year, params.actorName);
-  const taxes = buildOfficialPDAMTaxesJan2026(year, params.actorName);
-  const inventory = buildOfficialPDAMInventoryJan2026(year, 'Januari', params.actorName);
-  const purchases = buildOfficialPDAMPurchasesJan2026(year, params.actorName);
-  const snapshot = buildOfficialPDAMSnapshotJan2026(params.actorName);
+  // 2A. Build December 2025 initial baseline dataset (data awal sebelum Januari 2026)
+  const coaDec = buildOfficialPDAMCoaDec2025(decYear, params.actorName);
+  const cashBanksDec = buildOfficialPDAMCashBankAccountsDec2025(decYear, params.actorName);
+  const rpDec = buildOfficialPDAMReceivablesPayablesDec2025(decYear, params.actorName);
+  const assetsDec = buildOfficialPDAMAssetsDec2025(decYear, params.actorName);
+  const taxesDec = buildOfficialPDAMTaxesDec2025(decYear, params.actorName);
+  const invDec = buildOfficialPDAMInventoryDec2025(decYear, 'Desember', params.actorName);
+  const snapDec = buildOfficialPDAMSnapshotDec2025(params.actorName);
 
-  const seedAudit: FinanceAuditTrail = sanitizeFirestoreRecord({
-    id: `faud-seed-jan${year}`,
+  // 2B. Build January 2026 official baseline dataset
+  const coaJan = buildOfficialPDAMCoaJan2026(janYear, params.actorName);
+  const cashBanksJan = buildOfficialPDAMCashBankAccountsJan2026(janYear, params.actorName);
+  const rpJan = buildOfficialPDAMReceivablesPayablesJan2026(janYear, params.actorName);
+  const assetsJan = buildOfficialPDAMAssetsJan2026(janYear, params.actorName);
+  const taxesJan = buildOfficialPDAMTaxesJan2026(janYear, params.actorName);
+  const invJan = buildOfficialPDAMInventoryJan2026(janYear, 'Januari', params.actorName);
+  const purchasesJan = buildOfficialPDAMPurchasesJan2026(janYear, params.actorName);
+  const snapJan = buildOfficialPDAMSnapshotJan2026(params.actorName);
+
+  const coa = [...coaDec, ...coaJan];
+  const cashBanks = [...cashBanksDec, ...cashBanksJan];
+  const receivablesPayables = [...rpDec, ...rpJan];
+  const assets = [...assetsDec, ...assetsJan];
+  const taxes = [...taxesDec, ...taxesJan];
+  const inventory = [...invDec, ...invJan];
+  const purchases = [...purchasesJan];
+
+  const seedAuditDec: FinanceAuditTrail = sanitizeFirestoreRecord({
+    id: `faud-seed-dec${decYear}`,
     timestamp: now,
     actorUid: params.actorUid,
     actorName: params.actorName,
     actorRole: params.actorRole,
     actionType: 'SEED',
-    entityType: 'Baseline Resmi Keuangan PDAM (Januari 2026)',
-    entityId: snapshot.id,
-    entityLabel: `Reset & Baseline Januari ${year}`,
-    summary: `Mengosongkan data keuangan lama (${refsToDelete.length} dokumen) dan mengisi baseline resmi Januari ${year}: ${coa.length} COA, ${cashBanks.length} Kas/Bank, ${receivablesPayables.length} Utang/Piutang, ${assets.length} Aset, ${taxes.length} Pajak, ${inventory.length} Persediaan, ${purchases.length} Pembelian & Snapshot Operasional.`,
+    entityType: `Baseline Data Awal Keuangan PDAM (Desember ${decYear})`,
+    entityId: snapDec.id,
+    entityLabel: `Data Awal Desember ${decYear} (Sebelum Januari ${janYear})`,
+    summary: `Mengisi data awal resmi Desember ${decYear}: ${coaDec.length} COA (Rugi Usaha -Rp 209.486.961 / Rugi Bersih -Rp 447.634.269 bln & -Rp 2.194.377.265 YTD), ${cashBanksDec.length} Kas/Bank, ${rpDec.length} Utang/Piutang, ${assetsDec.length} Aset, ${taxesDec.length} Pajak, ${invDec.length} Persediaan.`,
+    beforeData: null,
+    afterData: {
+      year: decYear,
+      month: 'Desember',
+      coaCount: coaDec.length,
+      cashBanksCount: cashBanksDec.length,
+      receivablesPayablesCount: rpDec.length,
+      assetsCount: assetsDec.length,
+      taxesCount: taxesDec.length,
+      inventoryCount: invDec.length,
+    },
+    year: decYear,
+  });
+
+  const seedAuditJan: FinanceAuditTrail = sanitizeFirestoreRecord({
+    id: `faud-seed-jan${janYear}`,
+    timestamp: now,
+    actorUid: params.actorUid,
+    actorName: params.actorName,
+    actorRole: params.actorRole,
+    actionType: 'SEED',
+    entityType: `Baseline Resmi Keuangan PDAM (Januari ${janYear})`,
+    entityId: snapJan.id,
+    entityLabel: `Reset & Baseline Desember ${decYear} - Januari ${janYear}`,
+    summary: `Mengosongkan data keuangan lama (${refsToDelete.length} dokumen) dan mengisi lengkap Desember ${decYear} (data awal) serta Januari ${janYear}: ${coa.length} COA, ${cashBanks.length} Kas/Bank, ${receivablesPayables.length} Utang/Piutang, ${assets.length} Aset, ${taxes.length} Pajak, ${inventory.length} Persediaan, ${purchases.length} Pembelian & 2 Snapshot Laporan PDAM.`,
     beforeData: null,
     afterData: {
       deletedCount: refsToDelete.length,
@@ -115,8 +164,9 @@ export async function clearAndSeedJan2026Baseline(params: {
       taxesCount: taxes.length,
       inventoryCount: inventory.length,
       purchasesCount: purchases.length,
+      pdamReportsCount: 2,
     },
-    year,
+    year: janYear,
   });
 
   // 3. Stage all writes and commit in chunks <= 400
@@ -150,19 +200,29 @@ export async function clearAndSeedJan2026Baseline(params: {
       data: sanitizeFirestoreRecord(item) as unknown as Record<string, unknown>,
     })),
     {
-      ref: doc(db, 'fin_pdam_reports', snapshot.id),
-      data: sanitizeFirestoreRecord(snapshot) as unknown as Record<string, unknown>,
+      ref: doc(db, 'fin_pdam_reports', snapDec.id),
+      data: sanitizeFirestoreRecord(snapDec) as unknown as Record<string, unknown>,
     },
     {
-      ref: doc(db, 'fin_audit_trails', seedAudit.id),
-      data: seedAudit as unknown as Record<string, unknown>,
+      ref: doc(db, 'fin_pdam_reports', snapJan.id),
+      data: sanitizeFirestoreRecord(snapJan) as unknown as Record<string, unknown>,
+    },
+    {
+      ref: doc(db, 'fin_audit_trails', seedAuditDec.id),
+      data: seedAuditDec as unknown as Record<string, unknown>,
+    },
+    {
+      ref: doc(db, 'fin_audit_trails', seedAuditJan.id),
+      data: seedAuditJan as unknown as Record<string, unknown>,
     },
     {
       ref: doc(db, 'app_settings', FINANCE_BASELINE_JAN2026_MARKER_DOC),
       data: sanitizeFirestoreRecord({
         id: FINANCE_BASELINE_JAN2026_MARKER_DOC,
-        baseline: 'JANUARI_2026',
-        year,
+        baseline: 'DESEMBER_2025_JANUARI_2026',
+        initialYear: decYear,
+        initialMonth: 'Desember',
+        year: janYear,
         month: 'Januari',
         deletedCount: refsToDelete.length,
         seededAt: now,
@@ -190,7 +250,7 @@ export async function clearAndSeedJan2026Baseline(params: {
       taxes: taxes.length,
       inventory: inventory.length,
       purchases: purchases.length,
-      pdamReports: 1,
+      pdamReports: 2,
     },
   };
 }

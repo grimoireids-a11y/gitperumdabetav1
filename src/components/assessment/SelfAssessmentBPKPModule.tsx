@@ -2435,7 +2435,7 @@ export const SelfAssessmentBPKPModule: React.FC = () => {
                   <tbody>
                     <tr>
                       <td className="border border-slate-400 p-1.5 font-semibold">Akuntansi & Laba Rugi</td>
-                      <td className="border border-slate-400 p-1.5">Pendapatan / Beban / Laba Bersih</td>
+                      <td className="border border-slate-400 p-1.5">Pendapatan / Beban / {cs.netIncome < 0 ? 'Rugi Bersih' : 'Laba Bersih'}</td>
                       <td className="border border-slate-400 p-1.5 text-right font-mono">
                         {formatRp(cs.totalRevenue)} / {formatRp(cs.totalExpense)} / {formatRp(cs.netIncome)}
                       </td>

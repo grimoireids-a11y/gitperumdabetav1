@@ -11,6 +11,16 @@ export {
   buildOfficialPDAMSnapshotJan2026,
 } from './pdamOfficialBaselineJan2026';
 
+export {
+  buildOfficialPDAMCashBankAccountsDec2025,
+  buildOfficialPDAMCoaDec2025,
+  buildOfficialPDAMInventoryDec2025,
+  buildOfficialPDAMReceivablesPayablesDec2025,
+  buildOfficialPDAMAssetsDec2025,
+  buildOfficialPDAMTaxesDec2025,
+  buildOfficialPDAMSnapshotDec2025,
+} from './pdamOfficialBaselineDec2025';
+
 export { buildOfficialPDAMSnapshotSep2026 } from './pdamOfficialBaseline2026';
 
 export const FINANCE_INVENTORY_CATEGORIES = [

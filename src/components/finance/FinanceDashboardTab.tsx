@@ -129,6 +129,11 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
     [transactions]
   );
 
+  const effectivePointYear = useMemo(() => {
+    if (filter.year !== 0) return filter.year;
+    return receivablesPayables.reduce((m, r) => Math.max(m, r.year || 0), 0);
+  }, [receivablesPayables, filter.year]);
+
   const openPiutang = useMemo(
     () =>
       receivablesPayables
@@ -136,11 +141,11 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
           (rp) =>
             rp.kind === 'PIUTANG' &&
             rp.status !== 'Lunas' &&
-            (filter.year === 0 || rp.year === filter.year) &&
+            (effectivePointYear === 0 || (rp.year || effectivePointYear) === effectivePointYear) &&
             (filter.unitId === 'ALL' || rp.unitId === filter.unitId)
         )
         .reduce((s, rp) => s + (rp.remainingAmount || 0), 0),
-    [receivablesPayables, filter.year, filter.unitId]
+    [receivablesPayables, effectivePointYear, filter.unitId]
   );
 
   const openUtang = useMemo(
@@ -150,11 +155,11 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
           (rp) =>
             rp.kind === 'UTANG' &&
             rp.status !== 'Lunas' &&
-            (filter.year === 0 || rp.year === filter.year) &&
+            (effectivePointYear === 0 || (rp.year || effectivePointYear) === effectivePointYear) &&
             (filter.unitId === 'ALL' || rp.unitId === filter.unitId)
         )
         .reduce((s, rp) => s + (rp.remainingAmount || 0), 0),
-    [receivablesPayables, filter.year, filter.unitId]
+    [receivablesPayables, effectivePointYear, filter.unitId]
   );
 
   // RKA Budget vs Realization (respecting global filters)
@@ -248,9 +253,16 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
   }, [pdamSnapshots, filter.year, filter.month]);
 
   const pdamKpis = useMemo(() => {
+    const maxInvYear = inventory.reduce((m, i) => Math.max(m, i.year || 0), 0);
+    const invYearScope =
+      filter.year === 0
+        ? maxInvYear
+        : inventory.some((i) => i.year === filter.year)
+        ? filter.year
+        : maxInvYear;
     const invFiltered = inventory.filter(
       (i) =>
-        (filter.year === 0 || i.year === filter.year) &&
+        (invYearScope === 0 || i.year === invYearScope) &&
         (filter.unitId === 'ALL' || !i.unitId || i.unitId === filter.unitId)
     );
     const totalInventoryVal = invFiltered.reduce((s, i) => s + (i.endingValue || 0), 0);
@@ -265,6 +277,9 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
     if (!activePdamSnapshot) {
       return {
         hasSnapshot: false,
+        hasBillingEff: false,
+        hasProduction: false,
+        hasConnections: false,
         periodText: 'Belum Dimuat',
         billingEffTotalPct: 0,
         billingEffCurrentPct: 0,
@@ -307,6 +322,9 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
 
     return {
       hasSnapshot: true,
+      hasBillingEff: activePdamSnapshot.collectionEfficiency.length > 0,
+      hasProduction: activePdamSnapshot.productionDistribution.length > 0,
+      hasConnections: activePdamSnapshot.customerConnections.length > 0,
       periodText: `${activePdamSnapshot.month} ${activePdamSnapshot.year}`,
       billingEffTotalPct,
       billingEffCurrentPct,
@@ -424,8 +442,8 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
 
         <div className="bg-white border border-slate-200 rounded-xl p-3.5">
           <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold">
-            <span>Laba / (Rugi) Bersih</span>
-            <Scale className="w-3.5 h-3.5 text-slate-600" />
+            <span>{netIncome < 0 ? 'Rugi Bersih' : 'Laba Bersih'}</span>
+            <Scale className={`w-3.5 h-3.5 ${netIncome < 0 ? 'text-rose-600' : 'text-emerald-600'}`} />
           </div>
           <p
             className={`mt-1.5 text-base font-bold font-mono tabular-nums ${
@@ -498,15 +516,19 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
             </span>
             <p
               className={`mt-1 text-base font-bold font-mono tabular-nums ${
-                pdamKpis.billingEffTotalPct >= 90 ? 'text-emerald-800' : 'text-amber-700'
+                !pdamKpis.hasBillingEff
+                  ? 'text-slate-500'
+                  : pdamKpis.billingEffTotalPct >= 90
+                  ? 'text-emerald-800'
+                  : 'text-amber-700'
               }`}
             >
-              {pdamKpis.hasSnapshot ? `${pdamKpis.billingEffTotalPct.toFixed(2)}%` : '-'}
+              {pdamKpis.hasBillingEff ? `${pdamKpis.billingEffTotalPct.toFixed(2)}%` : '-'}
             </p>
             <span className="text-[10px] text-slate-500">
-              {pdamKpis.hasSnapshot
+              {pdamKpis.hasBillingEff
                 ? `Lancar bln berjalan: ${pdamKpis.billingEffCurrentPct.toFixed(2)}%`
-                : 'Belum ada snapshot bulanan'}
+                : 'Belum tersedia pada periode ini'}
             </span>
           </div>
 
@@ -516,13 +538,17 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
             </span>
             <p
               className={`mt-1 text-base font-bold font-mono tabular-nums ${
-                pdamKpis.nrwPct <= 25 ? 'text-emerald-800' : 'text-rose-700'
+                !pdamKpis.hasProduction
+                  ? 'text-slate-500'
+                  : pdamKpis.nrwPct <= 25
+                  ? 'text-emerald-800'
+                  : 'text-rose-700'
               }`}
             >
-              {pdamKpis.hasSnapshot ? `${pdamKpis.nrwPct.toFixed(2)}%` : '-'}
+              {pdamKpis.hasProduction ? `${pdamKpis.nrwPct.toFixed(2)}%` : '-'}
             </p>
             <span className="text-[10px] text-slate-500">
-              Ambang batas sehat ≤ 25%
+              {pdamKpis.hasProduction ? 'Ambang batas sehat ≤ 25%' : 'Belum tersedia pada periode ini'}
             </span>
           </div>
 
@@ -531,10 +557,10 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
               Pelanggan Aktif (SR)
             </span>
             <p className="mt-1 text-base font-bold text-slate-900 font-mono tabular-nums">
-              {pdamKpis.hasSnapshot ? `${pdamKpis.activeCustomers.toLocaleString('id-ID')} SR` : '-'}
+              {pdamKpis.hasConnections ? `${pdamKpis.activeCustomers.toLocaleString('id-ID')} SR` : '-'}
             </p>
             <span className="text-[10px] text-slate-500">
-              11 Unit Pelayanan Pasaman
+              {pdamKpis.hasConnections ? '11 Unit Pelayanan Pasaman' : 'Belum tersedia pada periode ini'}
             </span>
           </div>
 

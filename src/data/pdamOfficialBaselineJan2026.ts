@@ -35,6 +35,7 @@ export const buildOfficialPDAMCashBankAccountsJan2026 = (
     accountNumber,
     coaId: `coa-${year}-${coaCode.replace(/[^a-zA-Z0-9]/g, '')}`,
     coaCode,
+    year,
     unitId,
     unitName,
     openingBalance,

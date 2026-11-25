@@ -255,14 +255,14 @@ export const FinanceModule: React.FC = () => {
         if (!cancelled) {
           setBaselineNotice({
             type: 'success',
-            message: `Baseline Manajemen Keuangan Januari 2026 aktif (${result.deletedCount} data lama dibersihkan; ${result.seededCounts.coa} COA, ${result.seededCounts.cashBanks} Kas/Bank, ${result.seededCounts.receivablesPayables} Utang/Piutang, ${result.seededCounts.assets} Aset, ${result.seededCounts.taxes} Pajak, ${result.seededCounts.inventory} Persediaan, ${result.seededCounts.purchases} Pembelian & Operasional PDAM dimuat).`,
+            message: `Baseline Manajemen Keuangan Desember 2025 (Data Awal) & Januari 2026 aktif (${result.deletedCount} data lama dibersihkan; ${result.seededCounts.coa} COA, ${result.seededCounts.cashBanks} Kas/Bank, ${result.seededCounts.receivablesPayables} Utang/Piutang, ${result.seededCounts.assets} Aset, ${result.seededCounts.taxes} Pajak, ${result.seededCounts.inventory} Persediaan, ${result.seededCounts.purchases} Pembelian & ${result.seededCounts.pdamReports} Laporan PDAM dimuat).`,
           });
         }
       } catch (err) {
         if (!cancelled) {
           setBaselineNotice({
             type: 'error',
-            message: `Gagal menginisialisasi baseline Januari 2026: ${
+            message: `Gagal menginisialisasi baseline Des 2025 / Jan 2026: ${
               err instanceof Error ? err.message : 'Error'
             }`,
           });
@@ -289,12 +289,12 @@ export const FinanceModule: React.FC = () => {
       setIsResetModalOpen(false);
       setBaselineNotice({
         type: 'success',
-        message: `Data keuangan berhasil dikosongkan (${result.deletedCount} dokumen) dan diisi ulang dengan Baseline Resmi Januari 2026.`,
+        message: `Data keuangan berhasil dikosongkan (${result.deletedCount} dokumen) dan diisi ulang dengan Baseline Resmi Desember 2025 (Data Awal) & Januari 2026.`,
       });
     } catch (err) {
       setBaselineNotice({
         type: 'error',
-        message: `Gagal mereset baseline Januari 2026: ${
+        message: `Gagal mereset baseline Des 2025 / Jan 2026: ${
           err instanceof Error ? err.message : 'Error'
         }`,
       });
@@ -339,8 +339,17 @@ export const FinanceModule: React.FC = () => {
   }, [rkaItems, transactions]);
 
   const coaFilterOptions = useMemo(() => {
+    const maxYear = accounts
+      .filter((a) => a.isActive !== false && typeof a.year === 'number')
+      .reduce((m, a) => Math.max(m, a.year || 0), 0);
+    const effectiveYear =
+      filter.year === 0
+        ? maxYear
+        : accounts.some((a) => a.isActive !== false && a.year === filter.year)
+        ? filter.year
+        : maxYear;
     const list = accounts.filter(
-      (a) => a.isActive !== false && (filter.year === 0 || a.year === filter.year)
+      (a) => a.isActive !== false && (effectiveYear === 0 || a.year === effectiveYear)
     );
     return (list.length > 0 ? list : accounts).sort((a, b) => a.code.localeCompare(b.code));
   }, [accounts, filter.year]);
@@ -351,9 +360,10 @@ export const FinanceModule: React.FC = () => {
       computeCashBankBalances(
         cashBankAccounts,
         transactions,
-        filter.dateTo || undefined
+        filter.dateTo || undefined,
+        filter.year
       ),
-    [cashBankAccounts, transactions, filter.dateTo]
+    [cashBankAccounts, transactions, filter.dateTo, filter.year]
   );
 
   const statements = useMemo(
@@ -443,7 +453,7 @@ export const FinanceModule: React.FC = () => {
                 ) : (
                   <Database className="w-3 h-3" />
                 )}
-                <span>Reset Baseline Jan 2026</span>
+                <span>Reset Baseline Des 25 / Jan 26</span>
               </button>
             )}
             <button
@@ -469,7 +479,7 @@ export const FinanceModule: React.FC = () => {
               {baselineSyncing && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}
               <span>
                 {baselineSyncing
-                  ? 'Mengosongkan data lama & mengisi baseline resmi Manajemen Keuangan Januari 2026...'
+                  ? 'Mengosongkan data lama & mengisi lengkap Baseline Desember 2025 (Data Awal) dan Januari 2026...'
                   : baselineNotice?.message}
               </span>
             </div>
@@ -773,7 +783,7 @@ export const FinanceModule: React.FC = () => {
               <div className="flex items-center gap-2 text-amber-800">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <h3 className="text-sm font-bold text-slate-900">
-                  Kosongkan &amp; Muat Baseline Januari 2026
+                  Kosongkan &amp; Muat Baseline Des 2025 &amp; Jan 2026
                 </h3>
               </div>
               <button
@@ -785,7 +795,7 @@ export const FinanceModule: React.FC = () => {
               </button>
             </div>
             <p className="text-slate-600 leading-relaxed">
-              Tindakan ini akan <strong>mengosongkan seluruh transaksi, jurnal, kas/bank, COA, utang/piutang, aset, pajak, persediaan, pembelian, dan snapshot operasional</strong> lalu mengisi ulang data awal resmi Perumda Air Minum Tirta Saiyo periode <strong>Januari 2026</strong>. Data RKA, Audit Kinerja, dan Self Assessment BPKP tidak terpengaruh.
+              Tindakan ini akan <strong>mengosongkan seluruh transaksi, jurnal, kas/bank, COA, utang/piutang, aset, pajak, persediaan, pembelian, dan snapshot operasional</strong> lalu mengisi lengkap data awal periode <strong>Desember 2025</strong> serta periode berjalan <strong>Januari 2026</strong> Perumda Air Minum Tirta Saiyo. Data RKA, Audit Kinerja, dan Self Assessment BPKP tidak terpengaruh.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button
@@ -803,7 +813,7 @@ export const FinanceModule: React.FC = () => {
                 className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold cursor-pointer disabled:opacity-60"
               >
                 {baselineSyncing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>Kosongkan &amp; Muat Jan 2026</span>
+                <span>Kosongkan &amp; Muat Des 25 / Jan 26</span>
               </button>
             </div>
           </div>

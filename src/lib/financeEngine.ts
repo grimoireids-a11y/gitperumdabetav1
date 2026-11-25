@@ -352,20 +352,43 @@ export interface CashBankComputedAccount extends FinanceCashBankAccount {
 export const computeCashBankBalances = (
   accounts: FinanceCashBankAccount[],
   transactions: FinanceTransaction[],
-  dateCutoff?: string
+  dateCutoff?: string,
+  yearFilter?: number
 ): {
   accounts: CashBankComputedAccount[];
   totalCashBalance: number;
   totalBankBalance: number;
   totalLiquidBalance: number;
 } => {
+  const maxYear = accounts.reduce(
+    (max, acc) => (typeof acc.year === 'number' && acc.year > max ? acc.year : max),
+    0
+  );
+
+  let scopedAccounts = accounts;
+  if (yearFilter && yearFilter !== 0) {
+    const exactYearMatches = accounts.filter((a) => a.year === yearFilter);
+    if (exactYearMatches.length > 0) {
+      scopedAccounts = accounts.filter((a) => a.year === yearFilter || a.year === undefined);
+    } else if (maxYear > 0) {
+      const priorYears = accounts
+        .map((a) => a.year || 0)
+        .filter((y) => y > 0 && y <= yearFilter);
+      const fallbackYear = priorYears.length > 0 ? Math.max(...priorYears) : maxYear;
+      scopedAccounts = accounts.filter((a) => a.year === fallbackYear || a.year === undefined);
+    }
+  } else if (maxYear > 0) {
+    scopedAccounts = accounts.filter((a) => a.year === maxYear || a.year === undefined);
+  }
+
   const posted = transactions.filter(
     (t) =>
       t.status === 'Disetujui / Diposting' &&
+      (!yearFilter || yearFilter === 0 || t.year === yearFilter) &&
       (!dateCutoff || t.transactionDate <= dateCutoff)
   );
 
-  const computed: CashBankComputedAccount[] = accounts.map((acc) => {
+  const computed: CashBankComputedAccount[] = scopedAccounts.map((acc) => {
     let totalIn = 0;
     let totalOut = 0;
     let transferIn = 0;
@@ -461,10 +484,15 @@ export interface AccountingStatements {
     directExpenses: AccountLedgerSummary[];
     adminExpenses: AccountLedgerSummary[];
     depreciationExpenses: AccountLedgerSummary[];
+    grossOperatingExpenses: AccountLedgerSummary[];
+    adminTotalExpenses: AccountLedgerSummary[];
     otherExpenses: AccountLedgerSummary[];
     totalOperatingExpense: number;
     totalOtherExpense: number;
     totalExpense: number;
+    grossProfit: number;
+    operatingIncome: number;
+    netOtherIncome: number;
     netIncome: number;
     // Comparative Monthly vs Budget vs YTD
     monthlyTotalOperatingRevenue: number;
@@ -473,7 +501,22 @@ export interface AccountingStatements {
     monthlyTotalOperatingExpense: number;
     monthlyTotalOtherExpense: number;
     monthlyTotalExpense: number;
+    monthlyGrossProfit: number;
+    monthlyOperatingIncome: number;
+    monthlyNetOtherIncome: number;
     monthlyNetIncome: number;
+    budgetMonthlyOperatingRevenue: number;
+    budgetYtdOperatingRevenue: number;
+    budgetMonthlyOtherRevenue: number;
+    budgetYtdOtherRevenue: number;
+    budgetMonthlyOtherExpense: number;
+    budgetYtdOtherExpense: number;
+    budgetMonthlyGrossProfit: number;
+    budgetYtdGrossProfit: number;
+    budgetMonthlyOperatingIncome: number;
+    budgetYtdOperatingIncome: number;
+    budgetMonthlyNetOtherIncome: number;
+    budgetYtdNetOtherIncome: number;
     budgetMonthlyRevenue: number;
     budgetMonthlyExpense: number;
     budgetMonthlyNetIncome: number;
@@ -551,17 +594,33 @@ export const computeAccountingStatements = (params: {
 }): AccountingStatements => {
   const { accounts, journals, transactions, yearFilter } = params;
 
-  // Deduplicate COA by code for the selected year (prefer matching year)
+  // Deduplicate COA by code for the selected year (when yearFilter === 0, pick latest year instead of double-counting multiple years)
+  const maxCoaYear = accounts
+    .filter((a) => a.isActive !== false && typeof a.year === 'number')
+    .reduce((max, a) => Math.max(max, a.year || 0), 0);
+
+  const effectiveCoaYear =
+    yearFilter === 0
+      ? maxCoaYear
+      : accounts.some((a) => a.isActive !== false && a.year === yearFilter)
+      ? yearFilter
+      : maxCoaYear;
+
   const sortedAccounts = [...accounts]
-    .filter((a) => a.isActive !== false && (yearFilter === 0 || a.year === yearFilter))
+    .filter(
+      (a) =>
+        a.isActive !== false &&
+        (effectiveCoaYear === 0 || a.year === effectiveCoaYear)
+    )
     .sort((a, b) => a.code.localeCompare(b.code));
 
   const activeCoa =
     sortedAccounts.length > 0
       ? sortedAccounts
       : Array.from(
-          accounts
+          [...accounts]
             .filter((a) => a.isActive !== false)
+            .sort((a, b) => (b.year || 0) - (a.year || 0))
             .reduce((map, acc) => {
               if (!map.has(acc.code)) map.set(acc.code, acc);
               return map;
@@ -688,6 +747,10 @@ export const computeAccountingStatements = (params: {
   const monthlyTotalOtherRevenue = otherRevenues.reduce((s, l) => s + l.monthlyActual, 0);
   const monthlyTotalRevenue = monthlyTotalOperatingRevenue + monthlyTotalOtherRevenue;
 
+  const budgetMonthlyOperatingRevenue = operatingRevenues.reduce((s, l) => s + l.monthlyBudget, 0);
+  const budgetYtdOperatingRevenue = operatingRevenues.reduce((s, l) => s + l.ytdBudget, 0);
+  const budgetMonthlyOtherRevenue = otherRevenues.reduce((s, l) => s + l.monthlyBudget, 0);
+  const budgetYtdOtherRevenue = otherRevenues.reduce((s, l) => s + l.ytdBudget, 0);
   const budgetMonthlyRevenue = revenueLedgers.reduce((s, l) => s + l.monthlyBudget, 0);
   const budgetYtdRevenue = revenueLedgers.reduce((s, l) => s + l.ytdBudget, 0);
 
@@ -711,28 +774,95 @@ export const computeAccountingStatements = (params: {
       l.account.code.startsWith('96.') ||
       l.account.code.startsWith('5-21'));
 
+  const isDirectSectionExp = (l: AccountLedgerSummary) =>
+    l.account.code.startsWith('91.') ||
+    l.account.code.startsWith('92.') ||
+    l.account.code.startsWith('93.') ||
+    l.account.code.startsWith('95.') ||
+    l.account.code.startsWith('5-1') ||
+    l.account.subCategory.toLowerCase().includes('langsung');
+
+  const isAdminSectionExp = (l: AccountLedgerSummary) =>
+    !isDirectSectionExp(l) &&
+    (l.account.code.startsWith('96.') ||
+      l.account.code.startsWith('5-2') ||
+      l.account.subCategory.toLowerCase().includes('administrasi') ||
+      l.account.subCategory.toLowerCase().includes('penyusutan umum'));
+
   const depreciationExpenses = expenseLedgers.filter(isDepExp);
   const directExpenses = expenseLedgers.filter(isDirectExp);
   const adminExpenses = expenseLedgers.filter(isAdminExp);
+  const grossOperatingExpenses = expenseLedgers.filter(isDirectSectionExp);
+  const adminTotalExpenses = expenseLedgers.filter(isAdminSectionExp);
   const otherExpenses = expenseLedgers.filter(
     (l) => !isDepExp(l) && !isDirectExp(l) && !isAdminExp(l)
   );
 
+  const totalDirectSectionExpense = grossOperatingExpenses.reduce(
+    (s, l) => s + l.netSignedBalance,
+    0
+  );
+  const totalAdminSectionExpense = adminTotalExpenses.reduce(
+    (s, l) => s + l.netSignedBalance,
+    0
+  );
   const totalOperatingExpense =
     directExpenses.reduce((s, l) => s + l.netSignedBalance, 0) +
     adminExpenses.reduce((s, l) => s + l.netSignedBalance, 0) +
     depreciationExpenses.reduce((s, l) => s + l.netSignedBalance, 0);
   const totalOtherExpense = otherExpenses.reduce((s, l) => s + l.netSignedBalance, 0);
   const totalExpense = totalOperatingExpense + totalOtherExpense;
+  const grossProfit = totalOperatingRevenue - totalDirectSectionExpense;
+  const operatingIncome = grossProfit - totalAdminSectionExpense;
+  const netOtherIncome = totalOtherRevenue - totalOtherExpense;
   const netIncome = totalRevenue - totalExpense;
 
+  const monthlyTotalDirectSectionExpense = grossOperatingExpenses.reduce(
+    (s, l) => s + l.monthlyActual,
+    0
+  );
+  const monthlyTotalAdminSectionExpense = adminTotalExpenses.reduce(
+    (s, l) => s + l.monthlyActual,
+    0
+  );
   const monthlyTotalOperatingExpense =
     directExpenses.reduce((s, l) => s + l.monthlyActual, 0) +
     adminExpenses.reduce((s, l) => s + l.monthlyActual, 0) +
     depreciationExpenses.reduce((s, l) => s + l.monthlyActual, 0);
   const monthlyTotalOtherExpense = otherExpenses.reduce((s, l) => s + l.monthlyActual, 0);
   const monthlyTotalExpense = monthlyTotalOperatingExpense + monthlyTotalOtherExpense;
+  const monthlyGrossProfit = monthlyTotalOperatingRevenue - monthlyTotalDirectSectionExpense;
+  const monthlyOperatingIncome = monthlyGrossProfit - monthlyTotalAdminSectionExpense;
+  const monthlyNetOtherIncome = monthlyTotalOtherRevenue - monthlyTotalOtherExpense;
   const monthlyNetIncome = monthlyTotalRevenue - monthlyTotalExpense;
+
+  const budgetMonthlyDirectSectionExpense = grossOperatingExpenses.reduce(
+    (s, l) => s + l.monthlyBudget,
+    0
+  );
+  const budgetYtdDirectSectionExpense = grossOperatingExpenses.reduce(
+    (s, l) => s + l.ytdBudget,
+    0
+  );
+  const budgetMonthlyAdminSectionExpense = adminTotalExpenses.reduce(
+    (s, l) => s + l.monthlyBudget,
+    0
+  );
+  const budgetYtdAdminSectionExpense = adminTotalExpenses.reduce(
+    (s, l) => s + l.ytdBudget,
+    0
+  );
+  const budgetMonthlyOtherExpense = otherExpenses.reduce((s, l) => s + l.monthlyBudget, 0);
+  const budgetYtdOtherExpense = otherExpenses.reduce((s, l) => s + l.ytdBudget, 0);
+
+  const budgetMonthlyGrossProfit =
+    budgetMonthlyOperatingRevenue - budgetMonthlyDirectSectionExpense;
+  const budgetYtdGrossProfit = budgetYtdOperatingRevenue - budgetYtdDirectSectionExpense;
+  const budgetMonthlyOperatingIncome =
+    budgetMonthlyGrossProfit - budgetMonthlyAdminSectionExpense;
+  const budgetYtdOperatingIncome = budgetYtdGrossProfit - budgetYtdAdminSectionExpense;
+  const budgetMonthlyNetOtherIncome = budgetMonthlyOtherRevenue - budgetMonthlyOtherExpense;
+  const budgetYtdNetOtherIncome = budgetYtdOtherRevenue - budgetYtdOtherExpense;
 
   const budgetMonthlyExpense = expenseLedgers.reduce((s, l) => s + l.monthlyBudget, 0);
   const budgetYtdExpense = expenseLedgers.reduce((s, l) => s + l.ytdBudget, 0);
@@ -899,10 +1029,15 @@ export const computeAccountingStatements = (params: {
       directExpenses,
       adminExpenses,
       depreciationExpenses,
+      grossOperatingExpenses,
+      adminTotalExpenses,
       otherExpenses,
       totalOperatingExpense,
       totalOtherExpense,
       totalExpense,
+      grossProfit,
+      operatingIncome,
+      netOtherIncome,
       netIncome,
       monthlyTotalOperatingRevenue,
       monthlyTotalOtherRevenue,
@@ -910,7 +1045,22 @@ export const computeAccountingStatements = (params: {
       monthlyTotalOperatingExpense,
       monthlyTotalOtherExpense,
       monthlyTotalExpense,
+      monthlyGrossProfit,
+      monthlyOperatingIncome,
+      monthlyNetOtherIncome,
       monthlyNetIncome,
+      budgetMonthlyOperatingRevenue,
+      budgetYtdOperatingRevenue,
+      budgetMonthlyOtherRevenue,
+      budgetYtdOtherRevenue,
+      budgetMonthlyOtherExpense,
+      budgetYtdOtherExpense,
+      budgetMonthlyGrossProfit,
+      budgetYtdGrossProfit,
+      budgetMonthlyOperatingIncome,
+      budgetYtdOperatingIncome,
+      budgetMonthlyNetOtherIncome,
+      budgetYtdNetOtherIncome,
       budgetMonthlyRevenue,
       budgetMonthlyExpense,
       budgetMonthlyNetIncome,
@@ -1134,6 +1284,28 @@ export const computeFinancialAnalysisAndWarnings = (params: {
   const warnings: FinancialEarlyWarningItem[] = [];
   const today = getTodayIso();
 
+  if (statements.incomeStatement.operatingIncome < 0) {
+    warnings.push({
+      id: 'warn-operating-loss',
+      severity: 'KRITIS',
+      category: 'Profitabilitas Usaha',
+      title: 'Perusahaan Mengalami Rugi Usaha',
+      detail: `Pendapatan usaha (${formatRp(opRev)}) lebih kecil daripada total biaya usaha langsung & administrasi (${formatRp(opExp)}), menghasilkan Rugi Usaha sebesar ${formatRp(statements.incomeStatement.operatingIncome)}.`,
+      metricValue: formatRp(statements.incomeStatement.operatingIncome),
+    });
+  }
+
+  if (statements.incomeStatement.netIncome < 0) {
+    warnings.push({
+      id: 'warn-net-loss',
+      severity: 'KRITIS',
+      category: 'Laba / (Rugi) Bersih',
+      title: 'Perusahaan Mengalami Rugi Bersih',
+      detail: `Setelah memperhitungkan pendapatan/(beban) lain-lain serta pajak tangguhan, hasil usaha periode ini menunjukkan Rugi Bersih sebesar ${formatRp(statements.incomeStatement.netIncome)}.`,
+      metricValue: formatRp(statements.incomeStatement.netIncome),
+    });
+  }
+
   if (opRev > 0 && fcrPct < 100) {
     warnings.push({
       id: 'warn-fcr',
@@ -1288,8 +1460,19 @@ export const computeFinancialAnalysisAndWarnings = (params: {
     }
   }
 
+  const maxInvYear = inventory.reduce((m, i) => Math.max(m, i.year || 0), 0);
+  const effectiveInvYear =
+    year === 0
+      ? maxInvYear
+      : inventory.some((i) => i.year === year)
+      ? year
+      : maxInvYear;
   const deadStockValue = inventory
-    .filter((i) => i.coaCode === '15.03.91' || i.category === 'Bahan Instalasi Tidak Bergerak')
+    .filter(
+      (i) =>
+        (effectiveInvYear === 0 || i.year === effectiveInvYear) &&
+        (i.coaCode === '15.03.91' || i.category === 'Bahan Instalasi Tidak Bergerak')
+    )
     .reduce((s, i) => s + (i.endingValue || 0), 0);
   if (deadStockValue > 0) {
     warnings.push({

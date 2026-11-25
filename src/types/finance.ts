@@ -43,6 +43,7 @@ export interface FinanceCashBankAccount {
   accountNumber?: string;
   coaId: string;
   coaCode: string;
+  year?: number;
   unitId?: string;
   unitName?: string;
   openingBalance: number;

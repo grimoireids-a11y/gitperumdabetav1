@@ -117,9 +117,25 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
   const [rollTargetMonth, setRollTargetMonth] = useState('Februari');
   const [rollTargetYear, setRollTargetYear] = useState('2026');
 
-  const activeYear = filter.year !== 0 ? filter.year : new Date().getFullYear();
+  const activeYear = filter.year !== 0 ? filter.year : 2026;
 
   const filteredInventory = useMemo(() => {
+    const maxInvYear = inventory.reduce((m, i) => Math.max(m, i.year || 0), 0);
+    const effectiveYear = filter.year !== 0 ? filter.year : maxInvYear;
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    let targetMonth = filter.month;
+    if (targetMonth === 'ALL' && effectiveYear > 0) {
+      const yearMonths = inventory
+        .filter((i) => i.year === effectiveYear)
+        .map((i) => i.month)
+        .sort((a, b) => months.indexOf(b) - months.indexOf(a));
+      if (yearMonths.length > 0) targetMonth = yearMonths[0];
+    }
+    const effectiveFilter: FinanceGlobalFilter = {
+      ...filter,
+      year: effectiveYear,
+      month: targetMonth,
+    };
     return inventory
       .filter((item) =>
         matchesGlobalFilter(
@@ -128,7 +144,7 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
             month: item.month,
             unitId: item.unitId,
           },
-          filter
+          effectiveFilter
         )
       )
       .sort((a, b) => a.coaCode.localeCompare(b.coaCode));
@@ -169,11 +185,17 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
 
   // Monthly vs YTD Purchase Summary by Category
   const purchaseCategorySummary = useMemo(() => {
+    const maxPurYear = purchases.reduce((m, p) => Math.max(m, p.year || 0), 0);
+    const effectiveYear = filter.year !== 0 ? filter.year : maxPurYear;
     const yearScoped = purchases.filter(
-      (p) => (filter.year === 0 || p.year === filter.year) && p.status !== 'Dibatalkan'
+      (p) => (effectiveYear === 0 || p.year === effectiveYear) && p.status !== 'Dibatalkan'
     );
+    const months = ['Januari', 'Februari', 'Maret', 'April', 'Mei', 'Juni', 'Juli', 'Agustus', 'September', 'Oktober', 'November', 'Desember'];
+    const scopedMonths = yearScoped
+      .map((p) => p.month)
+      .sort((a, b) => months.indexOf(b) - months.indexOf(a));
     const activeMonthName =
-      filter.month !== 'ALL' ? filter.month : 'Januari';
+      filter.month !== 'ALL' ? filter.month : scopedMonths[0] || (effectiveYear === 2025 ? 'Desember' : 'Januari');
 
     return FINANCE_PURCHASE_CATEGORIES.map((cat) => {
       const catRows = yearScoped.filter((p) => p.category === cat);

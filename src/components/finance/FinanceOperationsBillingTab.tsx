@@ -125,7 +125,7 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
       setSelectedSnapshotId(`pdam-${targetYear}-Januari`);
       setFeedback({
         type: 'success',
-        message: `Data keuangan dikosongkan (${result.deletedCount} data lama) & Baseline Resmi PDAM Tirta Saiyo Januari ${targetYear} dimuat (${result.seededCounts.coa} COA, ${result.seededCounts.cashBanks} Kas/Bank, ${result.seededCounts.receivablesPayables} Utang/Piutang, ${result.seededCounts.assets} Aset, ${result.seededCounts.taxes} Pajak, ${result.seededCounts.inventory} Persediaan, ${result.seededCounts.purchases} Pembelian & Operasional PDAM).`,
+        message: `Data keuangan dikosongkan (${result.deletedCount} data lama) & Baseline Resmi PDAM Tirta Saiyo Des 2025 (Data Awal) + Jan ${targetYear} dimuat (${result.seededCounts.coa} COA, ${result.seededCounts.cashBanks} Kas/Bank, ${result.seededCounts.receivablesPayables} Utang/Piutang, ${result.seededCounts.assets} Aset, ${result.seededCounts.taxes} Pajak, ${result.seededCounts.inventory} Persediaan, ${result.seededCounts.purchases} Pembelian & 2 Periode PDAM).`,
       });
     } catch (err: unknown) {
       setFeedback({
@@ -643,7 +643,7 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg cursor-pointer"
             >
               <Database className="w-3.5 h-3.5" />
-              <span>Muat Baseline Resmi PDAM (Jan 2026)</span>
+              <span>Muat Baseline Des 25 / Jan 26</span>
             </button>
           )}
 
@@ -723,7 +723,7 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
             Data Operasional &amp; Penagihan PDAM Belum Dimuat
           </p>
           <p className="text-xs text-slate-500 max-w-lg mx-auto">
-            Klik tombol &quot;Muat Baseline Resmi PDAM (Jan 2026)&quot; di atas untuk mengosongkan data lama dan menginisialisasi baseline resmi Januari 2026 Perumda Air Minum Tirta Saiyo.
+            Klik tombol &quot;Muat Baseline Des 25 / Jan 26&quot; di atas untuk mengosongkan data lama dan menginisialisasi data awal Desember 2025 serta baseline Januari 2026 Perumda Air Minum Tirta Saiyo.
           </p>
         </div>
       ) : (
@@ -745,10 +745,12 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {draft.summaryMetrics.map((m, idx) => (
-                      <tr key={m.code} className="hover:bg-slate-50/80">
+                    {draft.summaryMetrics.map((m, idx) => {
+                      const isLossRow = (m.code === '4' || m.code === '5') && (m.monthlyReal < 0 || m.ytdReal < 0);
+                      return (
+                      <tr key={m.code} className={`hover:bg-slate-50/80 ${isLossRow ? 'bg-rose-50/30' : ''}`}>
                         <td className="py-2 px-3 font-mono font-bold text-emerald-800">{m.code}</td>
-                        <td className="py-2 px-3 font-medium text-slate-900">{m.label}</td>
+                        <td className={`py-2 px-3 font-medium ${isLossRow ? 'text-rose-800 font-semibold' : 'text-slate-900'}`}>{m.label}</td>
                         <td className="py-2 px-3 text-slate-500">{m.unit}</td>
                         <td className="py-1.5 px-3 text-right font-mono tabular-nums">
                           {canEditData ? (
@@ -839,7 +841,8 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                           )}
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -863,7 +866,14 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {draft.collectionEfficiency.map((u, idx) => (
+                    {draft.collectionEfficiency.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-slate-500">
+                          Lampiran Efisiensi Penagihan per 11 Unit tidak tercantum pada dokumen laporan periode {draft.month} {draft.year}.
+                        </td>
+                      </tr>
+                    ) : (
+                      draft.collectionEfficiency.map((u, idx) => (
                       <tr key={u.unitName} className="hover:bg-slate-50/80">
                         <td className="py-2 px-3 font-semibold text-slate-900">{u.unitName}</td>
                         <td className="py-1.5 px-3 text-right font-mono">
@@ -956,7 +966,8 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                           {u.totalEfficiencyPct.toFixed(2)}%
                         </td>
                       </tr>
-                    ))}
+                      ))
+                    )}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
@@ -994,7 +1005,14 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {draft.tariffEffectiveness.map((t, idx) => {
+                    {draft.tariffEffectiveness.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-8 text-center text-slate-500">
+                          Lampiran Efektivitas &amp; Umur Piutang per Golongan Tarif tidak tercantum pada dokumen laporan periode {draft.month} {draft.year}.
+                        </td>
+                      </tr>
+                    ) : (
+                      draft.tariffEffectiveness.map((t, idx) => {
                       const updateTariffRow = (
                         field:
                           | 'receivableMonth1'
@@ -1109,7 +1127,8 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                           </td>
                         </tr>
                       );
-                    })}
+                    })
+                    )}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
@@ -1152,7 +1171,14 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {draft.drdSummary.map((d, idx) => {
+                    {draft.drdSummary.length === 0 ? (
+                      <tr>
+                        <td colSpan={8} className="py-8 text-center text-slate-500">
+                          Lampiran Ikhtisar Rekening Air (DRD) tidak tercantum pada dokumen laporan periode {draft.month} {draft.year}.
+                        </td>
+                      </tr>
+                    ) : (
+                      draft.drdSummary.map((d, idx) => {
                       const updateDrd = (
                         field:
                           | 'customerCount'
@@ -1278,7 +1304,8 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                           </td>
                         </tr>
                       );
-                    })}
+                    })
+                    )}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
@@ -1476,7 +1503,14 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {draft.productionDistribution.map((p, idx) => {
+                    {draft.productionDistribution.length === 0 ? (
+                      <tr>
+                        <td colSpan={13} className="py-8 text-center text-slate-500">
+                          Lampiran Produksi, Distribusi &amp; NRW tidak tercantum pada dokumen laporan periode {draft.month} {draft.year}.
+                        </td>
+                      </tr>
+                    ) : (
+                      draft.productionDistribution.map((p, idx) => {
                       const updateProd = (
                         field:
                           | 'installedCapacityLps'
@@ -1664,7 +1698,8 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                           <td className="py-2 px-2 text-right font-mono">{p.nrwPctYtd.toFixed(2)}%</td>
                         </tr>
                       );
-                    })}
+                    })
+                    )}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
@@ -1725,7 +1760,14 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {draft.customerConnections.map((c, idx) => {
+                    {draft.customerConnections.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="py-8 text-center text-slate-500">
+                          Lampiran Posisi Sambungan Langganan (SR) tidak tercantum pada dokumen laporan periode {draft.month} {draft.year}.
+                        </td>
+                      </tr>
+                    ) : (
+                      draft.customerConnections.map((c, idx) => {
                       const updateConn = (
                         field:
                           | 'beginningActive'
@@ -1827,7 +1869,8 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                           </td>
                         </tr>
                       );
-                    })}
+                    })
+                    )}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
@@ -1870,7 +1913,14 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {draft.employeeComposition.map((e, idx) => {
+                    {draft.employeeComposition.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="py-8 text-center text-slate-500">
+                          Lampiran Kondisi Karyawan tidak tercantum pada dokumen laporan periode {draft.month} {draft.year}.
+                        </td>
+                      </tr>
+                    ) : (
+                      draft.employeeComposition.map((e, idx) => {
                       const updateHr = (
                         field: 'direksiCount' | 'permanentCount' | 'contractCount',
                         val: number
@@ -1937,7 +1987,8 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                           </td>
                         </tr>
                       );
-                    })}
+                    })
+                    )}
                   </tbody>
                   <tfoot>
                     <tr className="bg-slate-50 border-t-2 border-slate-200 font-bold text-slate-900">
@@ -2356,7 +2407,7 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
           <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-md p-5 space-y-3.5 text-xs shadow-xl">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-bold text-slate-900">
-                Kosongkan &amp; Muat Baseline Resmi Januari 2026
+                Kosongkan &amp; Muat Baseline Des 2025 + Jan 2026
               </h3>
               <button
                 type="button"
@@ -2367,7 +2418,7 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
               </button>
             </div>
             <p className="text-slate-600 leading-relaxed">
-              Seluruh data transaksi, COA, kas/bank, utang/piutang, aset, pajak, persediaan, pembelian, dan laporan operasional akan dikosongkan lalu diisi ulang menggunakan <strong>Laporan Bulan Januari 2026 Perumda Air Minum Tirta Saiyo</strong>.
+              Seluruh data transaksi, COA, kas/bank, utang/piutang, aset, pajak, persediaan, pembelian, dan laporan operasional akan dikosongkan lalu diisi ulang menggunakan <strong>Data Awal Desember 2025 &amp; Baseline Januari 2026 Perumda Air Minum Tirta Saiyo</strong>.
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <button
@@ -2383,7 +2434,7 @@ export const FinanceOperationsBillingTab: React.FC<FinanceOperationsBillingTabPr
                 onClick={handleLoadOfficialBaseline}
                 className="px-4 py-2 bg-emerald-700 text-white rounded-lg font-bold cursor-pointer"
               >
-                Konfirmasi &amp; Muat Jan 2026
+                Konfirmasi &amp; Muat Baseline
               </button>
             </div>
           </div>
