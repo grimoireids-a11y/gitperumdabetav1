@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   LayoutDashboard,
   ArrowDownLeft,
@@ -15,6 +15,10 @@ import {
   RotateCcw,
   Package,
   Droplets,
+  Database,
+  Loader2,
+  AlertTriangle,
+  X,
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -44,6 +48,10 @@ import {
   computeFinancialAnalysisAndWarnings,
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
+import {
+  clearAndSeedJan2026Baseline,
+  hasJan2026BaselineMarker,
+} from '../../lib/financeBaselineReset';
 import { FinanceActor, FinancePermissions, LogFinanceAuditFn } from './financeShared';
 import { FinanceDashboardTab, FinanceSubTabId } from './FinanceDashboardTab';
 import { FinanceTransactionsTab } from './FinanceTransactionsTab';
@@ -217,6 +225,84 @@ export const FinanceModule: React.FC = () => {
     [userProfile]
   );
 
+  const [baselineSyncing, setBaselineSyncing] = useState(false);
+  const [baselineNotice, setBaselineNotice] = useState<{
+    type: 'success' | 'error';
+    message: string;
+  } | null>(null);
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false);
+  const autoSeedCheckedRef = useRef(false);
+
+  // Automatic one-time reset & seed for January 2026 official baseline
+  useEffect(() => {
+    if (autoSeedCheckedRef.current) return;
+    if (!userProfile?.uid) return;
+    if (!permissions.canOperate && !permissions.isSuperUser) return;
+    autoSeedCheckedRef.current = true;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const alreadySeeded = await hasJan2026BaselineMarker();
+        if (alreadySeeded || cancelled) return;
+        setBaselineSyncing(true);
+        const result = await clearAndSeedJan2026Baseline({
+          actorUid: actor.uid,
+          actorName: actor.displayName,
+          actorRole: actor.role,
+          year: 2026,
+        });
+        if (!cancelled) {
+          setBaselineNotice({
+            type: 'success',
+            message: `Baseline Manajemen Keuangan Januari 2026 aktif (${result.deletedCount} data lama dibersihkan; ${result.seededCounts.coa} COA, ${result.seededCounts.cashBanks} Kas/Bank, ${result.seededCounts.receivablesPayables} Utang/Piutang, ${result.seededCounts.assets} Aset, ${result.seededCounts.taxes} Pajak, ${result.seededCounts.inventory} Persediaan, ${result.seededCounts.purchases} Pembelian & Operasional PDAM dimuat).`,
+          });
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setBaselineNotice({
+            type: 'error',
+            message: `Gagal menginisialisasi baseline Januari 2026: ${
+              err instanceof Error ? err.message : 'Error'
+            }`,
+          });
+        }
+      } finally {
+        if (!cancelled) setBaselineSyncing(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [userProfile?.uid, permissions.canOperate, permissions.isSuperUser, actor.uid, actor.displayName, actor.role]);
+
+  const handleManualResetJan2026 = async () => {
+    setBaselineSyncing(true);
+    try {
+      const result = await clearAndSeedJan2026Baseline({
+        actorUid: actor.uid,
+        actorName: actor.displayName,
+        actorRole: actor.role,
+        year: 2026,
+      });
+      setIsResetModalOpen(false);
+      setBaselineNotice({
+        type: 'success',
+        message: `Data keuangan berhasil dikosongkan (${result.deletedCount} dokumen) dan diisi ulang dengan Baseline Resmi Januari 2026.`,
+      });
+    } catch (err) {
+      setBaselineNotice({
+        type: 'error',
+        message: `Gagal mereset baseline Januari 2026: ${
+          err instanceof Error ? err.message : 'Error'
+        }`,
+      });
+    } finally {
+      setBaselineSyncing(false);
+    }
+  };
+
   const logFinanceAudit: LogFinanceAuditFn = async (input) => {
     const now = new Date().toISOString();
     const id = `faud-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -334,7 +420,7 @@ export const FinanceModule: React.FC = () => {
             <Filter className="w-3.5 h-3.5 text-emerald-700" />
             <span>Filter Terpadu Modul Keuangan & Realisasi RKA</span>
           </div>
-          <div className="flex items-center gap-2 text-[11px] text-slate-500">
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-slate-500">
             {permissions.isSuperUser && (
               <span className="px-2 py-0.5 bg-emerald-50 border border-emerald-200 rounded font-semibold text-emerald-800">
                 Super User: Akses Penuh Edit & Hapus Data
@@ -344,6 +430,21 @@ export const FinanceModule: React.FC = () => {
               <span className="px-2 py-0.5 bg-slate-100 border border-slate-200 rounded font-semibold text-slate-700">
                 Mode Pantau (Baca / Cetak)
               </span>
+            )}
+            {(permissions.canOperate || permissions.isSuperUser) && (
+              <button
+                type="button"
+                disabled={baselineSyncing}
+                onClick={() => setIsResetModalOpen(true)}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-bold text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg cursor-pointer disabled:opacity-60"
+              >
+                {baselineSyncing ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Database className="w-3 h-3" />
+                )}
+                <span>Reset Baseline Jan 2026</span>
+              </button>
             )}
             <button
               type="button"
@@ -355,6 +456,34 @@ export const FinanceModule: React.FC = () => {
             </button>
           </div>
         </div>
+
+        {(baselineSyncing || baselineNotice) && (
+          <div
+            className={`px-3 py-2 rounded-lg border text-[11px] flex items-center justify-between gap-2 ${
+              baselineNotice?.type === 'error'
+                ? 'bg-rose-50 border-rose-200 text-rose-900'
+                : 'bg-emerald-50 border-emerald-200 text-emerald-900'
+            }`}
+          >
+            <div className="flex items-center gap-2">
+              {baselineSyncing && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}
+              <span>
+                {baselineSyncing
+                  ? 'Mengosongkan data lama & mengisi baseline resmi Manajemen Keuangan Januari 2026...'
+                  : baselineNotice?.message}
+              </span>
+            </div>
+            {!baselineSyncing && baselineNotice && (
+              <button
+                type="button"
+                onClick={() => setBaselineNotice(null)}
+                className="underline font-semibold shrink-0 cursor-pointer"
+              >
+                Tutup
+              </button>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 text-xs">
           <div>
@@ -635,6 +764,50 @@ export const FinanceModule: React.FC = () => {
           auditTrails={auditTrails}
           transactions={transactions}
         />
+      )}
+
+      {isResetModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-md p-5 space-y-3.5 text-xs shadow-xl">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-amber-800">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <h3 className="text-sm font-bold text-slate-900">
+                  Kosongkan &amp; Muat Baseline Januari 2026
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsResetModalOpen(false)}
+                className="cursor-pointer"
+              >
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+            <p className="text-slate-600 leading-relaxed">
+              Tindakan ini akan <strong>mengosongkan seluruh transaksi, jurnal, kas/bank, COA, utang/piutang, aset, pajak, persediaan, pembelian, dan snapshot operasional</strong> lalu mengisi ulang data awal resmi Perumda Air Minum Tirta Saiyo periode <strong>Januari 2026</strong>. Data RKA, Audit Kinerja, dan Self Assessment BPKP tidak terpengaruh.
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                disabled={baselineSyncing}
+                onClick={() => setIsResetModalOpen(false)}
+                className="px-3.5 py-2 border border-slate-300 rounded-lg font-semibold cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={baselineSyncing}
+                onClick={handleManualResetJan2026}
+                className="inline-flex items-center gap-1.5 px-4 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-lg font-bold cursor-pointer disabled:opacity-60"
+              >
+                {baselineSyncing && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>Kosongkan &amp; Muat Jan 2026</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

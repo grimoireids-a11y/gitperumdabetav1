@@ -8,6 +8,7 @@ import {
   Download,
   AlertTriangle,
   Database,
+  ArrowRight,
   X,
 } from 'lucide-react';
 import { deleteDoc, doc, setDoc, writeBatch } from 'firebase/firestore';
@@ -75,7 +76,7 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
   const [invCat, setInvCat] =
     useState<FinanceInventoryItem['category']>('Bahan Kimia');
   const [invMeasure, setInvMeasure] = useState('Kg / Nilai');
-  const [invMonth, setInvMonth] = useState('September');
+  const [invMonth, setInvMonth] = useState('Januari');
   const [invUnitId, setInvUnitId] = useState('');
   const [invBeginQty, setInvBeginQty] = useState('1');
   const [invInQty, setInvInQty] = useState('0');
@@ -109,6 +110,12 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
     | { kind: 'PUR'; item: FinancePurchaseRecord }
     | null
   >(null);
+
+  // Inventory Month Roll-Over Modal State
+  const [isRolloverOpen, setIsRolloverOpen] = useState(false);
+  const [rollSourceMonth, setRollSourceMonth] = useState('Januari');
+  const [rollTargetMonth, setRollTargetMonth] = useState('Februari');
+  const [rollTargetYear, setRollTargetYear] = useState('2026');
 
   const activeYear = filter.year !== 0 ? filter.year : new Date().getFullYear();
 
@@ -166,7 +173,7 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
       (p) => (filter.year === 0 || p.year === filter.year) && p.status !== 'Dibatalkan'
     );
     const activeMonthName =
-      filter.month !== 'ALL' ? filter.month : 'September';
+      filter.month !== 'ALL' ? filter.month : 'Januari';
 
     return FINANCE_PURCHASE_CATEGORIES.map((cat) => {
       const catRows = yearScoped.filter((p) => p.category === cat);
@@ -188,7 +195,7 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
   const handleSeedInvPur = async () => {
     setSubmitting(true);
     try {
-      const invSeed = buildOfficialPDAMInventory(activeYear, 'September', actor.displayName);
+      const invSeed = buildOfficialPDAMInventory(activeYear, 'Januari', actor.displayName);
       const purSeed = buildOfficialPDAMPurchases(activeYear, actor.displayName);
       const batch = writeBatch(db);
       invSeed.forEach((item) => {
@@ -206,18 +213,96 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
         actionType: 'SEED',
         entityType: 'Persediaan & Pembelian PDAM',
         entityId: `seed-invpur-${activeYear}`,
-        entityLabel: `Baseline Persediaan & Pembelian Sep ${activeYear}`,
-        summary: `Memuat ${invSeed.length} item persediaan & ${purSeed.length} catatan pembelian resmi PDAM`,
+        entityLabel: `Baseline Persediaan & Pembelian Jan ${activeYear}`,
+        summary: `Memuat ${invSeed.length} item persediaan & ${purSeed.length} catatan pembelian resmi PDAM Januari ${activeYear}`,
         year: activeYear,
       });
       setFeedback({
         type: 'success',
-        message: `Berhasil memuat ${invSeed.length} item persediaan & ${purSeed.length} rekap pembelian resmi PDAM TA ${activeYear}.`,
+        message: `Berhasil memuat ${invSeed.length} item persediaan & ${purSeed.length} rekap pembelian resmi PDAM Januari TA ${activeYear}.`,
       });
     } catch (err: unknown) {
       setFeedback({
         type: 'error',
         message: `Gagal memuat baseline: ${err instanceof Error ? err.message : 'Error'}`,
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRolloverInventory = async () => {
+    const targetYear = parseInt(rollTargetYear, 10) || activeYear;
+    const sourceItems = inventory.filter(
+      (i) =>
+        (filter.year === 0 || i.year === filter.year) &&
+        i.month.toLowerCase() === rollSourceMonth.toLowerCase()
+    );
+    if (sourceItems.length === 0) {
+      setFeedback({
+        type: 'error',
+        message: `Tidak ditemukan item persediaan pada bulan ${rollSourceMonth}.`,
+      });
+      return;
+    }
+    if (
+      rollSourceMonth.toLowerCase() === rollTargetMonth.toLowerCase() &&
+      targetYear === activeYear
+    ) {
+      setFeedback({
+        type: 'error',
+        message: 'Bulan tujuan roll-over harus berbeda dari bulan sumber.',
+      });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const now = new Date().toISOString();
+      const batch = writeBatch(db);
+      let createdCount = 0;
+
+      sourceItems.forEach((src) => {
+        const coaClean = (src.coaCode || src.itemCode || src.id).replace(/[^a-zA-Z0-9]/g, '');
+        const newId = `inv-${targetYear}-${rollTargetMonth.toLowerCase()}-${coaClean}`;
+        const nextItem: FinanceInventoryItem = sanitizeFirestoreRecord({
+          ...src,
+          id: newId,
+          year: targetYear,
+          month: rollTargetMonth,
+          beginningQty: src.endingQty,
+          inQty: 0,
+          outQty: 0,
+          endingQty: src.endingQty,
+          prevMonthValue: src.endingValue,
+          endingValue: src.endingValue,
+          notes: `Saldo awal roll-over dari ${src.month} ${src.year}`,
+          updatedBy: actor.displayName,
+          updatedAt: now,
+          createdAt: now,
+        });
+        batch.set(doc(db, 'fin_inventory', newId), nextItem, { merge: true });
+        createdCount++;
+      });
+
+      await batch.commit();
+      await onLogAudit({
+        actionType: 'CREATE',
+        entityType: 'Roll-Over Persediaan Bulanan',
+        entityId: `rollover-${targetYear}-${rollTargetMonth.toLowerCase()}`,
+        entityLabel: `${rollSourceMonth} -> ${rollTargetMonth} ${targetYear}`,
+        summary: `Roll-over ${createdCount} item persediaan dari ${rollSourceMonth} ke ${rollTargetMonth} ${targetYear}`,
+        year: targetYear,
+      });
+
+      setIsRolloverOpen(false);
+      setFeedback({
+        type: 'success',
+        message: `${createdCount} item persediaan berhasil di-roll-over ke ${rollTargetMonth} ${targetYear} dan siap disesuaikan manual.`,
+      });
+    } catch (err: unknown) {
+      setFeedback({
+        type: 'error',
+        message: `Gagal roll-over persediaan: ${err instanceof Error ? err.message : 'Error'}`,
       });
     } finally {
       setSubmitting(false);
@@ -542,8 +627,27 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-teal-900 bg-teal-50 hover:bg-teal-100 border border-teal-200 rounded-lg cursor-pointer"
               >
                 <Database className="w-3.5 h-3.5" />
-                <span>Muat Baseline PDAM (Sep {activeYear})</span>
+                <span>Muat Baseline PDAM (Jan {activeYear})</span>
               </button>
+
+              {subView === 'PERSEDIAAN' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const months = FISCAL_MONTHS as readonly string[];
+                    const src = filter.month !== 'ALL' ? filter.month : 'Januari';
+                    const idx = months.indexOf(src);
+                    setRollSourceMonth(src);
+                    setRollTargetMonth(idx >= 0 && idx < 11 ? months[idx + 1] : 'Februari');
+                    setRollTargetYear(String(idx === 11 ? activeYear + 1 : activeYear));
+                    setIsRolloverOpen(true);
+                  }}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg cursor-pointer"
+                >
+                  <ArrowRight className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Roll-Over ke Bulan Berikutnya</span>
+                </button>
+              )}
 
               <button
                 type="button"
@@ -555,7 +659,7 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
                     setInvName('');
                     setInvCat('Bahan Kimia');
                     setInvMeasure('Kg / Nilai');
-                    setInvMonth(filter.month !== 'ALL' ? filter.month : 'September');
+                    setInvMonth(filter.month !== 'ALL' ? filter.month : 'Januari');
                     setInvUnitId('');
                     setInvBeginQty('1');
                     setInvInQty('0');
@@ -747,7 +851,7 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
         <div className="space-y-4">
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-900">
-              Rekapitulasi Pembelian Menurut Kategori (Bulan {filter.month !== 'ALL' ? filter.month : 'September'} vs s/d Bulan Ini)
+              Rekapitulasi Pembelian Menurut Kategori (Bulan {filter.month !== 'ALL' ? filter.month : 'Januari'} vs s/d Bulan Ini)
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
@@ -1204,6 +1308,77 @@ export const FinanceInventoryPurchaseTab: React.FC<FinanceInventoryPurchaseTabPr
                 className="px-4 py-2 bg-emerald-700 text-white rounded-lg font-bold cursor-pointer"
               >
                 Simpan Pembelian
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Roll-Over Persediaan ke Bulan Berikutnya */}
+      {isRolloverOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl border border-slate-200 w-full max-w-md p-5 space-y-3.5 text-xs shadow-xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-900">
+                Roll-Over Saldo Persediaan ke Bulan Berikutnya
+              </h3>
+              <button type="button" onClick={() => setIsRolloverOpen(false)} className="cursor-pointer">
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+            <p className="text-slate-600 leading-relaxed">
+              Saldo akhir (kuantitas &amp; rupiah) seluruh item persediaan pada bulan sumber akan disalin menjadi <strong>Nilai Bulan Lalu / Qty Awal</strong> pada bulan tujuan.
+            </p>
+            <div className="grid grid-cols-3 gap-2.5">
+              <div>
+                <label className="block font-semibold mb-1">Dari Bulan</label>
+                <select
+                  value={rollSourceMonth}
+                  onChange={(e) => setRollSourceMonth(e.target.value)}
+                  className="w-full px-2.5 py-2 border border-slate-300 rounded-lg"
+                >
+                  {FISCAL_MONTHS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Ke Bulan</label>
+                <select
+                  value={rollTargetMonth}
+                  onChange={(e) => setRollTargetMonth(e.target.value)}
+                  className="w-full px-2.5 py-2 border border-slate-300 rounded-lg"
+                >
+                  {FISCAL_MONTHS.map((m) => (
+                    <option key={m} value={m}>{m}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block font-semibold mb-1">Tahun</label>
+                <input
+                  type="number"
+                  value={rollTargetYear}
+                  onChange={(e) => setRollTargetYear(e.target.value)}
+                  className="w-full px-2.5 py-2 border border-slate-300 rounded-lg font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsRolloverOpen(false)}
+                className="px-3.5 py-2 border border-slate-300 rounded-lg font-semibold cursor-pointer"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={handleRolloverInventory}
+                className="px-4 py-2 bg-emerald-700 text-white rounded-lg font-bold cursor-pointer"
+              >
+                Proses Roll-Over
               </button>
             </div>
           </div>

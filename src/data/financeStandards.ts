@@ -1,12 +1,17 @@
 import { FinanceAccount, FinanceCashBankAccount } from '../types/finance';
 
 export {
-  buildOfficialPDAMCashBankAccounts,
-  buildOfficialPDAMCoa,
-  buildOfficialPDAMInventory,
-  buildOfficialPDAMPurchases,
-  buildOfficialPDAMSnapshotSep2026,
-} from './pdamOfficialBaseline2026';
+  buildOfficialPDAMCashBankAccountsJan2026 as buildOfficialPDAMCashBankAccounts,
+  buildOfficialPDAMCoaJan2026 as buildOfficialPDAMCoa,
+  buildOfficialPDAMInventoryJan2026 as buildOfficialPDAMInventory,
+  buildOfficialPDAMPurchasesJan2026 as buildOfficialPDAMPurchases,
+  buildOfficialPDAMReceivablesPayablesJan2026 as buildOfficialPDAMReceivablesPayables,
+  buildOfficialPDAMAssetsJan2026 as buildOfficialPDAMAssets,
+  buildOfficialPDAMTaxesJan2026 as buildOfficialPDAMTaxes,
+  buildOfficialPDAMSnapshotJan2026,
+} from './pdamOfficialBaselineJan2026';
+
+export { buildOfficialPDAMSnapshotSep2026 } from './pdamOfficialBaseline2026';
 
 export const FINANCE_INVENTORY_CATEGORIES = [
   'Bahan Kimia',

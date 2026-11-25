@@ -185,7 +185,7 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
     if (activeSnapshot?.purchaseSummary && activeSnapshot.purchaseSummary.length > 0 && purchases.length === 0) {
       return activeSnapshot.purchaseSummary;
     }
-    const targetMonth = filter.month !== 'ALL' ? filter.month : activeSnapshot?.month || 'September';
+    const targetMonth = filter.month !== 'ALL' ? filter.month : activeSnapshot?.month || 'Januari';
     const cats = Array.from(
       new Set([
         'Alat tulis kantor',
@@ -570,7 +570,7 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
       </p>
       <p className="text-[11px] text-slate-500 mt-1 max-w-md mx-auto">
         Buka tab <strong>Operasional & Penagihan PDAM</strong> lalu klik tombol{' '}
-        <strong>&quot;Muat Baseline Resmi PDAM (Sep 2026)&quot;</strong> untuk mengisi seluruh
+        <strong>&quot;Muat Baseline Resmi PDAM (Jan 2026)&quot;</strong> untuk mengisi seluruh
         laporan resmi Permendagri 118/2018.
       </p>
     </div>

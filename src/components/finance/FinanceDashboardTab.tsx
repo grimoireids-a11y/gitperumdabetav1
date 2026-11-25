@@ -486,7 +486,7 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-[11px] font-bold text-emerald-900 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg cursor-pointer"
             >
               <Droplets className="w-3.5 h-3.5 text-emerald-700" />
-              <span>{pdamKpis.hasSnapshot ? 'Kelola Data Operasional PDAM' : 'Muat Baseline PDAM Sep 2026'}</span>
+              <span>{pdamKpis.hasSnapshot ? 'Kelola Data Operasional PDAM' : 'Muat Baseline PDAM Jan 2026'}</span>
             </button>
           </div>
         </div>
