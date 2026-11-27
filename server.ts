@@ -2,6 +2,8 @@ import express, { Request, Response } from 'express';
 import { createServer as createViteServer } from 'vite';
 import { GoogleGenAI } from '@google/genai';
 import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
@@ -260,7 +262,106 @@ const ALLOWED_REPORT_MIMES = new Set([
   'application/vnd.ms-excel',
 ]);
 
+const FIN_UPLOAD_TMP_DIR = path.join(os.tmpdir(), 'pdam-fin-uploads');
+const MAX_FIN_UPLOAD_BYTES = 50 * 1024 * 1024; // 50 MB
+
+const cleanupStaleTempUploads = async () => {
+  try {
+    await fs.promises.mkdir(FIN_UPLOAD_TMP_DIR, { recursive: true });
+    const entries = await fs.promises.readdir(FIN_UPLOAD_TMP_DIR, { withFileTypes: true });
+    const cutoff = Date.now() - 30 * 60 * 1000;
+    await Promise.all(
+      entries
+        .filter((e) => e.isDirectory())
+        .map(async (e) => {
+          const full = path.join(FIN_UPLOAD_TMP_DIR, e.name);
+          const stat = await fs.promises.stat(full).catch(() => null);
+          if (stat && stat.mtimeMs < cutoff) {
+            await fs.promises.rm(full, { recursive: true, force: true }).catch(() => undefined);
+          }
+        })
+    );
+  } catch {
+    // ignore cleanup failure
+  }
+};
+
+app.post(
+  '/api/gemini/upload-finance-chunk',
+  express.raw({ type: '*/*', limit: '2mb' }),
+  async (req: Request, res: Response) => {
+    try {
+      const actorRole = String(req.headers['x-actor-role'] || req.query.actorRole || '');
+      if (!ALLOWED_SUPER_USER_ROLES.includes(actorRole as any)) {
+        return res.status(403).json({
+          error: 'Akses ditolak. Hanya Super User yang dapat mengunggah laporan bulanan.',
+        });
+      }
+
+      const uploadId = String(req.headers['x-upload-id'] || req.query.uploadId || '');
+      if (!/^[a-zA-Z0-9_-]{8,64}$/.test(uploadId)) {
+        return res.status(400).json({ error: 'ID unggahan tidak valid.' });
+      }
+
+      const chunkIndex = Number(req.headers['x-chunk-index'] ?? req.query.chunkIndex);
+      const totalChunks = Number(req.headers['x-total-chunks'] ?? req.query.totalChunks);
+      if (
+        !Number.isInteger(chunkIndex) ||
+        !Number.isInteger(totalChunks) ||
+        totalChunks < 1 ||
+        totalChunks > 100 ||
+        chunkIndex < 0 ||
+        chunkIndex >= totalChunks
+      ) {
+        return res.status(400).json({ error: 'Indeks potongan file tidak valid.' });
+      }
+
+      const chunkBuf = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+      if (chunkBuf.length === 0) {
+        return res.status(400).json({ error: 'Potongan file kosong.' });
+      }
+
+      if (chunkIndex === 0) {
+        cleanupStaleTempUploads().catch(() => undefined);
+      }
+
+      const uploadDir = path.join(FIN_UPLOAD_TMP_DIR, uploadId);
+      await fs.promises.mkdir(uploadDir, { recursive: true });
+      await fs.promises.writeFile(path.join(uploadDir, `${chunkIndex}.part`), chunkBuf);
+
+      const files = await fs.promises.readdir(uploadDir);
+      let accumulated = 0;
+      for (const f of files) {
+        if (!f.endsWith('.part')) continue;
+        const st = await fs.promises.stat(path.join(uploadDir, f));
+        accumulated += st.size;
+      }
+
+      if (accumulated > MAX_FIN_UPLOAD_BYTES) {
+        await fs.promises.rm(uploadDir, { recursive: true, force: true }).catch(() => undefined);
+        return res.status(413).json({ error: 'Ukuran total file melebihi batas maksimum 50 MB.' });
+      }
+
+      return res.json({
+        ok: true,
+        chunkIndex,
+        totalChunks,
+        receivedBytes: chunkBuf.length,
+        accumulatedBytes: accumulated,
+      });
+    } catch (err: any) {
+      console.error('Error in /api/gemini/upload-finance-chunk:', err);
+      return res.status(500).json({
+        error: err?.message || 'Gagal menerima potongan file laporan.',
+      });
+    }
+  }
+);
+
 app.post('/api/gemini/parse-finance-report', async (req: Request, res: Response) => {
+  let uploadDirToCleanup: string | null = null;
+  let uploadedGeminiFileName: string | null = null;
+
   try {
     const {
       actorRole,
@@ -270,6 +371,8 @@ app.post('/api/gemini/parse-finance-report', async (req: Request, res: Response)
       fileName = 'laporan-keuangan',
       mimeType = 'application/pdf',
       fileBase64,
+      uploadId,
+      totalChunks,
       spreadsheetText,
     } = req.body || {};
 
@@ -296,7 +399,7 @@ app.post('/api/gemini/parse-finance-report', async (req: Request, res: Response)
       return res.status(400).json({ error: `Format file "${safeMime}" tidak didukung.` });
     }
 
-    if (!fileBase64 && !spreadsheetText) {
+    if (!uploadId && !fileBase64 && !spreadsheetText) {
       return res.status(400).json({ error: 'Konten file laporan kosong atau belum dipilih.' });
     }
 
@@ -311,6 +414,43 @@ app.post('/api/gemini/parse-finance-report', async (req: Request, res: Response)
       });
     }
 
+    // Assemble file buffer either from chunked uploadId or inline base64
+    let fileBuffer: Buffer | null = null;
+    if (typeof uploadId === 'string' && uploadId.length > 0) {
+      if (!/^[a-zA-Z0-9_-]{8,64}$/.test(uploadId)) {
+        return res.status(400).json({ error: 'ID unggahan tidak valid.' });
+      }
+      const dir = path.join(FIN_UPLOAD_TMP_DIR, uploadId);
+      uploadDirToCleanup = dir;
+      const expectedCount = Number(totalChunks);
+      if (!Number.isInteger(expectedCount) || expectedCount < 1 || expectedCount > 100) {
+        return res.status(400).json({ error: 'Jumlah bagian unggahan tidak valid.' });
+      }
+      const chunkBuffers: Buffer[] = [];
+      let totalSize = 0;
+      for (let i = 0; i < expectedCount; i++) {
+        const partPath = path.join(dir, `${i}.part`);
+        if (!fs.existsSync(partPath)) {
+          return res.status(400).json({
+            error: `Bagian unggahan ke-${i + 1} belum lengkap di server. Silakan ulangi upload.`,
+          });
+        }
+        const buf = await fs.promises.readFile(partPath);
+        totalSize += buf.length;
+        if (totalSize > MAX_FIN_UPLOAD_BYTES) {
+          return res.status(413).json({ error: 'Ukuran file melebihi batas maksimum 50 MB.' });
+        }
+        chunkBuffers.push(buf);
+      }
+      fileBuffer = Buffer.concat(chunkBuffers);
+    } else if (typeof fileBase64 === 'string' && fileBase64.length > 0) {
+      const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
+      fileBuffer = Buffer.from(cleanBase64, 'base64');
+      if (fileBuffer.length > MAX_FIN_UPLOAD_BYTES) {
+        return res.status(413).json({ error: 'Ukuran file melebihi batas maksimum 50 MB.' });
+      }
+    }
+
     const promptText = buildFinanceReportParsePrompt({
       targetYear: parsedYear,
       targetMonth: validMonth,
@@ -320,86 +460,105 @@ app.post('/api/gemini/parse-finance-report', async (req: Request, res: Response)
     });
 
     const parts: any[] = [{ text: promptText }];
-    let uploadedGeminiFileName: string | null = null;
 
-    try {
-      if (
-        typeof fileBase64 === 'string' &&
-        fileBase64.length > 0 &&
-        (safeMime === 'application/pdf' || safeMime.startsWith('image/'))
-      ) {
-        const cleanBase64 = fileBase64.replace(/^data:[^;]+;base64,/, '');
-        if (cleanBase64.length <= 24_000_000) {
-          parts.push({
-            inlineData: {
-              mimeType: safeMime,
-              data: cleanBase64,
-            },
-          });
-        } else {
-          const binaryBuffer = Buffer.from(cleanBase64, 'base64');
-          const fileBlob = new Blob([binaryBuffer], { type: safeMime });
-          const uploadedFile = await ai.files.upload({
-            file: fileBlob,
-            config: {
-              mimeType: safeMime,
-              displayName: String(fileName).slice(0, 120),
-            },
-          });
-          uploadedGeminiFileName = uploadedFile.name || null;
-          if (!uploadedFile.uri) {
-            throw new Error('Gagal mengunggah file besar ke layanan pembacaan dokumen.');
-          }
-          parts.push({
-            fileData: {
-              fileUri: uploadedFile.uri,
-              mimeType: uploadedFile.mimeType || safeMime,
-            },
-          });
+    if (
+      fileBuffer &&
+      fileBuffer.length > 0 &&
+      (safeMime === 'application/pdf' || safeMime.startsWith('image/'))
+    ) {
+      if (fileBuffer.length <= 18_000_000) {
+        parts.push({
+          inlineData: {
+            mimeType: safeMime,
+            data: fileBuffer.toString('base64'),
+          },
+        });
+      } else {
+        const fileBlob = new Blob([new Uint8Array(fileBuffer)], { type: safeMime });
+        let uploadedFile = await ai.files.upload({
+          file: fileBlob,
+          config: {
+            mimeType: safeMime,
+            displayName: String(fileName).slice(0, 120),
+          },
+        });
+        uploadedGeminiFileName = uploadedFile.name || null;
+
+        // Wait briefly if large file is still in PROCESSING state
+        let attempts = 0;
+        while (uploadedFile.state === 'PROCESSING' && uploadedFile.name && attempts < 15) {
+          await new Promise((r) => setTimeout(r, 2000));
+          uploadedFile = await ai.files.get({ name: uploadedFile.name });
+          attempts++;
         }
-      }
 
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Waktu pembacaan AI habis (>115 detik). Coba perkecil ukuran file atau gunakan template Excel.')), 115_000)
-      );
+        if (uploadedFile.state === 'FAILED') {
+          throw new Error('Dokumen gagal diproses oleh layanan pembacaan file (status FAILED).');
+        }
+        if (!uploadedFile.uri) {
+          throw new Error('Gagal mengunggah file besar ke layanan pembacaan dokumen.');
+        }
 
-      const geminiPromise = ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: [{ role: 'user', parts }],
-        config: {
-          systemInstruction: FINANCE_REPORT_PARSE_SYSTEM_INSTRUCTION,
-          responseMimeType: 'application/json',
-        },
-      });
-
-      const response: any = await Promise.race([geminiPromise, timeoutPromise]);
-      const rawText = response?.text || '';
-      if (!rawText.trim()) {
-        return res.status(502).json({
-          error: 'Model tidak mengembalikan hasil pembacaan laporan. Pastikan file dapat dibaca (bukan terenkripsi password).',
+        parts.push({
+          fileData: {
+            fileUri: uploadedFile.uri,
+            mimeType: uploadedFile.mimeType || safeMime,
+          },
         });
       }
-
-      const rawJson = extractJsonFromModelText(rawText);
-      const normalized = normalizeParsedFinanceReport({
-        raw: rawJson,
-        targetYear: parsedYear,
-        targetMonth: validMonth,
-        actorName: String(actorName),
-        parserSource: 'gemini-4-hydrogen',
-      });
-
-      return res.json({ data: normalized });
-    } finally {
-      if (uploadedGeminiFileName) {
-        ai.files.delete({ name: uploadedGeminiFileName }).catch(() => undefined);
-      }
     }
+
+    const timeoutPromise = new Promise((_, reject) =>
+      setTimeout(
+        () =>
+          reject(
+            new Error(
+              'Waktu pembacaan AI habis (>120 detik). Jika PDF hasil scan sangat besar, coba kompres PDF atau pecah per halaman.'
+            )
+          ),
+        120_000
+      )
+    );
+
+    const geminiPromise = ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: [{ role: 'user', parts }],
+      config: {
+        systemInstruction: FINANCE_REPORT_PARSE_SYSTEM_INSTRUCTION,
+        responseMimeType: 'application/json',
+      },
+    });
+
+    const response: any = await Promise.race([geminiPromise, timeoutPromise]);
+    const rawText = response?.text || '';
+    if (!rawText.trim()) {
+      return res.status(502).json({
+        error: 'Model tidak mengembalikan hasil pembacaan laporan. Pastikan file dapat dibaca (bukan terenkripsi password).',
+      });
+    }
+
+    const rawJson = extractJsonFromModelText(rawText);
+    const normalized = normalizeParsedFinanceReport({
+      raw: rawJson,
+      targetYear: parsedYear,
+      targetMonth: validMonth,
+      actorName: String(actorName),
+      parserSource: 'gemini-4-hydrogen',
+    });
+
+    return res.json({ data: normalized });
   } catch (err: any) {
     console.error('Error in /api/gemini/parse-finance-report:', err);
     return res.status(500).json({
       error: err?.message || 'Gagal membaca dokumen laporan keuangan secara otomatis.',
     });
+  } finally {
+    if (uploadedGeminiFileName) {
+      ai.files.delete({ name: uploadedGeminiFileName }).catch(() => undefined);
+    }
+    if (uploadDirToCleanup) {
+      fs.promises.rm(uploadDirToCleanup, { recursive: true, force: true }).catch(() => undefined);
+    }
   }
 });
 

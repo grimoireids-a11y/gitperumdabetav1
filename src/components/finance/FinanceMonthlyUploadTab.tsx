@@ -77,6 +77,8 @@ type PreviewSectionTab =
   | 'OPERASIONAL_PDAM';
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB
+const DIRECT_INLINE_THRESHOLD_BYTES = 2 * 1024 * 1024; // 2 MB (safe for all proxies)
+const UPLOAD_CHUNK_BYTES = 1024 * 1024; // 1 MB binary chunks
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -142,6 +144,7 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
+  const [parsingProgress, setParsingProgress] = useState<string>('');
   const [committing, setCommitting] = useState(false);
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error' | 'info';
@@ -283,6 +286,7 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
       return;
     }
     setParsing(true);
+    setParsingProgress('Mempersiapkan dokumen...');
     setFeedback(null);
 
     try {
@@ -295,8 +299,11 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
       let spreadsheetText = '';
       let mimeType = selectedFile.type || 'application/pdf';
       let fileBase64 = '';
+      let uploadId = '';
+      let totalChunks = 0;
 
       if (isExcelOrCsv) {
+        setParsingProgress('Membaca lembar kerja Excel...');
         const buf = await selectedFile.arrayBuffer();
         const wb = XLSX.read(buf, { type: 'array' });
 
@@ -314,24 +321,66 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
             type: 'success',
             message: `Template Excel terbaca lengkap dan dikunci ke periode ${targetMonth} ${targetYear} (${directTemplateParsed.coaAccounts.length} akun COA, ${directTemplateParsed.cashBanks.length} Kas/Bank). Silakan review & sesuaikan sebelum diterapkan.`,
           });
-          setParsing(false);
           return;
         }
 
-        // 2. Arbitrary Excel/CSV -> extract CSV sheets and send to Gemini parser
-        spreadsheetText = workbookToPlainText(wb);
+        // 2. Arbitrary Excel/CSV -> extract CSV sheets capped cleanly so request stays well under proxy limits
+        spreadsheetText = workbookToPlainText(wb).slice(0, 450_000);
         mimeType = lowerName.endsWith('.csv')
           ? 'text/csv'
           : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
       } else {
-        // PDF / Image -> send base64 to server Gemini multimodal parser
         if (!mimeType) {
           if (lowerName.endsWith('.png')) mimeType = 'image/png';
           else if (lowerName.endsWith('.jpg') || lowerName.endsWith('.jpeg')) mimeType = 'image/jpeg';
           else mimeType = 'application/pdf';
         }
-        fileBase64 = await readFileAsDataUrl(selectedFile);
+
+        if (selectedFile.size <= DIRECT_INLINE_THRESHOLD_BYTES) {
+          setParsingProgress('Menyiapkan file untuk pembacaan otomatis...');
+          fileBase64 = await readFileAsDataUrl(selectedFile);
+        } else {
+          // Upload in 1 MB raw binary chunks to bypass reverse proxy payload limits (HTTP 413)
+          uploadId = `fup_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+          totalChunks = Math.ceil(selectedFile.size / UPLOAD_CHUNK_BYTES);
+
+          for (let idx = 0; idx < totalChunks; idx++) {
+            const start = idx * UPLOAD_CHUNK_BYTES;
+            const end = Math.min(selectedFile.size, start + UPLOAD_CHUNK_BYTES);
+            const chunkBlob = selectedFile.slice(start, end);
+            const pct = Math.round(((idx + 1) / totalChunks) * 100);
+            setParsingProgress(
+              `Mengunggah dokumen bagian ${idx + 1}/${totalChunks} (${pct}%)...`
+            );
+
+            const chunkRes = await fetch(
+              `/api/gemini/upload-finance-chunk?uploadId=${encodeURIComponent(
+                uploadId
+              )}&chunkIndex=${idx}&totalChunks=${totalChunks}`,
+              {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/octet-stream',
+                  'x-actor-role': actor.role,
+                  'x-upload-id': uploadId,
+                  'x-chunk-index': String(idx),
+                  'x-total-chunks': String(totalChunks),
+                },
+                body: chunkBlob,
+              }
+            );
+            const chunkBody = await chunkRes.json().catch(() => ({}));
+            if (!chunkRes.ok) {
+              throw new Error(
+                chunkBody?.error ||
+                  `Gagal mengunggah bagian dokumen ke-${idx + 1} (HTTP ${chunkRes.status}).`
+              );
+            }
+          }
+        }
       }
+
+      setParsingProgress('Membaca & mengekstrak angka laporan dengan AI...');
 
       const res = await fetch('/api/gemini/parse-finance-report', {
         method: 'POST',
@@ -344,12 +393,19 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
           fileName: selectedFile.name,
           mimeType,
           fileBase64: fileBase64 || undefined,
+          uploadId: uploadId || undefined,
+          totalChunks: totalChunks || undefined,
           spreadsheetText: spreadsheetText || undefined,
         }),
       });
 
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body?.data) {
+        if (res.status === 413 && !body?.error) {
+          throw new Error(
+            'Ukuran payload melebihi batas gateway server (HTTP 413). Gunakan template Excel atau perkecil resolusi file PDF.'
+          );
+        }
         throw new Error(body?.error || `Gagal membaca laporan (HTTP ${res.status}).`);
       }
 
@@ -367,6 +423,7 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
       });
     } finally {
       setParsing(false);
+      setParsingProgress('');
     }
   };
 
@@ -795,7 +852,7 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
               {parsing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Membaca &amp; Mengekstrak Laporan...</span>
+                  <span>{parsingProgress || 'Membaca & Mengekstrak Laporan...'}</span>
                 </>
               ) : (
                 <>
