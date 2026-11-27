@@ -339,11 +339,14 @@ export async function commitMonthlyReportUploadToFirestore(params: {
   applyMode: FinanceUploadApplyMode;
   fileMeta: { fileName: string; fileSizeBytes: number; mimeType: string };
   actor: { uid: string; displayName: string; role: string };
+  onProgress?: (pct: number, stepLabel: string) => void;
 }): Promise<MonthlyCommitSummary> {
-  const { payload, applyMode, fileMeta, actor } = params;
+  const { payload, applyMode, fileMeta, actor, onProgress } = params;
   const { targetYear, targetMonth } = payload;
   const now = new Date().toISOString();
   const mSlug = getMonthSlug(targetMonth);
+
+  onProgress?.(5, `Mempersiapkan data ${targetMonth} ${targetYear}...`);
 
   // Stamp explicit targetYear & targetMonth onto every item one last time before committing
   const coaList: FinanceAccount[] = payload.coaAccounts.map((c, idx) => ({
@@ -414,6 +417,7 @@ export async function commitMonthlyReportUploadToFirestore(params: {
   // 1. Delete existing records ONLY inside (targetYear, targetMonth) when REPLACE_MONTH
   const deleteRefs: DocumentReference[] = [];
   if (applyMode === 'REPLACE_MONTH') {
+    onProgress?.(12, `Memeriksa data lama periode ${targetMonth} ${targetYear}...`);
     const targetCols: { colName: string; hasNewData: boolean }[] = [
       { colName: 'fin_accounts', hasNewData: coaList.length > 0 },
       { colName: 'fin_cash_banks', hasNewData: cbList.length > 0 },
@@ -425,7 +429,8 @@ export async function commitMonthlyReportUploadToFirestore(params: {
       { colName: 'fin_pdam_reports', hasNewData: true },
     ];
 
-    for (const { colName, hasNewData } of targetCols) {
+    for (let cIdx = 0; cIdx < targetCols.length; cIdx++) {
+      const { colName, hasNewData } = targetCols[cIdx];
       if (!hasNewData) continue;
       const snap = await getDocs(collection(db, colName));
       snap.docs.forEach((d) => {
@@ -441,14 +446,25 @@ export async function commitMonthlyReportUploadToFirestore(params: {
           deleteRefs.push(d.ref);
         }
       });
+      onProgress?.(
+        14 + Math.round(((cIdx + 1) / targetCols.length) * 10),
+        `Memindai koleksi ${colName} (${cIdx + 1}/${targetCols.length})...`
+      );
     }
 
     for (let i = 0; i < deleteRefs.length; i += BATCH_LIMIT) {
       const batch = writeBatch(db);
-      deleteRefs.slice(i, i + BATCH_LIMIT).forEach((ref) => batch.delete(ref));
+      const end = Math.min(i + BATCH_LIMIT, deleteRefs.length);
+      deleteRefs.slice(i, end).forEach((ref) => batch.delete(ref));
       await batch.commit();
+      onProgress?.(
+        25 + Math.round((end / Math.max(1, deleteRefs.length)) * 20),
+        `Membersihkan data lama bulan ${targetMonth} (${end}/${deleteRefs.length})...`
+      );
     }
   }
+
+  onProgress?.(50, 'Menghitung ulang neraca, laba rugi & audit trail...');
 
   // 2. Compute authoritative preview summary for Upload History & Audit Trail
   const previewStatements = computeAccountingStatements({
@@ -560,11 +576,21 @@ export async function commitMonthlyReportUploadToFirestore(params: {
 
   for (let i = 0; i < writeOps.length; i += BATCH_LIMIT) {
     const batch = writeBatch(db);
-    writeOps.slice(i, i + BATCH_LIMIT).forEach(({ ref, data }) => {
+    const end = Math.min(i + BATCH_LIMIT, writeOps.length);
+    writeOps.slice(i, end).forEach(({ ref, data }) => {
       batch.set(ref, data);
     });
     await batch.commit();
+    onProgress?.(
+      55 + Math.round((end / Math.max(1, writeOps.length)) * 41),
+      `Menyimpan data ke Manajemen Keuangan (${end}/${writeOps.length} dokumen)...`
+    );
   }
+
+  onProgress?.(
+    100,
+    `Selesai! ${writeOps.length} dokumen berhasil disimpan ke ${targetMonth} ${targetYear}.`
+  );
 
   return {
     deletedCount: deleteRefs.length,

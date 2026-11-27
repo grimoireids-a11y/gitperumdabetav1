@@ -173,6 +173,173 @@ const inferTaxType = (rawType: unknown): FinanceTaxType => {
   return 'Lainnya';
 };
 
+const inferSubCategory = (
+  rawSub: unknown,
+  type: FinanceAccountType,
+  code: string,
+  name: string,
+  isContra: boolean
+): string => {
+  const s = String(rawSub || '').trim();
+  const sLow = s.toLowerCase();
+  const nLow = name.toLowerCase();
+
+  if (type === 'Aset') {
+    const looksCurrentCode =
+      code.startsWith('11.') ||
+      code.startsWith('12.') ||
+      code.startsWith('13.') ||
+      code.startsWith('14.') ||
+      code.startsWith('15.') ||
+      code.startsWith('16.') ||
+      code.startsWith('1-1');
+    const looksFixedCode = code.startsWith('31.') || code.startsWith('1-2');
+
+    if (looksCurrentCode || sLow.includes('lancar') || nLow.includes('kas') || nLow.includes('bank') || nLow.includes('piutang') || nLow.includes('persediaan')) {
+      if (isContra || code.startsWith('13.09')) return 'Aset Lancar - Penyisihan Piutang';
+      if (code.startsWith('11.') || nLow.includes('kas') || nLow.includes('bank')) {
+        return nLow.includes('kas') ? 'Aset Lancar - Kas' : 'Aset Lancar - Bank';
+      }
+      if (code.startsWith('13.') || code.startsWith('14.') || nLow.includes('piutang')) {
+        return code.startsWith('14.') ? 'Aset Lancar - Piutang Lain-Lain' : 'Aset Lancar - Piutang Usaha';
+      }
+      if (code.startsWith('15.') || nLow.includes('persediaan') || nLow.includes('bahan')) {
+        return 'Aset Lancar - Persediaan';
+      }
+      if (code.startsWith('16.') || nLow.includes('dibayar dimuka')) {
+        return 'Aset Lancar - Pembayaran Dimuka';
+      }
+      return sLow.includes('lancar') ? s : `Aset Lancar${s ? ` - ${s}` : ''}`;
+    }
+
+    if (isContra || code.startsWith('31.10') || sLow.includes('akumulasi')) {
+      return 'Akumulasi Penyusutan';
+    }
+    if (looksFixedCode || sLow.includes('tetap')) {
+      return 'Aset Tetap';
+    }
+    return s || 'Aset Lancar';
+  }
+
+  if (type === 'Kewajiban') {
+    if (code.startsWith('6') || sLow.includes('panjang')) {
+      return 'Kewajiban Jangka Panjang';
+    }
+    if (code.startsWith('50.06') || nLow.includes('pajak') || nLow.includes('pph') || nLow.includes('ppn')) {
+      return 'Kewajiban Lancar - Pajak';
+    }
+    return sLow.includes('lancar') ? s : `Kewajiban Lancar${s ? ` - ${s}` : ''}`;
+  }
+
+  if (type === 'Ekuitas') {
+    if (code === '70.09.10' || sLow.includes('tahun berjalan') || nLow.includes('tahun berjalan')) {
+      return 'Ekuitas - Tahun Berjalan';
+    }
+    if (code.startsWith('70.07') || nLow.includes('tahun lalu') || nLow.includes('ditahan')) {
+      return 'Ekuitas - Laba Ditahan';
+    }
+    return s || 'Ekuitas & Cadangan';
+  }
+
+  if (type === 'Pendapatan') {
+    if (code.startsWith('88.') || sLow.includes('lain')) return 'Pendapatan Lain-Lain';
+    return s || 'Pendapatan Usaha';
+  }
+
+  // Beban
+  if (code.startsWith('98.') || sLow.includes('lain')) return 'Beban Lain-Lain';
+  if (code.includes('.09.')) {
+    return code.startsWith('96.') ? 'Beban Penyusutan Umum' : 'Beban Penyusutan Langsung';
+  }
+  if (code.startsWith('91.') || code.startsWith('92.') || code.startsWith('93.') || code.startsWith('95.')) {
+    return sLow.includes('langsung') ? s : `Beban Operasi Langsung${s ? ` - ${s}` : ''}`;
+  }
+  if (code.startsWith('96.')) {
+    return sLow.includes('administrasi') ? s : `Beban Administrasi & Umum${s ? ` - ${s}` : ''}`;
+  }
+  return s || 'Beban Administrasi & Umum';
+};
+
+export interface ReportAccountingDiagnostics {
+  coaCount: number;
+  totalCurrentAssets: number;
+  netFixedAssets: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  totalEquity: number;
+  totalLiabilitiesAndEquity: number;
+  neracaDiff: number;
+  isBalanced: boolean;
+  totalRevenueYtd: number;
+  totalExpenseYtd: number;
+  netIncomeYtd: number;
+  totalRevenueMonthly: number;
+  totalExpenseMonthly: number;
+  netIncomeMonthly: number;
+}
+
+export function computeReportAccountingDiagnostics(
+  payload: FinanceMonthlyUploadParsedPayload
+): ReportAccountingDiagnostics {
+  const coas = payload.coaAccounts || [];
+  let totalCurrentAssets = 0;
+  let grossFixedAssets = 0;
+  let totalAccumDep = 0;
+  let totalLiabilities = 0;
+  let totalEquity = 0;
+  let totalRevenueYtd = 0;
+  let totalExpenseYtd = 0;
+  let totalRevenueMonthly = 0;
+  let totalExpenseMonthly = 0;
+
+  coas.forEach((a) => {
+    const val = Number(a.openingBalance) || 0;
+    const isContra = Boolean(a.isContra);
+    if (a.type === 'Aset') {
+      if ((a.subCategory || '').toLowerCase().includes('lancar')) {
+        totalCurrentAssets += isContra ? -val : val;
+      } else if (isContra) {
+        totalAccumDep += val;
+      } else {
+        grossFixedAssets += val;
+      }
+    } else if (a.type === 'Kewajiban') {
+      totalLiabilities += val;
+    } else if (a.type === 'Ekuitas') {
+      totalEquity += val;
+    } else if (a.type === 'Pendapatan') {
+      totalRevenueYtd += Number(a.ytdRealization ?? val) || 0;
+      totalRevenueMonthly += Number(a.monthlyRealization ?? val) || 0;
+    } else if (a.type === 'Beban') {
+      totalExpenseYtd += Number(a.ytdRealization ?? val) || 0;
+      totalExpenseMonthly += Number(a.monthlyRealization ?? val) || 0;
+    }
+  });
+
+  const netFixedAssets = grossFixedAssets - totalAccumDep;
+  const totalAssets = totalCurrentAssets + netFixedAssets;
+  const totalLiabilitiesAndEquity = totalLiabilities + totalEquity;
+  const neracaDiff = Math.abs(totalAssets - totalLiabilitiesAndEquity);
+
+  return {
+    coaCount: coas.length,
+    totalCurrentAssets,
+    netFixedAssets,
+    totalAssets,
+    totalLiabilities,
+    totalEquity,
+    totalLiabilitiesAndEquity,
+    neracaDiff,
+    isBalanced: totalAssets > 0 && neracaDiff <= 5000,
+    totalRevenueYtd,
+    totalExpenseYtd,
+    netIncomeYtd: totalRevenueYtd - totalExpenseYtd,
+    totalRevenueMonthly,
+    totalExpenseMonthly,
+    netIncomeMonthly: totalRevenueMonthly - totalExpenseMonthly,
+  };
+}
+
 export function normalizeParsedFinanceReport(params: {
   raw: Record<string, any>;
   targetYear: number;
@@ -204,23 +371,8 @@ export function normalizeParsedFinanceReport(params: {
     const code = String(item?.code || `99.${String(idx + 1).padStart(2, '0')}`).trim();
     const name = String(item?.name || `Akun ${code}`).trim();
     const type = inferCoaType(item?.type, code);
-    const subCategory = String(
-      item?.subCategory ||
-        (type === 'Aset'
-          ? code.startsWith('31.')
-            ? 'Aset Tetap Produktif'
-            : 'Aset Lancar'
-          : type === 'Kewajiban'
-          ? code.startsWith('6')
-            ? 'Kewajiban Jangka Panjang'
-            : 'Kewajiban Lancar'
-          : type === 'Ekuitas'
-          ? 'Ekuitas & Cadangan'
-          : type === 'Pendapatan'
-          ? 'Pendapatan Usaha'
-          : 'Beban Operasi')
-    ).trim();
-    const isContra = inferIsContra(item?.isContra, code, name, subCategory);
+    const isContra = inferIsContra(item?.isContra, code, name, String(item?.subCategory || ''));
+    const subCategory = inferSubCategory(item?.subCategory, type, code, name, isContra);
     const normalBalance = inferNormalBalance(item?.normalBalance, type, isContra);
     const cashFlowGroup = inferCashFlowGroup(item?.cashFlowGroup, code, name, type);
 
@@ -678,7 +830,194 @@ export function normalizeParsedFinanceReport(params: {
     createdAt: now,
   };
 
-  return {
+  // 10. Auto-enrich sparse sub-modules deterministically from extracted COA / Asset Groups
+  // so Dashboard, Utang/Piutang, Aset, Pajak, dan Persediaan selalu sinkron sempurna!
+  if (receivablesPayables.length === 0) {
+    coaAccounts
+      .filter(
+        (c) =>
+          (c.code.startsWith('13.01') ||
+            c.code.startsWith('13.02') ||
+            c.code.startsWith('14.') ||
+            c.code.startsWith('50.01') ||
+            c.code.startsWith('50.02') ||
+            c.code.startsWith('50.03') ||
+            c.code.startsWith('62.')) &&
+          !c.isContra &&
+          Math.abs(c.openingBalance) > 0
+      )
+      .forEach((c, idx) => {
+        const isPiutang = c.type === 'Aset';
+        const kind: 'PIUTANG' | 'UTANG' = isPiutang ? 'PIUTANG' : 'UTANG';
+        const docNumber = `${isPiutang ? 'PIU' : 'UTG'}-${targetYear}-${mPad}-${cleanIdToken(
+          c.code,
+          String(idx + 1)
+        )}`;
+        receivablesPayables.push({
+          id: `rp-${targetYear}-${mSlug}-${cleanIdToken(c.code, String(idx + 1))}`,
+          kind,
+          documentNumber: docNumber,
+          partyName: c.name,
+          category: isPiutang ? 'Piutang Usaha / Pelanggan' : 'Utang Usaha & Kewajiban',
+          unitId: '',
+          unitName: 'Kantor Pusat & Unit Pelayanan',
+          coaId: c.id,
+          coaCode: c.code,
+          transactionDate: monthEndIso,
+          dueDate: monthEndIso,
+          year: targetYear,
+          month: targetMonth,
+          originalAmount: Math.abs(c.openingBalance),
+          paidAmount: 0,
+          remainingAmount: Math.abs(c.openingBalance),
+          status: 'Belum Lunas',
+          payments: [],
+          notes: `Diturunkan otomatis dari Neraca COA ${c.code} (${targetMonth} ${targetYear})`,
+          createdBy: actorName,
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+  }
+
+  if (assets.length === 0) {
+    if (pdamSnapshot.assetGroupSummary.length > 0) {
+      pdamSnapshot.assetGroupSummary.forEach((ag, idx) => {
+        if ((ag.acquisitionCost || 0) <= 0) return;
+        const groupCode = String(ag.groupCode || `31.${String(idx + 1).padStart(2, '0')}`).trim();
+        assets.push({
+          id: `ast-${targetYear}-${mSlug}-${cleanIdToken(groupCode, String(idx + 1))}`,
+          assetCode: groupCode,
+          name: ag.groupName,
+          category: 'Kelompok Aktiva Tetap',
+          unitId: '',
+          unitName: 'Kantor Pusat & 11 Unit Pelayanan',
+          year: targetYear,
+          month: targetMonth,
+          acquisitionDate: monthEndIso,
+          acquisitionCost: Math.max(0, ag.acquisitionCost),
+          usefulLifeMonths: 120,
+          salvageValue: 0,
+          depreciationMethod: 'Garis Lurus',
+          accumulatedDepreciation: Math.max(0, ag.accumDepEnding),
+          bookValue: Math.max(
+            0,
+            ag.bookValueEnding || ag.acquisitionCost - ag.accumDepEnding
+          ),
+          coaAssetId: `coa-${targetYear}-${mSlug}-${cleanIdToken(groupCode, '3101')}`,
+          status: 'Aktif',
+          mutations: [],
+          notes: `Diturunkan otomatis dari Ikhtisar Aktiva ${targetMonth} ${targetYear}`,
+          createdBy: actorName,
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+    } else {
+      const accumTotal = coaAccounts
+        .filter((c) => c.type === 'Aset' && c.isContra && c.code.startsWith('31.10'))
+        .reduce((s, c) => s + Math.abs(c.openingBalance || 0), 0);
+      const grossFixed = coaAccounts.filter(
+        (c) => c.type === 'Aset' && !c.isContra && c.code.startsWith('31.') && c.openingBalance > 0
+      );
+      const grossSum = grossFixed.reduce((s, c) => s + (c.openingBalance || 0), 0);
+      grossFixed.forEach((c, idx) => {
+        const proportionalAccum =
+          grossSum > 0 && accumTotal > 0
+            ? Math.round((c.openingBalance / grossSum) * accumTotal)
+            : 0;
+        assets.push({
+          id: `ast-${targetYear}-${mSlug}-${cleanIdToken(c.code, String(idx + 1))}`,
+          assetCode: c.code,
+          name: c.name,
+          category: 'Aktiva Tetap Produktif',
+          unitId: '',
+          unitName: 'Kantor Pusat & Unit Pelayanan',
+          year: targetYear,
+          month: targetMonth,
+          acquisitionDate: monthEndIso,
+          acquisitionCost: c.openingBalance,
+          usefulLifeMonths: 120,
+          salvageValue: 0,
+          depreciationMethod: 'Garis Lurus',
+          accumulatedDepreciation: proportionalAccum,
+          bookValue: Math.max(0, c.openingBalance - proportionalAccum),
+          coaAssetId: c.id,
+          status: 'Aktif',
+          mutations: [],
+          notes: `Diturunkan otomatis dari Neraca COA ${c.code} (${targetMonth} ${targetYear})`,
+          createdBy: actorName,
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+    }
+  }
+
+  if (inventory.length === 0) {
+    coaAccounts
+      .filter((c) => c.code.startsWith('15.') && c.openingBalance >= 0)
+      .forEach((c, idx) => {
+        inventory.push({
+          id: `inv-${targetYear}-${mSlug}-${cleanIdToken(c.code, String(idx + 1))}`,
+          coaCode: c.code,
+          itemCode: `INV-${mSlug.toUpperCase()}-${cleanIdToken(c.code, String(idx + 1))}`,
+          name: c.name,
+          category: inferInventoryCategory('', c.code),
+          unitMeasure: 'Paket / Nilai',
+          year: targetYear,
+          month: targetMonth,
+          unitId: '',
+          unitName: 'Gudang Kantor Pusat & Unit',
+          beginningQty: 1,
+          inQty: 0,
+          outQty: 0,
+          endingQty: 1,
+          unitCost: c.openingBalance,
+          prevMonthValue: c.prevMonthBalance || c.openingBalance,
+          endingValue: c.openingBalance,
+          minStockQty: 1,
+          notes: `Diturunkan otomatis dari Neraca COA ${c.code} (${targetMonth} ${targetYear})`,
+          updatedBy: actorName,
+          updatedAt: now,
+          createdAt: now,
+        });
+      });
+  }
+
+  if (taxes.length === 0) {
+    coaAccounts
+      .filter(
+        (c) =>
+          (c.code.startsWith('50.06') || c.code === '96.08.71') &&
+          Math.abs(c.openingBalance || c.monthlyRealization || 0) > 0
+      )
+      .forEach((c, idx) => {
+        const amt = Math.abs(c.openingBalance || c.monthlyRealization || 0);
+        const taxType = inferTaxType(c.name);
+        taxes.push({
+          id: `tax-${targetYear}-${mSlug}-${cleanIdToken(c.code, String(idx + 1))}`,
+          taxType,
+          year: targetYear,
+          month: targetMonth,
+          withholdingNumber: `TAX-${targetYear}-${mPad}-${cleanIdToken(c.code, String(idx + 1))}`,
+          taxObject: c.name,
+          taxBaseAmount: amt,
+          taxRatePct: 0,
+          taxAmount: amt,
+          status: c.type === 'Beban' ? 'Dibayar' : 'Terutang',
+          dueDate: monthEndIso,
+          unitId: '',
+          unitName: 'Bidang Umum dan Keuangan',
+          notes: `Diturunkan otomatis dari COA ${c.code} (${targetMonth} ${targetYear})`,
+          createdBy: actorName,
+          createdAt: now,
+          updatedAt: now,
+        });
+      });
+  }
+
+  const basePayload: FinanceMonthlyUploadParsedPayload = {
     targetYear,
     targetMonth,
     detectedPeriod: {
@@ -701,22 +1040,58 @@ export function normalizeParsedFinanceReport(params: {
     parserSource,
     parserNotes: Array.isArray(raw.parserNotes)
       ? raw.parserNotes.map((n: any) => String(n))
-      : undefined,
+      : [],
   };
+
+  const diag = computeReportAccountingDiagnostics(basePayload);
+  const autoNotes: string[] = [...(basePayload.parserNotes || [])];
+  if (diag.coaCount > 0) {
+    autoNotes.push(
+      `[Verifikasi Akuntansi] ${diag.coaCount} akun COA diekstrak · Total Aset: Rp ${Math.round(
+        diag.totalAssets
+      ).toLocaleString('id-ID')} · Kewajiban+Ekuitas: Rp ${Math.round(
+        diag.totalLiabilitiesAndEquity
+      ).toLocaleString('id-ID')} (${
+        diag.isBalanced
+          ? 'SEIMBANG'
+          : `Selisih Rp ${Math.round(diag.neracaDiff).toLocaleString('id-ID')}`
+      }).`
+    );
+  }
+  basePayload.parserNotes = autoNotes;
+
+  return basePayload;
 }
 
-export const FINANCE_REPORT_PARSE_SYSTEM_INSTRUCTION = `Anda adalah Akuntan Publik & Auditor Senior spesialis BUMD Air Minum (PDAM) Indonesia yang menguasai standar akuntansi SAK EP / Permendagri No. 118 Tahun 2018 serta sistem akun Perumda Air Minum Tirta Saiyo Kabupaten Pasaman.
-Tugas Anda: membaca dokumen laporan keuangan bulanan (PDF/Gambar/Excel/CSV) dan mengekstrak seluruh angka keuangan dan operasionalnya secara presisi ke format JSON terstruktur tanpa mengarang atau mengira-ngira angka.
+export const FINANCE_REPORT_PARSE_SYSTEM_INSTRUCTION = `Anda adalah Akuntan Publik & Auditor Senior spesialis BUMD Air Minum (PDAM) Indonesia yang menguasai SAK EP, Permendagri No. 118 Tahun 2018, serta struktur lengkap Laporan Manajemen Keuangan & Operasional Perumda Air Minum Tirta Saiyo Kabupaten Pasaman.
 
-Aturan ketat ekstraksi angka:
-1. Angka di Indonesia menggunakan titik sebagai pemisah ribuan dan koma sebagai desimal, atau tanda kurung "(...)" sebagai nilai negatif. Selalu konversi ke angka JSON murni (number).
-2. Untuk Laba Rugi:
-   - Pendapatan bernilai positif (normalBalance: "Kredit").
-   - Beban/Biaya (91.xx, 92.xx, 93.xx, 95.xx, 96.xx, 98.xx) dicatat sebagai angka POSITIF (normalBalance: "Debit") agar mesin akuntansi menghitung Pendapatan - Beban = Laba/(Rugi). Jika perusahaan mengalami RUGI, biarkan beban tetap positif sehingga (Pendapatan - Beban) bernilai negatif!
-   - Akun kontra aset seperti Penyisihan Piutang (13.09.xx) dan Akumulasi Penyusutan / Penurunan Nilai Aktiva (31.10.xx) wajib diberi "isContra": true, "normalBalance": "Kredit", dan nilai nominal POSITIF di "openingBalance" & "prevMonthBalance".
-   - Akun Laba/(Rugi) Tahun Berjalan (70.09.10) mengikuti tanda sebenarnya: POSITIF jika Laba, NEGATIF jika Rugi!
-3. Pastikan Neraca seimbang (Total Aset = Total Kewajiban + Ekuitas).
-4. Kembalikan HANYA JSON valid tanpa markdown fences.`;
+Tugas utama Anda: membaca SELURUH halaman dokumen laporan keuangan bulanan (PDF, gambar scan, atau Excel/CSV) dan mengekstrak setiap akun, saldo, realisasi, anggaran, kas/bank, utang/piutang, aktiva tetap, pajak, persediaan, pembelian, serta tabel operasional PDAM secara 100% akurat tanpa mengarang angka.
+
+Standar pemetaan kode COA resmi Perumda Air Minum Tirta Saiyo:
+- 11.xx: Kas & Bank (Aset Lancar, normalBalance: "Debit", cashFlowGroup: "Kas")
+- 13.01.xx - 14.xx: Piutang Air & Piutang Lain-Lain (Aset Lancar, normalBalance: "Debit")
+- 13.09.xx: Akumulasi Penyisihan Piutang (Aset Lancar, isContra: true, normalBalance: "Kredit", openingBalance & prevMonthBalance bernilai POSITIF!)
+- 15.xx: Persediaan Kimia, ATK & Bahan Instalasi (Aset Lancar, normalBalance: "Debit")
+- 16.xx: Pembayaran Dimuka (Aset Lancar, normalBalance: "Debit")
+- 31.01.xx - 31.09.xx: Aktiva Tetap Produktif & Tanah (Aset Tetap, subCategory: "Aset Tetap", normalBalance: "Debit")
+- 31.10.xx: Akumulasi Penyusutan / Penurunan Nilai Aktiva (Aset, subCategory: "Akumulasi Penyusutan", isContra: true, normalBalance: "Kredit", openingBalance & prevMonthBalance bernilai POSITIF!)
+- 50.xx: Kewajiban Jangka Pendek / Utang Usaha / Utang Pajak / Titipan (Kewajiban Lancar, normalBalance: "Kredit")
+- 62.xx: Kewajiban Jangka Panjang (Kewajiban Jangka Panjang, normalBalance: "Kredit")
+- 70.01 - 70.07: Penyertaan Modal, Modal Hibah & Akumulasi Laba/Rugi Tahun Lalu (Ekuitas, normalBalance: "Kredit"; gunakan angka NEGATIF jika Akumulasi Kerugian!)
+- 70.09.10: Laba / (Rugi) Tahun Berjalan (Ekuitas, subCategory: "Ekuitas - Tahun Berjalan", normalBalance: "Kredit"; gunakan POSITIF jika Laba atau NEGATIF jika Rugi!)
+- 81.xx: Pendapatan Usaha (Pendapatan, normalBalance: "Kredit")
+- 88.xx: Pendapatan Lain-Lain (Pendapatan, normalBalance: "Kredit")
+- 91.xx - 95.xx: Biaya Langsung Usaha — Sumber, Pengolahan, Trandist, Harga Pokok SB (Beban, normalBalance: "Debit", angka POSITIF!)
+- 96.xx: Biaya Administrasi & Umum (Beban, normalBalance: "Debit", angka POSITIF!)
+- 98.xx: Biaya Lain-Lain (Beban, normalBalance: "Debit", angka POSITIF!)
+
+Aturan wajib ketelitian:
+1. Konversi format angka Indonesia (titik pemisah ribuan, koma desimal, contoh: "1.421.209.027,40" -> 1421209027.4) dan tanda kurung "(...)" sebagai angka negatif pada Ekuitas/Arus Kas.
+2. Pada Beban (91-98), SELALU tulis nominal POSITIF agar rumus Pendapatan - Beban bekerja benar.
+3. JANGAN masukkan baris TOTAL/SUBTOTAL (seperti "JUMLAH AKTIVA LANCAR", "TOTAL BIAYA USAHA", "JUMLAH PENDAPATAN") ke dalam array coaAccounts — hanya akun detail individual yang memiliki kode rekening!
+4. Cek keseimbangan Neraca sebelum menjawab: (Total Aset Lancar Netto + Total Aktiva Tetap Netto) HARUS sama dengan (Total Kewajiban + Total Ekuitas termasuk 70.09.10).
+5. Ekstrak juga sebanyak mungkin tabel pendukung yang tersedia di dokumen: cashBanks, receivablesPayables, assets, taxes, inventory, purchases, dan seluruh properti pdamSnapshot (summaryMetrics, indirectCashFlow, collectionEfficiency, tariffEffectiveness, purchaseSummary, drdSummary, assetGroupSummary, productionDistribution, customerConnections, employeeComposition).
+6. Kembalikan HANYA JSON valid tanpa markdown fences.`;
 
 export function buildFinanceReportParsePrompt(params: {
   targetYear: number;
@@ -725,7 +1100,7 @@ export function buildFinanceReportParsePrompt(params: {
   spreadsheetText?: string;
 }): string {
   const { targetYear, targetMonth, fileName, spreadsheetText } = params;
-  return `Ekstrak dokumen laporan keuangan bulanan "${fileName}" agar hasilnya mewakili periode target: ${targetMonth} ${targetYear}.
+  return `Ekstrak dokumen laporan keuangan bulanan "${fileName}" secara lengkap dan menyeluruh untuk periode target: ${targetMonth} ${targetYear}.
 
 Kembalikan objek JSON valid persis mengikuti struktur key berikut:
 {
@@ -740,7 +1115,7 @@ Kembalikan objek JSON valid persis mengikuti struktur key berikut:
       "code": "11.01.00",
       "name": "Kas Besar",
       "type": "Aset" | "Kewajiban" | "Ekuitas" | "Pendapatan" | "Beban",
-      "subCategory": "Aset Lancar" | "Aset Tetap Produktif" | "Akumulasi Penyusutan" | "Kewajiban Lancar" | "Kewajiban Jangka Panjang" | "Ekuitas & Cadangan" | "Laba / (Rugi) Tahun Berjalan" | "Pendapatan Usaha" | "Pendapatan Lain-Lain" | "Beban Langsung Usaha" | "Beban Administrasi & Umum" | "Beban Penyusutan" | "Beban Lain-Lain",
+      "subCategory": "Aset Lancar - Kas" | "Aset Lancar - Bank" | "Aset Lancar - Piutang Usaha" | "Aset Lancar - Penyisihan Piutang" | "Aset Lancar - Persediaan" | "Aset Lancar - Pembayaran Dimuka" | "Aset Tetap" | "Akumulasi Penyusutan" | "Kewajiban Lancar" | "Kewajiban Lancar - Pajak" | "Kewajiban Jangka Panjang" | "Ekuitas - Modal" | "Ekuitas - Laba Ditahan" | "Ekuitas - Tahun Berjalan" | "Pendapatan Usaha" | "Pendapatan Lain-Lain" | "Beban Operasi Langsung" | "Beban Administrasi & Umum" | "Beban Penyusutan" | "Beban Lain-Lain",
       "normalBalance": "Debit" | "Kredit",
       "cashFlowGroup": "Kas" | "Operasional" | "Investasi" | "Pendanaan" | "Non-Kas",
       "openingBalance": number,
@@ -860,8 +1235,39 @@ Kembalikan objek JSON valid persis mengikuti struktur key berikut:
 Instruksi penting:
 - Untuk coaAccounts bagian Neraca (Aset/Kewajiban/Ekuitas): isi "openingBalance" dengan saldo akhir Bulan Ini (periode ${targetMonth} ${targetYear}) dan "prevMonthBalance" dengan saldo Bulan Lalu.
 - Untuk coaAccounts bagian Laba Rugi (Pendapatan/Beban): isi "monthlyRealization" dengan realisasi Bulan Ini, "ytdRealization" dan "openingBalance" dengan realisasi s/d Bulan Ini (YTD), serta "budgetMonthly" & "budgetYtd" dengan angka Anggaran jika ada.
-- Jika bagian tertentu (mis. DRD/Karyawan) tidak terdapat pada dokumen, kembalikan array kosong [] pada key tersebut — JANGAN mengarang data!
+- Pastikan seluruh halaman dokumen dibaca tuntas dari awal hingga lampiran operasional terakhir.
+- Jika bagian tertentu memang tidak ada di dokumen, kembalikan array kosong [] pada key tersebut — JANGAN mengarang data!
 ${spreadsheetText ? `\nData tabel/teks dokumen yang diunggah:\n${spreadsheetText}` : ''}`;
+}
+
+export function buildFinanceReportVerificationPrompt(params: {
+  targetYear: number;
+  targetMonth: string;
+  fileName: string;
+  previousRawJson: Record<string, any>;
+  diagnostics: ReportAccountingDiagnostics;
+  spreadsheetText?: string;
+}): string {
+  const { targetYear, targetMonth, fileName, previousRawJson, diagnostics, spreadsheetText } = params;
+  return `AUDIT & KOREKSI EKSTRAKSI LAPORAN KEUANGAN:
+Anda baru saja mengekstrak dokumen "${fileName}" untuk periode ${targetMonth} ${targetYear}, tetapi hasil audit internal menemukan ketidakcocokan berikut:
+- Jumlah akun COA terekstrak: ${diagnostics.coaCount}
+- Total Aset (hasil ekstraksi awal): Rp ${Math.round(diagnostics.totalAssets).toLocaleString('id-ID')}
+- Total Kewajiban + Ekuitas (hasil ekstraksi awal): Rp ${Math.round(diagnostics.totalLiabilitiesAndEquity).toLocaleString('id-ID')}
+- Selisih Neraca: Rp ${Math.round(diagnostics.neracaDiff).toLocaleString('id-ID')}
+
+Periksa kembali seluruh halaman dokumen asli dengan cermat dan perbaiki JSON di bawah ini agar:
+1. Tidak ada akun Neraca atau Laba Rugi yang terlewat dari halaman manapun.
+2. Tidak ada baris subtotal/total yang ikut masuk sebagai baris coaAccounts (sehingga menyebabkan double-counting).
+3. Tanda negatif pada 70.07.10 (Akumulasi Kerugian Tahun Lalu) dan 70.09.10 (Laba/(Rugi) Tahun Berjalan) sesuai persis dengan dokumen.
+4. Kontra aset (13.09.xx & 31.10.xx) memiliki "isContra": true dan nominal positif.
+5. Total Aset == Total Kewajiban + Ekuitas (Neraca SEIMBANG) serta tabel kas/bank, aktiva, dan operasional PDAM lengkap.
+
+JSON ekstraksi awal yang perlu Anda audit dan sempurnakan:
+${JSON.stringify(previousRawJson).slice(0, 60_000)}
+${spreadsheetText ? `\nData tabel/teks dokumen:\n${spreadsheetText.slice(0, 120_000)}` : ''}
+
+Kembalikan HANYA JSON final lengkap yang sudah dikoreksi dengan struktur schema yang sama persis.`;
 }
 
 export function extractJsonFromModelText(rawText: string): Record<string, any> {

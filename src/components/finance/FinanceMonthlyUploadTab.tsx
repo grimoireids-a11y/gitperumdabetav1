@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import * as XLSX from 'xlsx';
 import {
   UploadCloud,
@@ -18,6 +18,8 @@ import {
   Eye,
   History,
   Database,
+  Clock,
+  Cpu,
 } from 'lucide-react';
 import {
   FinanceAccount,
@@ -80,29 +82,57 @@ const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB
 const DIRECT_INLINE_THRESHOLD_BYTES = 2 * 1024 * 1024; // 2 MB (safe for all proxies)
 const UPLOAD_CHUNK_BYTES = 1024 * 1024; // 1 MB (exact 4 x 256 KB multiple required by resumable upload)
 
+type WorkStageId = 'IDLE' | 'VALIDATING' | 'UPLOADING' | 'UPLOADED' | 'PARSING' | 'FINALIZING' | 'DONE' | 'ERROR';
+
+interface VerificationBadgeInfo {
+  passCount: number;
+  isBalanced: boolean;
+  neracaDiff: number;
+  coaCount: number;
+}
+
 interface UploadProgressState {
-  phase: 'IDLE' | 'UPLOADING' | 'UPLOADED' | 'PARSING' | 'DONE' | 'ERROR';
+  phase: WorkStageId;
+  overallPct: number;
   uploadPct: number;
   uploadedBytes: number;
   totalBytes: number;
   chunkDone: number;
   chunkTotal: number;
   uploadComplete: boolean;
+  elapsedSeconds: number;
   statusLabel: string;
   detailLabel: string;
+  verificationBadge?: VerificationBadgeInfo;
 }
 
 const INITIAL_UPLOAD_PROGRESS: UploadProgressState = {
   phase: 'IDLE',
+  overallPct: 0,
   uploadPct: 0,
   uploadedBytes: 0,
   totalBytes: 0,
   chunkDone: 0,
   chunkTotal: 0,
   uploadComplete: false,
+  elapsedSeconds: 0,
   statusLabel: '',
   detailLabel: '',
 };
+
+const AI_WORKING_SUBSTEPS = [
+  'Memindai struktur dokumen & mendeteksi periode laporan...',
+  'Mengekstrak akun COA Neraca (Aset, Kewajiban & Ekuitas)...',
+  'Mengekstrak realisasi Laba / (Rugi), Pendapatan & Beban Usaha...',
+  'Membaca rincian Kas/Bank, Aset Tetap, Utang/Piutang, Pajak & Persediaan...',
+  'Menjalankan Audit Silang Akuntansi AI & Validasi Keseimbangan Neraca...',
+];
+
+function formatElapsed(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -177,17 +207,31 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
 
   // Step 2: Uploaded File
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const aiProgressIntervalRef = useRef<number | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parsingProgress, setParsingProgress] = useState<string>('');
   const [uploadProgress, setUploadProgress] =
     useState<UploadProgressState>(INITIAL_UPLOAD_PROGRESS);
   const [committing, setCommitting] = useState(false);
+  const [commitProgress, setCommitProgress] = useState<{
+    active: boolean;
+    pct: number;
+    label: string;
+  }>({ active: false, pct: 0, label: '' });
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error' | 'info';
     message: string;
     lastApplied?: { year: number; month: string };
   } | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (aiProgressIntervalRef.current !== null) {
+        window.clearInterval(aiProgressIntervalRef.current);
+      }
+    };
+  }, []);
 
   // Step 3: Parsed & Editable Payload
   const [parsedPayload, setParsedPayload] =
@@ -318,17 +362,40 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
     setSelectedFile(file);
   };
 
+  const stopAiProgressTimer = () => {
+    if (aiProgressIntervalRef.current !== null) {
+      window.clearInterval(aiProgressIntervalRef.current);
+      aiProgressIntervalRef.current = null;
+    }
+  };
+
   const handleExtractFile = async () => {
     if (!selectedFile) {
       setFeedback({ type: 'error', message: 'Pilih file laporan bulanan terlebih dahulu.' });
       return;
     }
+    stopAiProgressTimer();
     setParsing(true);
-    setParsingProgress('Memulai proses unggahan...');
+    setParsingProgress('Memvalidasi file laporan...');
     setFeedback(null);
 
     let hasCompletedUpload = false;
     const totalBytes = selectedFile.size;
+    const startedAt = Date.now();
+
+    setUploadProgress({
+      phase: 'VALIDATING',
+      overallPct: 5,
+      uploadPct: 0,
+      uploadedBytes: 0,
+      totalBytes,
+      chunkDone: 0,
+      chunkTotal: 1,
+      uploadComplete: false,
+      elapsedSeconds: 0,
+      statusLabel: 'Tahap 1/4 · Validasi Berkas & Periode Target...',
+      detailLabel: `Memeriksa ${selectedFile.name} (${formatBytes(totalBytes)}) untuk ${targetMonth} ${targetYear}`,
+    });
 
     try {
       const lowerName = selectedFile.name.toLowerCase();
@@ -344,34 +411,37 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
       let geminiFileName = '';
 
       if (isExcelOrCsv) {
-        setUploadProgress({
+        setUploadProgress((prev) => ({
+          ...prev,
           phase: 'UPLOADING',
-          uploadPct: 40,
-          uploadedBytes: Math.round(totalBytes * 0.4),
-          totalBytes,
+          overallPct: 24,
+          uploadPct: 45,
+          uploadedBytes: Math.round(totalBytes * 0.45),
           chunkDone: 1,
           chunkTotal: 1,
-          uploadComplete: false,
-          statusLabel: 'Membaca file Excel / CSV...',
+          elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+          statusLabel: 'Tahap 2/4 · Mengunggah & Membaca Lembar Excel / CSV...',
           detailLabel: `Memproses ${selectedFile.name} (${formatBytes(totalBytes)})`,
-        });
+        }));
         setParsingProgress('Membaca lembar kerja Excel...');
 
         const buf = await selectedFile.arrayBuffer();
         const wb = XLSX.read(buf, { type: 'array' });
 
         hasCompletedUpload = true;
-        setUploadProgress({
+        setUploadProgress((prev) => ({
+          ...prev,
           phase: 'UPLOADED',
+          overallPct: 45,
           uploadPct: 100,
           uploadedBytes: totalBytes,
-          totalBytes,
           chunkDone: 1,
           chunkTotal: 1,
           uploadComplete: true,
-          statusLabel: 'File 100% Terunggah & Terbaca Sempurna',
-          detailLabel: `${formatBytes(totalBytes)} / ${formatBytes(totalBytes)}`,
-        });
+          elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+          statusLabel: 'Tahap 2/4 Selesai · File 100% Terunggah Sempurna',
+          detailLabel: `${formatBytes(totalBytes)} / ${formatBytes(totalBytes)} siap dianalisis`,
+        }));
 
         // 1. Check if uploaded workbook matches our exact structured PDAM Excel template
         const directTemplateParsed = tryParseStructuredPdamExcelWorkbook({
@@ -385,14 +455,16 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
           setPreviewTab('RINGKASAN');
           setUploadProgress({
             phase: 'DONE',
+            overallPct: 100,
             uploadPct: 100,
             uploadedBytes: totalBytes,
             totalBytes,
             chunkDone: 1,
             chunkTotal: 1,
             uploadComplete: true,
-            statusLabel: '100% Terunggah Sempurna & Template Terbaca',
-            detailLabel: `Siap direview untuk periode ${targetMonth} ${targetYear}`,
+            elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+            statusLabel: 'Pengerjaan 100% Selesai · Template Excel Terbaca Sempurna',
+            detailLabel: `${directTemplateParsed.coaAccounts.length} akun COA siap direview untuk ${targetMonth} ${targetYear}`,
           });
           setFeedback({
             type: 'success',
@@ -414,43 +486,48 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
         }
 
         if (selectedFile.size <= DIRECT_INLINE_THRESHOLD_BYTES) {
-          setUploadProgress({
+          setUploadProgress((prev) => ({
+            ...prev,
             phase: 'UPLOADING',
+            overallPct: 26,
             uploadPct: 50,
             uploadedBytes: Math.round(totalBytes * 0.5),
-            totalBytes,
             chunkDone: 1,
             chunkTotal: 1,
-            uploadComplete: false,
-            statusLabel: 'Mengunggah file ke server...',
+            elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+            statusLabel: 'Tahap 2/4 · Mengunggah File ke Server...',
             detailLabel: `${formatBytes(totalBytes)}`,
-          });
+          }));
           setParsingProgress('Mengunggah file...');
           fileBase64 = await readFileAsDataUrl(selectedFile);
           hasCompletedUpload = true;
-          setUploadProgress({
+          setUploadProgress((prev) => ({
+            ...prev,
             phase: 'UPLOADED',
+            overallPct: 45,
             uploadPct: 100,
             uploadedBytes: totalBytes,
-            totalBytes,
             chunkDone: 1,
             chunkTotal: 1,
             uploadComplete: true,
-            statusLabel: '100% Terunggah Sempurna — Menjalankan Pembacaan Dokumen...',
-            detailLabel: `${formatBytes(totalBytes)} / ${formatBytes(totalBytes)}`,
-          });
+            elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+            statusLabel: 'Tahap 2/4 Selesai · 100% Terunggah Sempurna',
+            detailLabel: `${formatBytes(totalBytes)} / ${formatBytes(totalBytes)} · Menyiapkan AI`,
+          }));
         } else {
           // Stateless Resumable Upload via existing /api/gemini/parse-finance-report (1 MB chunks)
           const totalChunks = Math.ceil(selectedFile.size / UPLOAD_CHUNK_BYTES);
           setUploadProgress({
             phase: 'UPLOADING',
+            overallPct: 12,
             uploadPct: 2,
             uploadedBytes: 0,
             totalBytes,
             chunkDone: 0,
             chunkTotal: totalChunks,
             uploadComplete: false,
-            statusLabel: 'Memulai sesi unggahan aman...',
+            elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+            statusLabel: 'Tahap 2/4 · Memulai Sesi Unggahan Aman...',
             detailLabel: `0 MB / ${formatBytes(totalBytes)} · 0/${totalChunks} bagian`,
           });
 
@@ -504,18 +581,21 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
             }
 
             const pct = Math.round((endOffset / totalBytes) * 100);
+            const mappedOverall = 10 + Math.round((pct / 100) * 35); // 10% -> 45%
             setParsingProgress(`Mengunggah bagian ${idx + 1}/${totalChunks} (${pct}%)...`);
             setUploadProgress({
               phase: isFinalChunk ? 'UPLOADED' : 'UPLOADING',
+              overallPct: mappedOverall,
               uploadPct: pct,
               uploadedBytes: endOffset,
               totalBytes,
               chunkDone: idx + 1,
               chunkTotal: totalChunks,
               uploadComplete: isFinalChunk,
+              elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
               statusLabel: isFinalChunk
-                ? '100% Terunggah Sempurna — Memproses Pembacaan Otomatis...'
-                : `Mengunggah dokumen (${pct}%)...`,
+                ? 'Tahap 2/4 Selesai · Upload 100% Sempurna'
+                : `Tahap 2/4 · Mengunggah Dokumen (${pct}%)...`,
               detailLabel: `${formatBytes(endOffset)} / ${formatBytes(totalBytes)} · Bagian ${
                 idx + 1
               }/${totalChunks}`,
@@ -533,14 +613,42 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
         }
       }
 
+      // Stage 3: AI Extraction & Cross-Verification (45% -> 89% live ticker)
       setUploadProgress((prev) => ({
         ...prev,
         phase: 'PARSING',
+        overallPct: 48,
         uploadPct: 100,
         uploadComplete: true,
-        statusLabel: '100% Terunggah Sempurna · Membaca & Mengekstrak Angka...',
+        elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+        statusLabel: 'Tahap 3/4 · AI Membaca & Mengaudit Dokumen...',
+        detailLabel: AI_WORKING_SUBSTEPS[0],
       }));
-      setParsingProgress('Membaca & mengekstrak angka laporan dengan AI...');
+      setParsingProgress('AI membaca & mengekstrak angka laporan (48%)...');
+
+      let tickCount = 0;
+      aiProgressIntervalRef.current = window.setInterval(() => {
+        tickCount += 1;
+        const elapsed = Math.floor((Date.now() - startedAt) / 1000);
+        // Smoothly asymptotically approach 89% while AI thinks & runs 2-pass audit
+        const smoothOverall = Math.min(89, Math.round(48 + 41 * (1 - Math.exp(-tickCount / 14))));
+        const stepIdx = Math.min(
+          AI_WORKING_SUBSTEPS.length - 1,
+          Math.floor(tickCount / 4)
+        );
+        const stepMsg = AI_WORKING_SUBSTEPS[stepIdx];
+        setParsingProgress(`AI menganalisis laporan (${smoothOverall}%)...`);
+        setUploadProgress((prev) =>
+          prev.phase === 'PARSING'
+            ? {
+                ...prev,
+                overallPct: smoothOverall,
+                elapsedSeconds: elapsed,
+                detailLabel: stepMsg,
+              }
+            : prev
+        );
+      }, 1000);
 
       const res = await fetch('/api/gemini/parse-finance-report', {
         method: 'POST',
@@ -560,6 +668,8 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
         }),
       });
 
+      stopAiProgressTimer();
+
       const body = await res.json().catch(() => ({}));
       if (!res.ok || !body?.data) {
         if (res.status === 413 && !body?.error) {
@@ -570,33 +680,61 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
         throw new Error(body?.error || `Gagal membaca laporan (HTTP ${res.status}).`);
       }
 
+      setUploadProgress((prev) => ({
+        ...prev,
+        phase: 'FINALIZING',
+        overallPct: 95,
+        elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+        statusLabel: 'Tahap 4/4 · Verifikasi Keseimbangan Neraca & COA...',
+        detailLabel: 'Menyinkronkan seluruh modul keuangan & operasional PDAM...',
+      }));
+
       const extracted = body.data as FinanceMonthlyUploadParsedPayload;
+      const verMeta: VerificationBadgeInfo | undefined = body.verification
+        ? {
+            passCount: Number(body.verification.passCount || 1),
+            isBalanced: Boolean(body.verification.isBalanced),
+            neracaDiff: Number(body.verification.neracaDiff || 0),
+            coaCount: Number(body.verification.coaCount || extracted.coaAccounts.length),
+          }
+        : undefined;
+
       setParsedPayload(extracted);
       setPreviewTab('RINGKASAN');
+      const totalElapsed = Math.floor((Date.now() - startedAt) / 1000);
       setUploadProgress((prev) => ({
+        ...prev,
         phase: 'DONE',
+        overallPct: 100,
         uploadPct: 100,
         uploadedBytes: totalBytes,
         totalBytes,
         chunkDone: prev.chunkTotal || 1,
         chunkTotal: prev.chunkTotal || 1,
         uploadComplete: true,
-        statusLabel: '100% Terunggah Sempurna & Laporan Berhasil Diekstrak',
-        detailLabel: `${formatBytes(totalBytes)} selesai dibaca untuk ${targetMonth} ${targetYear}`,
+        elapsedSeconds: totalElapsed,
+        verificationBadge: verMeta,
+        statusLabel: `Pengerjaan 100% Selesai (${formatElapsed(totalElapsed)})`,
+        detailLabel: `${extracted.coaAccounts.length} akun COA, ${extracted.cashBanks.length} Kas/Bank & lampiran siap direview untuk ${targetMonth} ${targetYear}`,
       }));
       setFeedback({
         type: 'success',
-        message: `Dokumen "${selectedFile.name}" berhasil diunggah 100% dan dibaca otomatis (${extracted.coaAccounts.length} akun COA, ${extracted.cashBanks.length} Kas/Bank, ${extracted.assets.length} Aset, ${extracted.receivablesPayables.length} Utang/Piutang) untuk periode ${targetMonth} ${targetYear}.`,
+        message: `Dokumen "${selectedFile.name}" berhasil diunggah 100% dan dibaca oleh AI${
+          verMeta && verMeta.passCount > 1 ? ' (Audit AI 2-Pass)' : ''
+        }: ${extracted.coaAccounts.length} akun COA, ${extracted.cashBanks.length} Kas/Bank, ${extracted.assets.length} Aset, ${extracted.receivablesPayables.length} Utang/Piutang untuk periode ${targetMonth} ${targetYear}.`,
       });
     } catch (err: unknown) {
+      stopAiProgressTimer();
       const msg = err instanceof Error ? err.message : 'Gagal membaca file laporan.';
+      const totalElapsed = Math.floor((Date.now() - startedAt) / 1000);
       setUploadProgress((prev) => ({
         ...prev,
         phase: 'ERROR',
         uploadComplete: hasCompletedUpload,
+        elapsedSeconds: totalElapsed,
         statusLabel: hasCompletedUpload
-          ? 'File 100% Terunggah Sempurna, namun Ekstraksi Gagal'
-          : `Unggahan Gagal di ${prev.uploadPct}%`,
+          ? 'File 100% Terunggah Sempurna, namun Pembacaan AI Gagal'
+          : `Pengerjaan Terhenti di ${prev.overallPct}% (Upload ${prev.uploadPct}%)`,
         detailLabel: msg,
       }));
       setFeedback({
@@ -604,6 +742,7 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
         message: msg,
       });
     } finally {
+      stopAiProgressTimer();
       setParsing(false);
       setParsingProgress('');
     }
@@ -666,6 +805,11 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
       return;
     }
     setCommitting(true);
+    setCommitProgress({
+      active: true,
+      pct: 5,
+      label: `Memulai penyimpanan laporan ${targetMonth} ${targetYear}...`,
+    });
     setFeedback(null);
     try {
       const res = await commitMonthlyReportUploadToFirestore({
@@ -677,14 +821,27 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
           mimeType: selectedFile?.type || 'application/octet-stream',
         },
         actor,
+        onProgress: (pct, label) => {
+          setCommitProgress({ active: true, pct, label });
+        },
       });
 
+      setCommitProgress({
+        active: false,
+        pct: 100,
+        label: `Selesai! ${res.writtenCount} dokumen diterapkan ke ${targetMonth} ${targetYear}.`,
+      });
       setFeedback({
         type: 'success',
         message: `Laporan "${res.uploadRecord.fileName}" berhasil diterapkan khusus untuk periode ${targetMonth} ${targetYear} (${res.writtenCount} dokumen disimpan${res.deletedCount > 0 ? `, ${res.deletedCount} dokumen lama bulan tersebut diperbarui` : ''}). Data bulan lain tetap aman dan tidak berubah.`,
         lastApplied: { year: targetYear, month: targetMonth },
       });
     } catch (err: unknown) {
+      setCommitProgress({
+        active: false,
+        pct: 0,
+        label: '',
+      });
       setFeedback({
         type: 'error',
         message: `Gagal menyimpan ke Manajemen Keuangan: ${
@@ -1018,7 +1175,7 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
 
             {uploadProgress.phase !== 'IDLE' && (
               <div
-                className={`rounded-xl border p-3 space-y-2 text-xs ${
+                className={`rounded-xl border p-3.5 space-y-2.5 text-xs ${
                   uploadProgress.phase === 'ERROR' && !uploadProgress.uploadComplete
                     ? 'bg-rose-50/80 border-rose-200'
                     : uploadProgress.phase === 'DONE'
@@ -1026,53 +1183,152 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
                     : 'bg-slate-50 border-slate-200'
                 }`}
               >
+                {/* Header status + badges */}
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2 font-bold text-slate-800">
-                    {uploadProgress.uploadComplete ? (
+                    {uploadProgress.phase === 'DONE' ? (
                       <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
                     ) : uploadProgress.phase === 'ERROR' ? (
                       <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0" />
+                    ) : uploadProgress.phase === 'PARSING' || uploadProgress.phase === 'FINALIZING' ? (
+                      <Cpu className="w-4 h-4 text-teal-700 animate-pulse shrink-0" />
                     ) : (
                       <Loader2 className="w-4 h-4 text-emerald-700 animate-spin shrink-0" />
                     )}
                     <span>{uploadProgress.statusLabel}</span>
                   </div>
-                  <span
-                    className={`px-2 py-0.5 rounded font-bold text-[11px] ${
-                      uploadProgress.uploadComplete
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                        : uploadProgress.phase === 'ERROR'
-                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                        : 'bg-teal-100 text-teal-800 border border-teal-200'
-                    }`}
-                  >
-                    Upload {uploadProgress.uploadPct}%
-                    {uploadProgress.uploadComplete ? ' · Sempurna' : ''}
-                  </span>
-                </div>
 
-                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full transition-all duration-200 rounded-full ${
-                      uploadProgress.phase === 'ERROR' && !uploadProgress.uploadComplete
-                        ? 'bg-rose-600'
-                        : uploadProgress.uploadComplete
-                        ? 'bg-emerald-600'
-                        : 'bg-teal-600'
-                    }`}
-                    style={{ width: `${Math.max(2, uploadProgress.uploadPct)}%` }}
-                  />
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
-                  <span className="truncate max-w-full">{uploadProgress.detailLabel}</span>
-                  {uploadProgress.phase === 'PARSING' && (
-                    <span className="inline-flex items-center gap-1 font-semibold text-teal-800 shrink-0">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>Menganalisis isi laporan...</span>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-white text-slate-700 border border-slate-200 font-mono text-[11px]">
+                      <Clock className="w-3 h-3 text-slate-500" />
+                      {formatElapsed(uploadProgress.elapsedSeconds)}
                     </span>
-                  )}
+                    <span
+                      className={`px-2 py-0.5 rounded font-bold text-[11px] border ${
+                        uploadProgress.uploadComplete
+                          ? 'bg-emerald-100 text-emerald-800 border-emerald-200'
+                          : uploadProgress.phase === 'ERROR'
+                          ? 'bg-rose-100 text-rose-800 border-rose-200'
+                          : 'bg-sky-100 text-sky-800 border-sky-200'
+                      }`}
+                    >
+                      Upload {uploadProgress.uploadPct}%
+                      {uploadProgress.uploadComplete ? ' · Sempurna' : ''}
+                    </span>
+                    <span
+                      className={`px-2 py-0.5 rounded font-bold text-[11px] border ${
+                        uploadProgress.phase === 'DONE'
+                          ? 'bg-emerald-700 text-white border-emerald-700'
+                          : uploadProgress.phase === 'ERROR'
+                          ? 'bg-rose-700 text-white border-rose-700'
+                          : 'bg-teal-700 text-white border-teal-700'
+                      }`}
+                    >
+                      Progres {uploadProgress.overallPct}%
+                    </span>
+                  </div>
                 </div>
+
+                {/* Overall Work Progress Bar */}
+                <div className="space-y-1">
+                  <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-300 rounded-full ${
+                        uploadProgress.phase === 'ERROR'
+                          ? 'bg-rose-600'
+                          : uploadProgress.phase === 'DONE'
+                          ? 'bg-emerald-600'
+                          : 'bg-gradient-to-r from-emerald-600 to-teal-500'
+                      }`}
+                      style={{ width: `${Math.max(3, uploadProgress.overallPct)}%` }}
+                    />
+                  </div>
+                  <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
+                    <span className="truncate max-w-full font-medium">
+                      {uploadProgress.detailLabel}
+                    </span>
+                    {(uploadProgress.phase === 'PARSING' || uploadProgress.phase === 'FINALIZING') && (
+                      <span className="inline-flex items-center gap-1 font-semibold text-teal-800 shrink-0">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        <span>AI bekerja...</span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4-Stage Stepper Indicator */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 pt-1 text-[10px] font-semibold">
+                  {(
+                    [
+                      {
+                        label: '1. Validasi',
+                        done: uploadProgress.overallPct >= 10,
+                        active: uploadProgress.phase === 'VALIDATING',
+                      },
+                      {
+                        label: '2. Upload File',
+                        done: uploadProgress.uploadComplete,
+                        active: uploadProgress.phase === 'UPLOADING',
+                      },
+                      {
+                        label: '3. Audit AI',
+                        done:
+                          uploadProgress.phase === 'FINALIZING' ||
+                          uploadProgress.phase === 'DONE',
+                        active: uploadProgress.phase === 'PARSING',
+                      },
+                      {
+                        label: '4. Siap Review',
+                        done: uploadProgress.phase === 'DONE',
+                        active: uploadProgress.phase === 'FINALIZING',
+                      },
+                    ] as const
+                  ).map((st) => (
+                    <div
+                      key={st.label}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded border ${
+                        st.done
+                          ? 'bg-emerald-100/80 border-emerald-300 text-emerald-900'
+                          : st.active
+                          ? 'bg-teal-50 border-teal-300 text-teal-900'
+                          : 'bg-white/70 border-slate-200 text-slate-400'
+                      }`}
+                    >
+                      {st.done ? (
+                        <CheckCircle2 className="w-3 h-3 text-emerald-700 shrink-0" />
+                      ) : st.active ? (
+                        <Loader2 className="w-3 h-3 text-teal-700 animate-spin shrink-0" />
+                      ) : (
+                        <span className="w-2 h-2 rounded-full bg-slate-300 shrink-0" />
+                      )}
+                      <span className="truncate">{st.label}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* AI Self-Verification Badge after DONE */}
+                {uploadProgress.phase === 'DONE' && uploadProgress.verificationBadge && (
+                  <div className="flex flex-wrap items-center gap-2 pt-1 text-[11px]">
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-teal-100 text-teal-900 border border-teal-200 font-bold">
+                      <Sparkles className="w-3 h-3" />
+                      AI {uploadProgress.verificationBadge.passCount}-Pass Verification ·{' '}
+                      {uploadProgress.verificationBadge.coaCount} Akun COA
+                    </span>
+                    <span
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded border font-bold ${
+                        uploadProgress.verificationBadge.isBalanced
+                          ? 'bg-emerald-100 text-emerald-900 border-emerald-200'
+                          : 'bg-amber-100 text-amber-900 border-amber-200'
+                      }`}
+                    >
+                      {uploadProgress.verificationBadge.isBalanced
+                        ? 'Neraca Seimbang (Aset = Pasiva)'
+                        : `Cek Selisih Neraca: ${formatRp(
+                            uploadProgress.verificationBadge.neracaDiff
+                          )}`}
+                    </span>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -1112,43 +1368,69 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
       {/* Step 3 & 4: Preview, Validation, Inline Adjustment & Commit */}
       {parsedPayload && previewMetrics && (
         <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-4">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-3 border-b border-slate-200">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
-                <span className="w-5 h-5 rounded-full bg-emerald-700 text-white text-[11px] flex items-center justify-center">
-                  3
-                </span>
-                <span>
-                  Review &amp; Penyesuaian Data Sebelum Diterapkan ({parsedPayload.targetMonth}{' '}
-                  {parsedPayload.targetYear})
-                </span>
+          <div className="flex flex-col gap-3 pb-3 border-b border-slate-200">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-900">
+                  <span className="w-5 h-5 rounded-full bg-emerald-700 text-white text-[11px] flex items-center justify-center">
+                    3
+                  </span>
+                  <span>
+                    Review &amp; Penyesuaian Data Sebelum Diterapkan ({parsedPayload.targetMonth}{' '}
+                    {parsedPayload.targetYear})
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500">
+                  Sumber pembacaan: <strong>{parsedPayload.parserSource}</strong> · Surat:{' '}
+                  {parsedPayload.pdamSnapshot.letterNumber || '-'}
+                </p>
               </div>
-              <p className="text-[11px] text-slate-500">
-                Sumber pembacaan: <strong>{parsedPayload.parserSource}</strong> · Surat:{' '}
-                {parsedPayload.pdamSnapshot.letterNumber || '-'}
-              </p>
+
+              <button
+                type="button"
+                disabled={committing || periodLocked}
+                onClick={handleCommitUpload}
+                className="inline-flex items-center gap-2 px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+              >
+                {committing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>Menyimpan ({commitProgress.pct}%)...</span>
+                  </>
+                ) : (
+                  <>
+                    <Database className="w-4 h-4" />
+                    <span>
+                      Terapkan Laporan ke {targetMonth} {targetYear}
+                    </span>
+                  </>
+                )}
+              </button>
             </div>
 
-            <button
-              type="button"
-              disabled={committing || periodLocked}
-              onClick={handleCommitUpload}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-teal-700 hover:bg-teal-800 text-white text-xs font-bold rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-            >
-              {committing ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Menyimpan ke Manajemen Keuangan...</span>
-                </>
-              ) : (
-                <>
-                  <Database className="w-4 h-4" />
-                  <span>
-                    Terapkan Laporan ke {targetMonth} {targetYear}
+            {(commitProgress.active || commitProgress.pct === 100) && commitProgress.label && (
+              <div className="rounded-lg border border-teal-200 bg-teal-50/70 p-2.5 space-y-1.5 text-xs">
+                <div className="flex items-center justify-between gap-2 font-semibold text-teal-900">
+                  <span className="flex items-center gap-1.5">
+                    {commitProgress.active ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin text-teal-700" />
+                    ) : (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-700" />
+                    )}
+                    <span>{commitProgress.label}</span>
                   </span>
-                </>
-              )}
-            </button>
+                  <span className="font-bold tabular-nums">{commitProgress.pct}%</span>
+                </div>
+                <div className="w-full h-2 bg-teal-100 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-200 rounded-full ${
+                      commitProgress.pct === 100 ? 'bg-emerald-600' : 'bg-teal-600'
+                    }`}
+                    style={{ width: `${Math.max(4, commitProgress.pct)}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Discrepancy warning if PDF month !== chosen targetMonth */}

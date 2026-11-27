@@ -1,9 +1,12 @@
 import crypto from 'crypto';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel } from '@google/genai';
 import {
   ALLOWED_SUPER_USER_ROLES,
   FISCAL_MONTH_NAMES,
+  ReportAccountingDiagnostics,
   buildFinanceReportParsePrompt,
+  buildFinanceReportVerificationPrompt,
+  computeReportAccountingDiagnostics,
   extractJsonFromModelText,
   FINANCE_REPORT_PARSE_SYSTEM_INSTRUCTION,
   normalizeParsedFinanceReport,
@@ -354,6 +357,7 @@ export async function handleParseFinanceReportAction(
       });
     }
 
+    const pass1StartedAt = Date.now();
     const timeoutPromise = new Promise((_, reject) =>
       setTimeout(
         () =>
@@ -372,6 +376,7 @@ export async function handleParseFinanceReportAction(
       config: {
         systemInstruction: FINANCE_REPORT_PARSE_SYSTEM_INSTRUCTION,
         responseMimeType: 'application/json',
+        thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
       },
     });
 
@@ -387,18 +392,108 @@ export async function handleParseFinanceReportAction(
       };
     }
 
-    const rawJson = extractJsonFromModelText(rawText);
-    const normalized = normalizeParsedFinanceReport({
-      raw: rawJson,
+    const rawJson1 = extractJsonFromModelText(rawText);
+    const normalized1 = normalizeParsedFinanceReport({
+      raw: rawJson1,
       targetYear: parsedYear,
       targetMonth: validMonth,
       actorName: String(actorName),
       parserSource: 'gemini-4-hydrogen',
     });
+    const diag1: ReportAccountingDiagnostics = computeReportAccountingDiagnostics(normalized1);
+
+    let bestNormalized = normalized1;
+    let bestDiag = diag1;
+    let passCount = 1;
+
+    // Pass 2: Automatic AI Self-Verification & Correction if Pass 1 COA is sparse or Neraca is unbalanced
+    const needsVerificationPass =
+      (diag1.coaCount < 6 || (diag1.totalAssets > 0 && !diag1.isBalanced)) &&
+      Date.now() - pass1StartedAt < 75_000;
+
+    if (needsVerificationPass) {
+      try {
+        const verificationPrompt = buildFinanceReportVerificationPrompt({
+          targetYear: parsedYear,
+          targetMonth: validMonth,
+          fileName: String(fileName).slice(0, 200),
+          previousRawJson: rawJson1,
+          diagnostics: diag1,
+          spreadsheetText:
+            typeof spreadsheetText === 'string' ? spreadsheetText.slice(0, 120_000) : undefined,
+        });
+        const verifyParts = [{ text: verificationPrompt }, ...parts.slice(1)];
+
+        const verifyTimeout = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Verification timeout')), 75_000)
+        );
+        const verifyPromise = activeAiClient.models.generateContent({
+          model: 'gemini-4-hydrogen',
+          contents: [{ role: 'user', parts: verifyParts }],
+          config: {
+            systemInstruction: FINANCE_REPORT_PARSE_SYSTEM_INSTRUCTION,
+            responseMimeType: 'application/json',
+            thinkingConfig: { thinkingLevel: ThinkingLevel.HIGH },
+          },
+        });
+
+        const verifyRes: any = await Promise.race([verifyPromise, verifyTimeout]);
+        const verifyText = verifyRes?.text || '';
+        if (verifyText.trim()) {
+          const rawJson2 = extractJsonFromModelText(verifyText);
+          const normalized2 = normalizeParsedFinanceReport({
+            raw: rawJson2,
+            targetYear: parsedYear,
+            targetMonth: validMonth,
+            actorName: String(actorName),
+            parserSource: 'gemini-4-hydrogen',
+          });
+          const diag2 = computeReportAccountingDiagnostics(normalized2);
+          passCount = 2;
+
+          const improved =
+            (diag2.coaCount >= diag1.coaCount && diag2.neracaDiff < diag1.neracaDiff) ||
+            (diag1.coaCount < 6 && diag2.coaCount > diag1.coaCount);
+
+          if (improved) {
+            bestNormalized = {
+              ...normalized2,
+              parserNotes: [
+                ...(normalized2.parserNotes || []),
+                `[Audit AI 2-Pass] Pemeriksaan ulang otomatis memperbaiki ekstraksi (${diag2.coaCount} akun COA, selisih Neraca berkurang dari Rp ${Math.round(
+                  diag1.neracaDiff
+                ).toLocaleString('id-ID')} menjadi Rp ${Math.round(diag2.neracaDiff).toLocaleString(
+                  'id-ID'
+                )}).`,
+              ],
+            };
+            bestDiag = diag2;
+          } else {
+            bestNormalized = {
+              ...normalized1,
+              parserNotes: [
+                ...(normalized1.parserNotes || []),
+                `[Audit AI 2-Pass] Verifikasi silang selesai (${diag1.coaCount} akun COA diperiksa).`,
+              ],
+            };
+          }
+        }
+      } catch (verifyErr) {
+        console.warn('Pass 2 AI verification skipped due to non-fatal error:', verifyErr);
+      }
+    }
 
     return {
       status: 200,
-      json: { data: normalized },
+      json: {
+        data: bestNormalized,
+        verification: {
+          passCount,
+          isBalanced: bestDiag.isBalanced,
+          neracaDiff: bestDiag.neracaDiff,
+          coaCount: bestDiag.coaCount,
+        },
+      },
     };
   } catch (err: any) {
     console.error('Error in handleParseFinanceReportAction:', err);
