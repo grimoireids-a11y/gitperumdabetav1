@@ -5,7 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
-import { handleParseFinanceReportAction } from './src/lib/financeUploadServerHelper';
+import { handleParseFinanceReportAction } from './api/gemini/parse-finance-report';
 
 dotenv.config();
 
@@ -243,8 +243,15 @@ Prinsip utama:
 
 // Super-User Exclusive API Route: Automated Monthly Financial Report Extraction
 app.post('/api/gemini/parse-finance-report', async (req: Request, res: Response) => {
-  const result = await handleParseFinanceReportAction(req.body, ai);
-  return res.status(result.status).json(result.json);
+  try {
+    const result = await handleParseFinanceReportAction(req.body, ai);
+    return res.status(result.status).json(result.json);
+  } catch (err: any) {
+    console.error('Unhandled Express parse-finance-report error:', err);
+    return res.status(500).json({
+      error: err?.message || 'Terjadi kesalahan server saat memproses laporan.',
+    });
+  }
 });
 
 // Setup Vite middleware in dev or static files in production

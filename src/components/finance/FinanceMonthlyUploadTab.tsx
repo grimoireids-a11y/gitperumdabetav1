@@ -79,8 +79,8 @@ type PreviewSectionTab =
   | 'OPERASIONAL_PDAM';
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB
-const DIRECT_INLINE_THRESHOLD_BYTES = 2 * 1024 * 1024; // 2 MB (safe for all proxies)
-const UPLOAD_CHUNK_BYTES = 1024 * 1024; // 1 MB (exact 4 x 256 KB multiple required by resumable upload)
+const DIRECT_INLINE_THRESHOLD_BYTES = 2 * 1024 * 1024; // 2 MB
+const UPLOAD_CHUNK_BYTES = 8 * 1024 * 1024; // 8 MB (exact 8,388,608-byte granularity required by Gemini Files API)
 
 type WorkStageId = 'IDLE' | 'VALIDATING' | 'UPLOADING' | 'UPLOADED' | 'PARSING' | 'FINALIZING' | 'DONE' | 'ERROR';
 
@@ -132,6 +132,58 @@ function formatElapsed(seconds: number): string {
   const mins = Math.floor(seconds / 60);
   const secs = seconds % 60;
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+async function safeReadApiJson(res: Response): Promise<Record<string, any>> {
+  const text = await res.text().catch(() => '');
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    const plain = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    return plain ? { error: plain.slice(0, 200) } : {};
+  }
+}
+
+function postJsonWithUploadProgress(
+  url: string,
+  payloadObj: Record<string, unknown>,
+  onByteProgress: (loadedFraction: number) => void
+): Promise<{ status: number; ok: boolean; body: Record<string, any> }> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.timeout = 120_000;
+
+    xhr.upload.onprogress = (evt) => {
+      if (evt.lengthComputable && evt.total > 0) {
+        onByteProgress(Math.min(1, Math.max(0, evt.loaded / evt.total)));
+      }
+    };
+
+    xhr.onload = () => {
+      let body: Record<string, any> = {};
+      const text = xhr.responseText || '';
+      if (text.trim()) {
+        try {
+          body = JSON.parse(text);
+        } catch {
+          const plain = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+          body = plain ? { error: plain.slice(0, 200) } : {};
+        }
+      }
+      resolve({
+        status: xhr.status,
+        ok: xhr.status >= 200 && xhr.status < 300,
+        body,
+      });
+    };
+
+    xhr.onerror = () => reject(new Error('Koneksi jaringan terputus saat mengunggah dokumen.'));
+    xhr.ontimeout = () => reject(new Error('Waktu unggahan bagian dokumen habis (>120 detik).'));
+    xhr.send(JSON.stringify(payloadObj));
+  });
 }
 
 function readFileAsDataUrl(file: File): Promise<string> {
@@ -542,11 +594,12 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
               fileSize: selectedFile.size,
             }),
           });
-          const startBody = await startRes.json().catch(() => ({}));
+          const startBody = await safeReadApiJson(startRes);
           if (!startRes.ok || !startBody?.sessionToken) {
             throw new Error(
-              startBody?.error ||
-                `Gagal memulai sesi unggahan file (HTTP ${startRes.status}).`
+              startBody?.error
+                ? `Gagal memulai sesi unggahan file (HTTP ${startRes.status}): ${startBody.error}`
+                : `Gagal memulai sesi unggahan file (HTTP ${startRes.status}).`
             );
           }
 
@@ -559,10 +612,9 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
             const chunkBase64 = arrayBufferToBase64(chunkBuf);
             const isFinalChunk = idx === totalChunks - 1;
 
-            const chunkRes = await fetch('/api/gemini/parse-finance-report', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
+            const chunkRes = await postJsonWithUploadProgress(
+              '/api/gemini/parse-finance-report',
+              {
                 action: 'upload_chunk',
                 actorRole: actor.role,
                 mimeType,
@@ -570,9 +622,35 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
                 chunkBase64,
                 offset: startOffset,
                 isFinalChunk,
-              }),
-            });
-            const chunkBody = await chunkRes.json().catch(() => ({}));
+              },
+              (frac) => {
+                const liveBytes = Math.min(
+                  totalBytes,
+                  Math.round(startOffset + frac * (endOffset - startOffset))
+                );
+                const livePct = Math.min(99, Math.round((liveBytes / totalBytes) * 100));
+                const liveOverall = 10 + Math.round((livePct / 100) * 34);
+                setParsingProgress(
+                  `Mengunggah bagian ${idx + 1}/${totalChunks} (${livePct}%)...`
+                );
+                setUploadProgress((prev) =>
+                  prev.phase === 'UPLOADING'
+                    ? {
+                        ...prev,
+                        overallPct: liveOverall,
+                        uploadPct: Math.max(prev.uploadPct, livePct),
+                        uploadedBytes: Math.max(prev.uploadedBytes, liveBytes),
+                        elapsedSeconds: Math.floor((Date.now() - startedAt) / 1000),
+                        statusLabel: `Tahap 2/4 · Mengunggah Dokumen (${livePct}%)...`,
+                        detailLabel: `${formatBytes(liveBytes)} / ${formatBytes(
+                          totalBytes
+                        )} · Bagian ${idx + 1}/${totalChunks}`,
+                      }
+                    : prev
+                );
+              }
+            );
+            const chunkBody = chunkRes.body;
             if (!chunkRes.ok) {
               throw new Error(
                 chunkBody?.error ||
@@ -670,7 +748,7 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
 
       stopAiProgressTimer();
 
-      const body = await res.json().catch(() => ({}));
+      const body = await safeReadApiJson(res);
       if (!res.ok || !body?.data) {
         if (res.status === 413 && !body?.error) {
           throw new Error(
