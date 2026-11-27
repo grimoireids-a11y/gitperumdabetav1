@@ -27,6 +27,8 @@ import {
   getMonthNameFromDate,
   getTodayIso,
   matchesGlobalFilter,
+  resolveMonthScopedCoa,
+  resolveMonthScopedReceivablesPayables,
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
 import { FinanceActor, FinancePermissions, LogFinanceAuditFn } from './financeShared';
@@ -111,22 +113,18 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
   >(null);
 
   const filteredRecords = useMemo(() => {
-    const maxRpYear = records.reduce((m, r) => Math.max(m, r.year || 0), 0);
-    const effectiveFilter: FinanceGlobalFilter =
-      filter.year === 0 && maxRpYear > 0 ? { ...filter, year: maxRpYear } : filter;
-    return records
+    const scoped = resolveMonthScopedReceivablesPayables(records, filter.year, filter.month);
+    return scoped
       .filter((r) => {
         if (r.kind !== kindTab) return false;
         if (statusFilter !== 'ALL' && r.status !== statusFilter) return false;
         return matchesGlobalFilter(
           {
-            year: r.year,
-            month: r.month,
             date: r.transactionDate,
             unitId: r.unitId,
             coaId: r.coaId,
           },
-          effectiveFilter
+          { ...filter, year: 0, month: 'ALL' }
         );
       })
       .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
@@ -152,9 +150,10 @@ export const FinanceReceivablesPayablesTab: React.FC<FinanceReceivablesPayablesT
 
   const eligibleCoas = useMemo(() => {
     const typeNeeded = kindTab === 'PIUTANG' ? 'Aset' : 'Kewajiban';
-    const list = accounts.filter((a) => a.type === typeNeeded && a.isActive !== false);
-    return list.length > 0 ? list : accounts;
-  }, [accounts, kindTab]);
+    const scopedCoas = resolveMonthScopedCoa(accounts, filter.year, filter.month).accounts;
+    const list = scopedCoas.filter((a) => a.type === typeNeeded && a.isActive !== false);
+    return list.length > 0 ? list : scopedCoas;
+  }, [accounts, kindTab, filter.year, filter.month]);
 
   const handleSaveRecord = async () => {
     const amt = Number(originalAmount);

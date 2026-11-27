@@ -45,6 +45,7 @@ export const FINANCE_COLLECTIONS_TO_CLEAR = [
   'fin_cash_banks',
   'fin_accounts',
   'fin_audit_trails',
+  'fin_monthly_report_uploads',
 ] as const;
 
 const BATCH_LIMIT = 400;

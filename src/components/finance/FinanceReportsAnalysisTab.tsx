@@ -29,6 +29,8 @@ import {
   formatDateShort,
   formatRp,
   isContraAssetAccount,
+  resolveMonthScopedInventory,
+  resolveMonthScopedReceivablesPayables,
 } from '../../lib/financeEngine';
 import { FISCAL_MONTHS } from '../../lib/featureCatalog';
 import { DocumentPrintPreviewModal } from '../common/DocumentPrintPreviewModal';
@@ -166,34 +168,22 @@ export const FinanceReportsAnalysisTab: React.FC<FinanceReportsAnalysisTabProps>
   }, [rkaItems, rkaSubItems, allTransactions, filter.year, filter.bidang, filter.unitId]);
 
   const filteredInventory = useMemo(() => {
-    const maxInvYear = inventory.reduce((m, i) => Math.max(m, i.year || 0), 0);
-    const effectiveYear =
-      filter.year === 0
-        ? maxInvYear
-        : inventory.some((i) => i.year === filter.year)
-        ? filter.year
-        : maxInvYear;
-    return inventory.filter(
-      (i) =>
-        (effectiveYear === 0 || i.year === effectiveYear) &&
-        (filter.unitId === 'ALL' || !i.unitId || i.unitId === filter.unitId)
+    const scoped = resolveMonthScopedInventory(inventory, filter.year, filter.month);
+    return scoped.filter(
+      (i) => filter.unitId === 'ALL' || !i.unitId || i.unitId === filter.unitId
     );
-  }, [inventory, filter.year, filter.unitId]);
+  }, [inventory, filter.year, filter.month, filter.unitId]);
 
   const filteredReceivablesPayables = useMemo(() => {
-    const maxRpYear = receivablesPayables.reduce((m, r) => Math.max(m, r.year || 0), 0);
-    const effectiveYear =
-      filter.year === 0
-        ? maxRpYear
-        : receivablesPayables.some((r) => r.year === filter.year)
-        ? filter.year
-        : maxRpYear;
-    return receivablesPayables.filter(
-      (rp) =>
-        (effectiveYear === 0 || (rp.year || effectiveYear) === effectiveYear) &&
-        (filter.unitId === 'ALL' || !rp.unitId || rp.unitId === filter.unitId)
+    const scoped = resolveMonthScopedReceivablesPayables(
+      receivablesPayables,
+      filter.year,
+      filter.month
     );
-  }, [receivablesPayables, filter.year, filter.unitId]);
+    return scoped.filter(
+      (rp) => filter.unitId === 'ALL' || !rp.unitId || rp.unitId === filter.unitId
+    );
+  }, [receivablesPayables, filter.year, filter.month, filter.unitId]);
 
   const filteredPurchases = useMemo(() => {
     return purchases.filter(

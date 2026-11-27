@@ -44,6 +44,7 @@ import {
   computeFinancialAnalysisAndWarnings,
   computeRkaAbsorptionForTarget,
   formatRp,
+  resolveMonthScopedReceivablesPayables,
 } from './financeEngine';
 import { FISCAL_MONTHS } from './featureCatalog';
 
@@ -429,18 +430,22 @@ export function runBpkpCrossModuleAutomation(input: BPKPAutomationInput): BPKPAu
     })
   );
 
+  const bpkpMonthFilter = periodType === 'BULANAN' ? targetMonthName : 'ALL';
+
   const statements = computeAccountingStatements({
     accounts,
     journals: journalsYtd,
     transactions: txYtd,
     yearFilter: year,
+    monthFilter: bpkpMonthFilter,
   });
 
   const cashBankSummary = computeCashBankBalances(
     cashBanks.filter((c) => c.isActive !== false),
     txYtd,
     cutoffDate,
-    year
+    year,
+    bpkpMonthFilter
   );
 
   // Scoped RKA
@@ -496,7 +501,11 @@ export function runBpkpCrossModuleAutomation(input: BPKPAutomationInput): BPKPAu
       cumulativeUpToMonth: false,
     })
   );
-  const scopedRp = receivablesPayables.filter((rp) => rp.year === year || !rp.year);
+  const scopedRp = resolveMonthScopedReceivablesPayables(
+    receivablesPayables,
+    year,
+    bpkpMonthFilter
+  );
   const scopedInventory = inventory.filter((inv) =>
     isInScope({
       periodType,

@@ -31,6 +31,7 @@ import {
   getMonthNameFromDate,
   getTodayIso,
   matchesGlobalFilter,
+  resolveMonthScopedAssets,
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
 import { FinanceActor, FinancePermissions, LogFinanceAuditFn } from './financeShared';
@@ -120,38 +121,15 @@ export const FinanceAssetsTaxTab: React.FC<FinanceAssetsTaxTabProps> = ({
   const activeYear = filter.year !== 0 ? filter.year : 2026;
 
   const filteredAssets = useMemo(() => {
-    const snapshotYears = Array.from(
-      new Set(
-        assets
-          .map((a) => /^ast-(\d{4})-(dec|jan)-/.exec(a.id))
-          .filter((m): m is RegExpExecArray => Boolean(m))
-          .map((m) => parseInt(m[1], 10))
-      )
-    ).sort((a, b) => a - b);
-
-    const effectiveSnapshotYear = (() => {
-      if (snapshotYears.length === 0) return 0;
-      if (filter.year === 0) return snapshotYears[snapshotYears.length - 1];
-      if (snapshotYears.includes(filter.year)) return filter.year;
-      const prior = snapshotYears.filter((y) => y <= filter.year);
-      return prior.length > 0 ? prior[prior.length - 1] : snapshotYears[0];
-    })();
-
-    return assets.filter((a) => {
-      const snapMatch = /^ast-(\d{4})-(dec|jan)-/.exec(a.id);
-      if (snapMatch) {
-        if (parseInt(snapMatch[1], 10) !== effectiveSnapshotYear) return false;
-      } else if (filter.year !== 0) {
-        const acqYear = parseInt(a.acquisitionDate.slice(0, 4), 10) || 0;
-        if (acqYear > filter.year) return false;
-      }
-      return matchesGlobalFilter(
+    const scoped = resolveMonthScopedAssets(assets, filter.year, filter.month);
+    return scoped.filter((a) =>
+      matchesGlobalFilter(
         {
           unitId: a.unitId,
         },
         { ...filter, year: 0, month: 'ALL' }
-      );
-    });
+      )
+    );
   }, [assets, filter]);
 
   const assetTotals = useMemo(() => {

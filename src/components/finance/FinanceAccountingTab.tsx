@@ -35,6 +35,7 @@ import {
   getMonthNameFromDate,
   getTodayIso,
   isPeriodLocked,
+  resolveMonthScopedCoa,
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
 import { FinanceActor, FinancePermissions, LogFinanceAuditFn } from './financeShared';
@@ -104,14 +105,10 @@ export const FinanceAccountingTab: React.FC<FinanceAccountingTabProps> = ({
 
   const activeYear = filter.year !== 0 ? filter.year : 2026;
 
-  const sortedAccounts = useMemo(() => {
-    const maxCoaYear = accounts.reduce((m, a) => Math.max(m, a.year || 0), 0);
-    const targetYear = filter.year !== 0 ? filter.year : maxCoaYear;
-    const filtered = accounts.filter((a) => targetYear === 0 || a.year === targetYear);
-    return [...(filtered.length > 0 ? filtered : accounts)].sort((a, b) =>
-      a.code.localeCompare(b.code)
-    );
-  }, [accounts, filter.year]);
+  const sortedAccounts = useMemo(
+    () => resolveMonthScopedCoa(accounts, filter.year, filter.month).accounts,
+    [accounts, filter.year, filter.month]
+  );
 
   const filteredJournals = useMemo(() => {
     return journals

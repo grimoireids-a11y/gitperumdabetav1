@@ -338,6 +338,295 @@ export const findPotentialDuplicateTransactions = (
 };
 
 // =========================================================================
+// RESOLUSI DATA PER BULAN & TAHUN (STRICT MONTHLY ISOLATION)
+// =========================================================================
+
+const getImplicitMonthForYear = (year: number): string => (year <= 2025 ? 'Desember' : 'Januari');
+
+const getMonthOrderIndex = (monthName?: string): number => {
+  if (!monthName) return -1;
+  return FISCAL_MONTHS.findIndex((m) => m.toLowerCase() === monthName.trim().toLowerCase());
+};
+
+const pickEffectiveYear = (years: number[], yearFilter?: number): number => {
+  const validYears = years.filter((y) => typeof y === 'number' && y > 0);
+  if (validYears.length === 0) return 0;
+  const maxYear = Math.max(...validYears);
+  if (!yearFilter || yearFilter === 0) return maxYear;
+  if (validYears.includes(yearFilter)) return yearFilter;
+  const prior = validYears.filter((y) => y <= yearFilter);
+  return prior.length > 0 ? Math.max(...prior) : maxYear;
+};
+
+export const resolveMonthScopedCoa = (
+  accounts: FinanceAccount[],
+  yearFilter?: number,
+  monthFilter?: string
+): {
+  accounts: FinanceAccount[];
+  resolvedYear: number;
+  resolvedMonth: string;
+  isExplicitMonthMatch: boolean;
+} => {
+  const active = accounts.filter((a) => a.isActive !== false);
+  const effectiveYear = pickEffectiveYear(
+    active.map((a) => a.year || 0),
+    yearFilter
+  );
+  const yearAccounts = active.filter((a) => effectiveYear === 0 || a.year === effectiveYear);
+  const implicitMonth = getImplicitMonthForYear(effectiveYear || 2026);
+
+  const monthGroups = new Map<string, FinanceAccount[]>();
+  yearAccounts.forEach((a) => {
+    const m = (a.month && a.month.trim()) || implicitMonth;
+    const key = m.toLowerCase();
+    if (!monthGroups.has(key)) monthGroups.set(key, []);
+    monthGroups.get(key)!.push(a);
+  });
+
+  const targetMonthLower =
+    monthFilter && monthFilter !== 'ALL' ? monthFilter.trim().toLowerCase() : '';
+
+  if (targetMonthLower && monthGroups.has(targetMonthLower)) {
+    const list = monthGroups.get(targetMonthLower)!;
+    const hasExplicitMonthTag = list.some(
+      (a) => a.month && a.month.toLowerCase() === targetMonthLower
+    );
+    return {
+      accounts: [...list].sort((a, b) => a.code.localeCompare(b.code)),
+      resolvedYear: effectiveYear,
+      resolvedMonth: list[0]?.month || monthFilter!,
+      isExplicitMonthMatch: hasExplicitMonthTag,
+    };
+  }
+
+  // Pick the latest month present in effectiveYear so multi-month uploads never double count
+  const availableKeys = Array.from(monthGroups.keys()).sort((ka, kb) => {
+    const ia = getMonthOrderIndex(ka);
+    const ib = getMonthOrderIndex(kb);
+    return ib - ia;
+  });
+
+  if (targetMonthLower) {
+    // If requested month isn't uploaded yet, fallback to legacy year baseline (!a.month) or latest prior month <= requested
+    const targetIdx = getMonthOrderIndex(targetMonthLower);
+    const priorKey = availableKeys.find((k) => getMonthOrderIndex(k) <= targetIdx);
+    const legacyList = yearAccounts.filter((a) => !a.month);
+    const chosen =
+      legacyList.length > 0
+        ? legacyList
+        : priorKey
+        ? monthGroups.get(priorKey)!
+        : availableKeys.length > 0
+        ? monthGroups.get(availableKeys[0])!
+        : [];
+    return {
+      accounts: [...chosen].sort((a, b) => a.code.localeCompare(b.code)),
+      resolvedYear: effectiveYear,
+      resolvedMonth: chosen[0]?.month || implicitMonth,
+      isExplicitMonthMatch: false,
+    };
+  }
+
+  const bestKey = availableKeys[0];
+  const bestList = bestKey ? monthGroups.get(bestKey)! : yearAccounts;
+  return {
+    accounts: [...bestList].sort((a, b) => a.code.localeCompare(b.code)),
+    resolvedYear: effectiveYear,
+    resolvedMonth: bestList[0]?.month || implicitMonth,
+    isExplicitMonthMatch: Boolean(bestList[0]?.month),
+  };
+};
+
+export const resolveMonthScopedCashBanks = (
+  accounts: FinanceCashBankAccount[],
+  yearFilter?: number,
+  monthFilter?: string
+): {
+  accounts: FinanceCashBankAccount[];
+  resolvedYear: number;
+  resolvedMonth: string;
+  isExplicitMonthMatch: boolean;
+} => {
+  const effectiveYear = pickEffectiveYear(
+    accounts.map((a) => a.year || 0),
+    yearFilter
+  );
+  const yearAccounts = accounts.filter(
+    (a) => effectiveYear === 0 || a.year === effectiveYear || a.year === undefined
+  );
+  const implicitMonth = getImplicitMonthForYear(effectiveYear || 2026);
+
+  const monthGroups = new Map<string, FinanceCashBankAccount[]>();
+  yearAccounts.forEach((a) => {
+    const m = (a.month && a.month.trim()) || implicitMonth;
+    const key = m.toLowerCase();
+    if (!monthGroups.has(key)) monthGroups.set(key, []);
+    monthGroups.get(key)!.push(a);
+  });
+
+  const targetMonthLower =
+    monthFilter && monthFilter !== 'ALL' ? monthFilter.trim().toLowerCase() : '';
+
+  if (targetMonthLower && monthGroups.has(targetMonthLower)) {
+    const list = monthGroups.get(targetMonthLower)!;
+    const hasExplicitMonthTag = list.some(
+      (a) => a.month && a.month.toLowerCase() === targetMonthLower
+    );
+    return {
+      accounts: list,
+      resolvedYear: effectiveYear,
+      resolvedMonth: list[0]?.month || monthFilter!,
+      isExplicitMonthMatch: hasExplicitMonthTag,
+    };
+  }
+
+  const availableKeys = Array.from(monthGroups.keys()).sort((ka, kb) => {
+    return getMonthOrderIndex(kb) - getMonthOrderIndex(ka);
+  });
+
+  if (targetMonthLower) {
+    const legacyList = yearAccounts.filter((a) => !a.month);
+    const chosen =
+      legacyList.length > 0
+        ? legacyList
+        : availableKeys.length > 0
+        ? monthGroups.get(availableKeys[0])!
+        : [];
+    return {
+      accounts: chosen,
+      resolvedYear: effectiveYear,
+      resolvedMonth: chosen[0]?.month || implicitMonth,
+      isExplicitMonthMatch: false,
+    };
+  }
+
+  const bestKey = availableKeys[0];
+  const bestList = bestKey ? monthGroups.get(bestKey)! : yearAccounts;
+  return {
+    accounts: bestList,
+    resolvedYear: effectiveYear,
+    resolvedMonth: bestList[0]?.month || implicitMonth,
+    isExplicitMonthMatch: Boolean(bestList[0]?.month),
+  };
+};
+
+export const resolveMonthScopedAssets = (
+  assets: FinanceAsset[],
+  yearFilter?: number,
+  monthFilter?: string
+): FinanceAsset[] => {
+  const inferSnapshotMeta = (a: FinanceAsset): { year?: number; month?: string } => {
+    if (typeof a.year === 'number' && a.year > 0) {
+      return { year: a.year, month: a.month };
+    }
+    const snapMatch = /^ast-(\d{4})-(dec|jan)-/.exec(a.id);
+    if (snapMatch) {
+      return {
+        year: parseInt(snapMatch[1], 10),
+        month: snapMatch[2] === 'dec' ? 'Desember' : 'Januari',
+      };
+    }
+    return {};
+  };
+
+  const snapshotAssets = assets.filter((a) => Boolean(inferSnapshotMeta(a).year));
+  const manualAssets = assets.filter((a) => !inferSnapshotMeta(a).year);
+
+  const effectiveSnapYear = pickEffectiveYear(
+    snapshotAssets.map((a) => inferSnapshotMeta(a).year || 0),
+    yearFilter
+  );
+
+  const yearSnaps = snapshotAssets.filter(
+    (a) => effectiveSnapYear === 0 || inferSnapshotMeta(a).year === effectiveSnapYear
+  );
+
+  const monthGroups = new Map<string, FinanceAsset[]>();
+  yearSnaps.forEach((a) => {
+    const meta = inferSnapshotMeta(a);
+    const m = (meta.month || getImplicitMonthForYear(effectiveSnapYear || 2026)).toLowerCase();
+    if (!monthGroups.has(m)) monthGroups.set(m, []);
+    monthGroups.get(m)!.push(a);
+  });
+
+  const availableKeys = Array.from(monthGroups.keys()).sort(
+    (ka, kb) => getMonthOrderIndex(kb) - getMonthOrderIndex(ka)
+  );
+  const targetLower = monthFilter && monthFilter !== 'ALL' ? monthFilter.trim().toLowerCase() : '';
+
+  let chosenSnaps: FinanceAsset[] = [];
+  if (targetLower && monthGroups.has(targetLower)) {
+    chosenSnaps = monthGroups.get(targetLower)!;
+  } else if (targetLower) {
+    const targetIdx = getMonthOrderIndex(targetLower);
+    const priorKey = availableKeys.find((k) => getMonthOrderIndex(k) <= targetIdx);
+    chosenSnaps = priorKey
+      ? monthGroups.get(priorKey)!
+      : availableKeys[0]
+      ? monthGroups.get(availableKeys[0])!
+      : [];
+  } else if (availableKeys[0]) {
+    chosenSnaps = monthGroups.get(availableKeys[0])!;
+  }
+
+  const scopedManual = manualAssets.filter((a) => {
+    if (!yearFilter || yearFilter === 0) return true;
+    const acqYear = parseInt((a.acquisitionDate || '').slice(0, 4), 10) || 0;
+    return acqYear === 0 || acqYear <= yearFilter;
+  });
+
+  return [...chosenSnaps, ...scopedManual];
+};
+
+export const resolveMonthScopedReceivablesPayables = (
+  records: FinanceReceivablePayable[],
+  yearFilter?: number,
+  monthFilter?: string
+): FinanceReceivablePayable[] => {
+  const effectiveYear = pickEffectiveYear(
+    records.map((r) => r.year || 0),
+    yearFilter
+  );
+  const yearRecords = records.filter(
+    (r) => effectiveYear === 0 || !r.year || r.year === effectiveYear
+  );
+  if (monthFilter && monthFilter !== 'ALL') {
+    const targetLower = monthFilter.trim().toLowerCase();
+    return yearRecords.filter((r) => (r.month || '').toLowerCase() === targetLower);
+  }
+  // When ALL months is chosen for a year, pick the latest month snapshot if monthly snapshots exist to avoid summing snapshots across months
+  const monthsPresent = Array.from(
+    new Set(yearRecords.map((r) => (r.month || '').trim()).filter(Boolean))
+  ).sort((a, b) => getMonthOrderIndex(b) - getMonthOrderIndex(a));
+  if (monthsPresent.length <= 1) return yearRecords;
+  const latestLower = monthsPresent[0].toLowerCase();
+  return yearRecords.filter((r) => (r.month || '').toLowerCase() === latestLower);
+};
+
+export const resolveMonthScopedInventory = (
+  inventory: FinanceInventoryItem[],
+  yearFilter?: number,
+  monthFilter?: string
+): FinanceInventoryItem[] => {
+  const effectiveYear = pickEffectiveYear(
+    inventory.map((i) => i.year || 0),
+    yearFilter
+  );
+  const yearInv = inventory.filter((i) => effectiveYear === 0 || i.year === effectiveYear);
+  if (monthFilter && monthFilter !== 'ALL') {
+    const targetLower = monthFilter.trim().toLowerCase();
+    return yearInv.filter((i) => (i.month || '').toLowerCase() === targetLower);
+  }
+  const monthsPresent = Array.from(
+    new Set(yearInv.map((i) => (i.month || '').trim()).filter(Boolean))
+  ).sort((a, b) => getMonthOrderIndex(b) - getMonthOrderIndex(a));
+  if (monthsPresent.length <= 1) return yearInv;
+  const latestLower = monthsPresent[0].toLowerCase();
+  return yearInv.filter((i) => (i.month || '').toLowerCase() === latestLower);
+};
+
+// =========================================================================
 // KAS & BANK ENGINE
 // =========================================================================
 
@@ -353,40 +642,29 @@ export const computeCashBankBalances = (
   accounts: FinanceCashBankAccount[],
   transactions: FinanceTransaction[],
   dateCutoff?: string,
-  yearFilter?: number
+  yearFilter?: number,
+  monthFilter?: string
 ): {
   accounts: CashBankComputedAccount[];
   totalCashBalance: number;
   totalBankBalance: number;
   totalLiquidBalance: number;
 } => {
-  const maxYear = accounts.reduce(
-    (max, acc) => (typeof acc.year === 'number' && acc.year > max ? acc.year : max),
-    0
-  );
+  const resolved = resolveMonthScopedCashBanks(accounts, yearFilter, monthFilter);
+  const scopedAccounts = resolved.accounts;
 
-  let scopedAccounts = accounts;
-  if (yearFilter && yearFilter !== 0) {
-    const exactYearMatches = accounts.filter((a) => a.year === yearFilter);
-    if (exactYearMatches.length > 0) {
-      scopedAccounts = accounts.filter((a) => a.year === yearFilter || a.year === undefined);
-    } else if (maxYear > 0) {
-      const priorYears = accounts
-        .map((a) => a.year || 0)
-        .filter((y) => y > 0 && y <= yearFilter);
-      const fallbackYear = priorYears.length > 0 ? Math.max(...priorYears) : maxYear;
-      scopedAccounts = accounts.filter((a) => a.year === fallbackYear || a.year === undefined);
+  const posted = transactions.filter((t) => {
+    if (t.status !== 'Disetujui / Diposting') return false;
+    if (yearFilter && yearFilter !== 0 && t.year !== yearFilter) return false;
+    if (dateCutoff && t.transactionDate > dateCutoff) return false;
+    if (resolved.isExplicitMonthMatch && resolved.resolvedMonth) {
+      return (t.month || '').toLowerCase() === resolved.resolvedMonth.toLowerCase();
     }
-  } else if (maxYear > 0) {
-    scopedAccounts = accounts.filter((a) => a.year === maxYear || a.year === undefined);
-  }
-
-  const posted = transactions.filter(
-    (t) =>
-      t.status === 'Disetujui / Diposting' &&
-      (!yearFilter || yearFilter === 0 || t.year === yearFilter) &&
-      (!dateCutoff || t.transactionDate <= dateCutoff)
-  );
+    if (monthFilter && monthFilter !== 'ALL') {
+      return (t.month || '').toLowerCase() === monthFilter.toLowerCase();
+    }
+    return true;
+  });
 
   const computed: CashBankComputedAccount[] = scopedAccounts.map((acc) => {
     let totalIn = 0;
@@ -591,45 +869,25 @@ export const computeAccountingStatements = (params: {
   journals: FinanceJournal[];
   transactions: FinanceTransaction[];
   yearFilter: number;
+  monthFilter?: string;
 }): AccountingStatements => {
-  const { accounts, journals, transactions, yearFilter } = params;
+  const { accounts, journals, transactions, yearFilter, monthFilter } = params;
 
-  // Deduplicate COA by code for the selected year (when yearFilter === 0, pick latest year instead of double-counting multiple years)
-  const maxCoaYear = accounts
-    .filter((a) => a.isActive !== false && typeof a.year === 'number')
-    .reduce((max, a) => Math.max(max, a.year || 0), 0);
-
-  const effectiveCoaYear =
-    yearFilter === 0
-      ? maxCoaYear
-      : accounts.some((a) => a.isActive !== false && a.year === yearFilter)
-      ? yearFilter
-      : maxCoaYear;
-
-  const sortedAccounts = [...accounts]
-    .filter(
-      (a) =>
-        a.isActive !== false &&
-        (effectiveCoaYear === 0 || a.year === effectiveCoaYear)
-    )
-    .sort((a, b) => a.code.localeCompare(b.code));
-
-  const activeCoa =
-    sortedAccounts.length > 0
-      ? sortedAccounts
-      : Array.from(
-          [...accounts]
-            .filter((a) => a.isActive !== false)
-            .sort((a, b) => (b.year || 0) - (a.year || 0))
-            .reduce((map, acc) => {
-              if (!map.has(acc.code)) map.set(acc.code, acc);
-              return map;
-            }, new Map<string, FinanceAccount>())
-            .values()
-        ).sort((a, b) => a.code.localeCompare(b.code));
+  const resolvedCoa = resolveMonthScopedCoa(accounts, yearFilter, monthFilter);
+  const activeCoa = resolvedCoa.accounts;
 
   const postedJournals = journals
-    .filter((j) => j.status === 'Posted' && (yearFilter === 0 || j.year === yearFilter))
+    .filter((j) => {
+      if (j.status !== 'Posted') return false;
+      if (yearFilter !== 0 && j.year !== yearFilter) return false;
+      if (resolvedCoa.isExplicitMonthMatch && resolvedCoa.resolvedMonth) {
+        return (j.month || '').toLowerCase() === resolvedCoa.resolvedMonth.toLowerCase();
+      }
+      if (monthFilter && monthFilter !== 'ALL') {
+        return (j.month || '').toLowerCase() === monthFilter.toLowerCase();
+      }
+      return true;
+    })
     .sort((a, b) => a.journalDate.localeCompare(b.journalDate));
 
   const ledgers: AccountLedgerSummary[] = activeCoa.map((account) => {
@@ -937,9 +1195,17 @@ export const computeAccountingStatements = (params: {
   const prevTotalLiabilitiesAndEquity = prevTotalLiabilities + prevTotalEquity;
 
   // Cash Flow from Posted Transactions (Actual Direct Method)
-  const postedTxs = transactions.filter(
-    (t) => t.status === 'Disetujui / Diposting' && (yearFilter === 0 || t.year === yearFilter)
-  );
+  const postedTxs = transactions.filter((t) => {
+    if (t.status !== 'Disetujui / Diposting') return false;
+    if (yearFilter !== 0 && t.year !== yearFilter) return false;
+    if (resolvedCoa.isExplicitMonthMatch && resolvedCoa.resolvedMonth) {
+      return (t.month || '').toLowerCase() === resolvedCoa.resolvedMonth.toLowerCase();
+    }
+    if (monthFilter && monthFilter !== 'ALL') {
+      return (t.month || '').toLowerCase() === monthFilter.toLowerCase();
+    }
+    return true;
+  });
   const coaMap = new Map(activeCoa.map((c) => [c.id, c]));
 
   let operatingInflows = 0;
@@ -1170,6 +1436,7 @@ export const computeFinancialAnalysisAndWarnings = (params: {
   assets: FinanceAsset[];
   auditTrails: FinanceAuditTrail[];
   year: number;
+  monthFilter?: string;
   pdamSnapshots?: FinancePdamMonthlySnapshot[];
   inventory?: FinanceInventoryItem[];
 }): FinancialAnalysisResult => {
@@ -1183,6 +1450,7 @@ export const computeFinancialAnalysisAndWarnings = (params: {
     rkaSubItems,
     auditTrails,
     year,
+    monthFilter,
     pdamSnapshots = [],
     inventory = [],
   } = params;
@@ -1415,7 +1683,13 @@ export const computeFinancialAnalysisAndWarnings = (params: {
 
   // PDAM Operational & Billing Warnings from Snapshots & Inventory
   const activeSnapshot = pdamSnapshots
-    .filter((s) => year === 0 || s.year === year)
+    .filter(
+      (s) =>
+        (year === 0 || s.year === year) &&
+        (!monthFilter ||
+          monthFilter === 'ALL' ||
+          s.month.toLowerCase() === monthFilter.toLowerCase())
+    )
     .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0];
 
   if (activeSnapshot) {
@@ -1460,18 +1734,10 @@ export const computeFinancialAnalysisAndWarnings = (params: {
     }
   }
 
-  const maxInvYear = inventory.reduce((m, i) => Math.max(m, i.year || 0), 0);
-  const effectiveInvYear =
-    year === 0
-      ? maxInvYear
-      : inventory.some((i) => i.year === year)
-      ? year
-      : maxInvYear;
-  const deadStockValue = inventory
+  const scopedInvForWarnings = resolveMonthScopedInventory(inventory, year, monthFilter);
+  const deadStockValue = scopedInvForWarnings
     .filter(
-      (i) =>
-        (effectiveInvYear === 0 || i.year === effectiveInvYear) &&
-        (i.coaCode === '15.03.91' || i.category === 'Bahan Instalasi Tidak Bergerak')
+      (i) => i.coaCode === '15.03.91' || i.category === 'Bahan Instalasi Tidak Bergerak'
     )
     .reduce((s, i) => s + (i.endingValue || 0), 0);
   if (deadStockValue > 0) {

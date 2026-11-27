@@ -201,6 +201,10 @@ service cloud.firestore {
       allow read, write: if true;
     }
 
+    match /fin_monthly_report_uploads/{uploadId} {
+      allow read, write: if true;
+    }
+
     // Catch-all
     match /{document=**} {
       allow read, write: if true;

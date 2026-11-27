@@ -19,6 +19,7 @@ import {
   Loader2,
   AlertTriangle,
   X,
+  UploadCloud,
 } from 'lucide-react';
 import { collection, doc, onSnapshot, setDoc } from 'firebase/firestore';
 import { db } from '../../lib/firebase';
@@ -34,6 +35,7 @@ import {
   FinanceGlobalFilter,
   FinanceInventoryItem,
   FinanceJournal,
+  FinanceMonthlyUploadRecord,
   FinancePdamMonthlySnapshot,
   FinancePeriodClose,
   FinancePurchaseRecord,
@@ -46,6 +48,7 @@ import {
   computeAccountingStatements,
   computeCashBankBalances,
   computeFinancialAnalysisAndWarnings,
+  resolveMonthScopedCoa,
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
 import {
@@ -63,11 +66,13 @@ import { FinanceInventoryPurchaseTab } from './FinanceInventoryPurchaseTab';
 import { FinanceOperationsBillingTab } from './FinanceOperationsBillingTab';
 import { FinanceReportsAnalysisTab } from './FinanceReportsAnalysisTab';
 import { FinanceAuditTrailTab } from './FinanceAuditTrailTab';
+import { FinanceMonthlyUploadTab } from './FinanceMonthlyUploadTab';
 
 const FINANCE_TABS: {
   id: FinanceSubTabId;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  superUserOnly?: boolean;
 }[] = [
   { id: 'dashboard', label: 'Dashboard Keuangan', icon: LayoutDashboard },
   { id: 'penerimaan', label: 'Penerimaan', icon: ArrowDownLeft },
@@ -82,6 +87,12 @@ const FINANCE_TABS: {
   { id: 'laporan', label: 'Laporan', icon: FileText },
   { id: 'analisis', label: 'Analisis & Warning', icon: Activity },
   { id: 'audit_trail', label: 'Audit Trail', icon: History },
+  {
+    id: 'upload_laporan',
+    label: 'Upload Laporan Bulanan',
+    icon: UploadCloud,
+    superUserOnly: true,
+  },
 ];
 
 export const FinanceModule: React.FC = () => {
@@ -123,6 +134,7 @@ export const FinanceModule: React.FC = () => {
   const [purchases, setPurchases] = useState<FinancePurchaseRecord[]>([]);
   const [pdamSnapshots, setPdamSnapshots] = useState<FinancePdamMonthlySnapshot[]>([]);
   const [auditTrails, setAuditTrails] = useState<FinanceAuditTrail[]>([]);
+  const [uploadHistory, setUploadHistory] = useState<FinanceMonthlyUploadRecord[]>([]);
 
   useEffect(() => {
     const unsubs = [
@@ -186,6 +198,11 @@ export const FinanceModule: React.FC = () => {
       onSnapshot(collection(db, 'fin_audit_trails'), (snap) => {
         setAuditTrails(
           snap.docs.map((d) => ({ id: d.id, ...d.data() } as FinanceAuditTrail))
+        );
+      }),
+      onSnapshot(collection(db, 'fin_monthly_report_uploads'), (snap) => {
+        setUploadHistory(
+          snap.docs.map((d) => ({ id: d.id, ...d.data() } as FinanceMonthlyUploadRecord))
         );
       }),
     ];
@@ -339,20 +356,11 @@ export const FinanceModule: React.FC = () => {
   }, [rkaItems, transactions]);
 
   const coaFilterOptions = useMemo(() => {
-    const maxYear = accounts
-      .filter((a) => a.isActive !== false && typeof a.year === 'number')
-      .reduce((m, a) => Math.max(m, a.year || 0), 0);
-    const effectiveYear =
-      filter.year === 0
-        ? maxYear
-        : accounts.some((a) => a.isActive !== false && a.year === filter.year)
-        ? filter.year
-        : maxYear;
-    const list = accounts.filter(
-      (a) => a.isActive !== false && (effectiveYear === 0 || a.year === effectiveYear)
-    );
-    return (list.length > 0 ? list : accounts).sort((a, b) => a.code.localeCompare(b.code));
-  }, [accounts, filter.year]);
+    const resolved = resolveMonthScopedCoa(accounts, filter.year, filter.month);
+    const active = resolved.accounts.filter((a) => a.isActive !== false);
+    const list = active.length > 0 ? active : resolved.accounts;
+    return [...list].sort((a, b) => a.code.localeCompare(b.code));
+  }, [accounts, filter.year, filter.month]);
 
   // Real-time Engines
   const cashBankSummary = useMemo(
@@ -361,9 +369,10 @@ export const FinanceModule: React.FC = () => {
         cashBankAccounts,
         transactions,
         filter.dateTo || undefined,
-        filter.year
+        filter.year,
+        filter.month
       ),
-    [cashBankAccounts, transactions, filter.dateTo, filter.year]
+    [cashBankAccounts, transactions, filter.dateTo, filter.year, filter.month]
   );
 
   const statements = useMemo(
@@ -373,8 +382,9 @@ export const FinanceModule: React.FC = () => {
         journals,
         transactions,
         yearFilter: filter.year,
+        monthFilter: filter.month,
       }),
-    [accounts, journals, transactions, filter.year]
+    [accounts, journals, transactions, filter.year, filter.month]
   );
 
   const analysis = useMemo(
@@ -390,6 +400,7 @@ export const FinanceModule: React.FC = () => {
         assets,
         auditTrails,
         year: filter.year,
+        monthFilter: filter.month,
         pdamSnapshots,
         inventory,
       }),
@@ -404,6 +415,7 @@ export const FinanceModule: React.FC = () => {
       assets,
       auditTrails,
       filter.year,
+      filter.month,
       pdamSnapshots,
       inventory,
     ]
@@ -610,9 +622,9 @@ export const FinanceModule: React.FC = () => {
         </div>
       </div>
 
-      {/* 11 Sub-Feature Navigation Bar (A - K) */}
+      {/* 12 Sub-Feature Navigation Bar (A - K + Upload Super User) */}
       <div className="bg-white border border-slate-200 rounded-xl p-1.5 flex items-center gap-1 overflow-x-auto">
-        {FINANCE_TABS.map((t) => {
+        {FINANCE_TABS.filter((t) => !t.superUserOnly || permissions.isSuperUser).map((t) => {
           const Icon = t.icon;
           const active = activeSubTab === t.id;
           return (
@@ -622,7 +634,11 @@ export const FinanceModule: React.FC = () => {
               onClick={() => setActiveSubTab(t.id)}
               className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
                 active
-                  ? 'bg-emerald-700 text-white shadow-2xs'
+                  ? t.superUserOnly
+                    ? 'bg-teal-800 text-white shadow-2xs'
+                    : 'bg-emerald-700 text-white shadow-2xs'
+                  : t.superUserOnly
+                  ? 'text-teal-800 bg-teal-50/70 hover:bg-teal-100 border border-teal-200/80'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
               }`}
             >
@@ -773,6 +789,29 @@ export const FinanceModule: React.FC = () => {
           filter={filter}
           auditTrails={auditTrails}
           transactions={transactions}
+        />
+      )}
+
+      {activeSubTab === 'upload_laporan' && (
+        <FinanceMonthlyUploadTab
+          activeYear={filter.year !== 0 ? filter.year : activeYear}
+          availableYears={availableYears}
+          accounts={accounts}
+          cashBankAccounts={cashBankAccounts}
+          receivablesPayables={receivablesPayables}
+          assets={assets}
+          taxes={taxes}
+          inventory={inventory}
+          purchases={purchases}
+          pdamSnapshots={pdamSnapshots}
+          periodCloses={periodCloses}
+          uploadHistory={uploadHistory}
+          actor={actor}
+          permissions={permissions}
+          onJumpToPeriod={(year, month, subTab) => {
+            setFilter((prev) => ({ ...prev, year, month }));
+            setActiveSubTab(subTab);
+          }}
         />
       )}
 

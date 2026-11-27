@@ -939,6 +939,27 @@
         "lastSyncedAt": { "type": "string", "maxLength": 64 }
       },
       "required": ["id", "year", "assessmentTitle", "status", "kinerjaScore", "spipMaturityScore"]
+    },
+    "FinanceMonthlyUploadRecord": {
+      "title": "FinanceMonthlyUploadRecord",
+      "description": "Audit log and metadata of Super-User monthly financial report uploads parsed and applied to a target fiscal month",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 64 },
+        "targetYear": { "type": "number" },
+        "targetMonth": { "type": "string", "maxLength": 32 },
+        "fileName": { "type": "string", "maxLength": 256 },
+        "fileSizeBytes": { "type": "number" },
+        "fileMimeType": { "type": "string", "maxLength": 128 },
+        "parserSource": { "type": "string", "maxLength": 64 },
+        "applyMode": { "type": "string", "enum": ["REPLACE_MONTH", "MERGE_MONTH"] },
+        "uploadedBy": { "type": "string", "maxLength": 128 },
+        "uploadedByUid": { "type": "string", "maxLength": 64 },
+        "uploadedByRole": { "type": "string", "maxLength": 64 },
+        "appliedAt": { "type": "string", "maxLength": 64 },
+        "status": { "type": "string", "enum": ["Diterapkan"] }
+      },
+      "required": ["id", "targetYear", "targetMonth", "fileName", "uploadedByUid", "appliedAt", "status"]
     }
   },
   "firestore": {
@@ -1121,6 +1142,10 @@
     "/bpkp_assessments/{assessmentId}": {
       "schema": "BPKPSelfAssessment",
       "description": "Monthly and annual automated BPKP & SPIP Self Assessments synchronized across finance and supervision modules"
+    },
+    "/fin_monthly_report_uploads/{uploadId}": {
+      "schema": "FinanceMonthlyUploadRecord",
+      "description": "Super-User monthly financial report upload history isolated by target year and month"
     }
   }
 }

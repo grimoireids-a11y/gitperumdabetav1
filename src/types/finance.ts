@@ -25,6 +25,7 @@ export interface FinanceAccount {
   budgetYtd?: number;
   isContra?: boolean;
   year: number;
+  month?: string; // Optional month isolation (Januari..Desember)
   isActive: boolean;
   description?: string;
   createdBy?: string;
@@ -44,6 +45,7 @@ export interface FinanceCashBankAccount {
   coaId: string;
   coaCode: string;
   year?: number;
+  month?: string; // Optional month isolation (Januari..Desember)
   unitId?: string;
   unitName?: string;
   openingBalance: number;
@@ -267,6 +269,8 @@ export interface FinanceAsset {
   category: string;
   unitId: string;
   unitName: string;
+  year?: number; // Optional month/year isolation for uploaded monthly reports
+  month?: string;
   acquisitionDate: string;
   acquisitionCost: number;
   usefulLifeMonths: number;
@@ -571,4 +575,67 @@ export interface FinanceBankStatementLine {
   selected: boolean;
   suggestedCoaId?: string;
 }
+
+// =========================================================================
+// SUPER USER: AUTOMATED MONTHLY REPORT UPLOAD & PARSING SCHEMAS
+// =========================================================================
+
+export type FinanceUploadApplyMode = 'REPLACE_MONTH' | 'MERGE_MONTH';
+
+export interface FinanceMonthlyUploadParsedPayload {
+  targetYear: number;
+  targetMonth: string;
+  detectedPeriod: {
+    year?: number;
+    month?: string;
+    documentTitle?: string;
+    letterNumber?: string;
+    discrepancyWarning?: string;
+  };
+  coaAccounts: FinanceAccount[];
+  cashBanks: FinanceCashBankAccount[];
+  receivablesPayables: FinanceReceivablePayable[];
+  assets: FinanceAsset[];
+  taxes: FinanceTaxRecord[];
+  inventory: FinanceInventoryItem[];
+  purchases: FinancePurchaseRecord[];
+  pdamSnapshot: FinancePdamMonthlySnapshot;
+  parserSource: 'gemini-4-hydrogen' | 'excel-template' | 'manual-review';
+  parserNotes?: string[];
+}
+
+export interface FinanceMonthlyUploadRecord {
+  id: string;
+  targetYear: number;
+  targetMonth: string;
+  fileName: string;
+  fileSizeBytes: number;
+  fileMimeType: string;
+  parserSource: string;
+  applyMode: FinanceUploadApplyMode;
+  detectedPeriodLabel?: string;
+  summary: {
+    totalAssets: number;
+    totalLiabilitiesAndEquity: number;
+    isBalanced: boolean;
+    operatingRevenue: number;
+    operatingExpense: number;
+    operatingIncome: number;
+    netIncome: number;
+    totalCashBank: number;
+    coaCount: number;
+    cashBankCount: number;
+    rpCount: number;
+    assetCount: number;
+    taxCount: number;
+    inventoryCount: number;
+    purchaseCount: number;
+  };
+  uploadedBy: string;
+  uploadedByUid: string;
+  uploadedByRole: string;
+  appliedAt: string;
+  status: 'Diterapkan';
+}
+
 

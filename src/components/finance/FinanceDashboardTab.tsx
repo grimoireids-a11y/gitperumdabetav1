@@ -32,6 +32,7 @@ import {
   computeRkaAbsorptionForTarget,
   formatRp,
   matchesGlobalFilter,
+  resolveMonthScopedReceivablesPayables,
 } from '../../lib/financeEngine';
 import { FISCAL_MONTHS } from '../../lib/featureCatalog';
 
@@ -48,7 +49,8 @@ export type FinanceSubTabId =
   | 'operasional_pdam'
   | 'laporan'
   | 'analisis'
-  | 'audit_trail';
+  | 'audit_trail'
+  | 'upload_laporan';
 
 interface FinanceDashboardTabProps {
   filter: FinanceGlobalFilter;
@@ -129,37 +131,40 @@ export const FinanceDashboardTab: React.FC<FinanceDashboardTabProps> = ({
     [transactions]
   );
 
-  const effectivePointYear = useMemo(() => {
-    if (filter.year !== 0) return filter.year;
-    return receivablesPayables.reduce((m, r) => Math.max(m, r.year || 0), 0);
-  }, [receivablesPayables, filter.year]);
+  const scopedReceivablesPayables = useMemo(
+    () =>
+      resolveMonthScopedReceivablesPayables(
+        receivablesPayables,
+        filter.year,
+        filter.month
+      ),
+    [receivablesPayables, filter.year, filter.month]
+  );
 
   const openPiutang = useMemo(
     () =>
-      receivablesPayables
+      scopedReceivablesPayables
         .filter(
           (rp) =>
             rp.kind === 'PIUTANG' &&
             rp.status !== 'Lunas' &&
-            (effectivePointYear === 0 || (rp.year || effectivePointYear) === effectivePointYear) &&
-            (filter.unitId === 'ALL' || rp.unitId === filter.unitId)
+            (filter.unitId === 'ALL' || !rp.unitId || rp.unitId === filter.unitId)
         )
         .reduce((s, rp) => s + (rp.remainingAmount || 0), 0),
-    [receivablesPayables, effectivePointYear, filter.unitId]
+    [scopedReceivablesPayables, filter.unitId]
   );
 
   const openUtang = useMemo(
     () =>
-      receivablesPayables
+      scopedReceivablesPayables
         .filter(
           (rp) =>
             rp.kind === 'UTANG' &&
             rp.status !== 'Lunas' &&
-            (effectivePointYear === 0 || (rp.year || effectivePointYear) === effectivePointYear) &&
-            (filter.unitId === 'ALL' || rp.unitId === filter.unitId)
+            (filter.unitId === 'ALL' || !rp.unitId || rp.unitId === filter.unitId)
         )
         .reduce((s, rp) => s + (rp.remainingAmount || 0), 0),
-    [receivablesPayables, effectivePointYear, filter.unitId]
+    [scopedReceivablesPayables, filter.unitId]
   );
 
   // RKA Budget vs Realization (respecting global filters)

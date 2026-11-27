@@ -46,6 +46,8 @@ import {
   formatRp,
   getMonthNameFromDate,
   getTodayIso,
+  resolveMonthScopedAssets,
+  resolveMonthScopedReceivablesPayables,
 } from './financeEngine';
 
 const MONTHS_ARRAY: readonly string[] = FISCAL_MONTHS;
@@ -316,18 +318,22 @@ export const buildFinancialPerformanceAuditData = (
     }) && matchesUnit(t.unitId)
   );
 
+  const auditMonthFilter = periodType === 'BULANAN' ? targetMonthName : 'ALL';
+
   const statements = computeAccountingStatements({
     accounts,
     journals: journalsYtdScope,
     transactions: txYtdScope,
     yearFilter: year,
+    monthFilter: auditMonthFilter,
   });
 
   const cashBankSummary = computeCashBankBalances(
     cashBanks.filter((c) => c.isActive !== false && (unitFilterId === 'ALL' || !c.unitId || c.unitId === unitFilterId)),
     txYtdScope,
     cutoffDate,
-    year
+    year,
+    auditMonthFilter
   );
 
   // Filter RKA items
@@ -415,30 +421,18 @@ export const buildFinancialPerformanceAuditData = (
     })
   );
 
-  const scopedRp = receivablesPayables.filter(
-    (rp) => (rp.year === year || !rp.year) && matchesUnit(rp.unitId)
-  );
-  const assetSnapshotYears = Array.from(
-    new Set(
-      assets
-        .map((a) => /^ast-(\d{4})-(dec|jan)-/.exec(a.id))
-        .filter((m): m is RegExpExecArray => Boolean(m))
-        .map((m) => parseInt(m[1], 10))
-    )
-  ).sort((a, b) => a - b);
-  const targetAssetYear = (() => {
-    if (assetSnapshotYears.length === 0) return 0;
-    if (assetSnapshotYears.includes(year)) return year;
-    const prior = assetSnapshotYears.filter((y) => y <= year);
-    return prior.length > 0 ? prior[prior.length - 1] : assetSnapshotYears[0];
-  })();
-  const scopedAssets = assets.filter((a) => {
-    if (!matchesUnit(a.unitId)) return false;
-    const snapMatch = /^ast-(\d{4})-(dec|jan)-/.exec(a.id);
-    if (snapMatch) return parseInt(snapMatch[1], 10) === targetAssetYear;
-    const acqYear = parseInt(a.acquisitionDate?.slice(0, 4) || '0', 10);
-    return acqYear === 0 || acqYear <= year;
-  });
+  const scopedRp = resolveMonthScopedReceivablesPayables(
+    receivablesPayables,
+    year,
+    auditMonthFilter
+  ).filter((rp) => matchesUnit(rp.unitId));
+
+  const scopedAssets = resolveMonthScopedAssets(
+    assets,
+    year,
+    auditMonthFilter
+  ).filter((a) => matchesUnit(a.unitId));
+
   const scopedInventory = inventory.filter((inv) =>
     isItemInScope({
       periodType,
@@ -483,6 +477,7 @@ export const buildFinancialPerformanceAuditData = (
     assets: scopedAssets,
     auditTrails: scopedAuditTrails,
     year,
+    monthFilter: auditMonthFilter,
     pdamSnapshots: targetSnapshot ? [targetSnapshot] : yearSnapshots,
     inventory: scopedInventory,
   });

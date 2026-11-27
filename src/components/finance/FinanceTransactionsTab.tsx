@@ -42,6 +42,7 @@ import {
   getTodayIso,
   isPeriodLocked,
   matchesGlobalFilter,
+  resolveMonthScopedCoa,
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
 import {
@@ -133,16 +134,14 @@ export const FinanceTransactionsTab: React.FC<FinanceTransactionsTabProps> = ({
     const targetTypes = isReceipt
       ? ['Pendapatan', 'Aset', 'Kewajiban', 'Ekuitas']
       : ['Beban', 'Aset', 'Kewajiban', 'Ekuitas'];
-    const scoped = accounts.filter(
-      (a) =>
-        a.isActive !== false &&
-        targetTypes.includes(a.type) &&
-        (filter.year === 0 || a.year === filter.year)
+    const scopedAccounts = resolveMonthScopedCoa(accounts, filter.year, filter.month).accounts;
+    const scoped = scopedAccounts.filter(
+      (a) => a.isActive !== false && targetTypes.includes(a.type)
     );
-    return (scoped.length > 0 ? scoped : accounts.filter((a) => targetTypes.includes(a.type))).sort(
+    return (scoped.length > 0 ? scoped : scopedAccounts.filter((a) => targetTypes.includes(a.type))).sort(
       (a, b) => a.code.localeCompare(b.code)
     );
-  }, [accounts, isReceipt, filter.year]);
+  }, [accounts, isReceipt, filter.year, filter.month]);
 
   const txYear = useMemo(() => {
     const parsed = parseInt(transactionDate.slice(0, 4), 10);

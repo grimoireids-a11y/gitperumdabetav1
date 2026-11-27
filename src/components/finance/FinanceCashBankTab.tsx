@@ -35,6 +35,7 @@ import {
   getTodayIso,
   isPeriodLocked,
   matchesGlobalFilter,
+  resolveMonthScopedCoa,
   sanitizeFirestoreRecord,
 } from '../../lib/financeEngine';
 import { FinanceActor, FinancePermissions, LogFinanceAuditFn } from './financeShared';
@@ -129,7 +130,7 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
 
   const cashBankCoaOptions = useMemo(
     () =>
-      accounts.filter(
+      resolveMonthScopedCoa(accounts, filter.year, filter.month).accounts.filter(
         (a) =>
           a.isActive !== false &&
           (a.cashFlowGroup === 'Kas' ||
@@ -137,7 +138,7 @@ export const FinanceCashBankTab: React.FC<FinanceCashBankTabProps> = ({
             a.code.startsWith('1-11') ||
             a.code.startsWith('1-12'))
       ),
-    [accounts]
+    [accounts, filter.year, filter.month]
   );
 
   // BKU / Mutasi Ledger Rows with Running Balance
