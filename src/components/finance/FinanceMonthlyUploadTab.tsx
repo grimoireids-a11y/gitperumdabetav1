@@ -78,7 +78,31 @@ type PreviewSectionTab =
 
 const MAX_FILE_BYTES = 50 * 1024 * 1024; // 50 MB
 const DIRECT_INLINE_THRESHOLD_BYTES = 2 * 1024 * 1024; // 2 MB (safe for all proxies)
-const UPLOAD_CHUNK_BYTES = 1024 * 1024; // 1 MB binary chunks
+const UPLOAD_CHUNK_BYTES = 1024 * 1024; // 1 MB (exact 4 x 256 KB multiple required by resumable upload)
+
+interface UploadProgressState {
+  phase: 'IDLE' | 'UPLOADING' | 'UPLOADED' | 'PARSING' | 'DONE' | 'ERROR';
+  uploadPct: number;
+  uploadedBytes: number;
+  totalBytes: number;
+  chunkDone: number;
+  chunkTotal: number;
+  uploadComplete: boolean;
+  statusLabel: string;
+  detailLabel: string;
+}
+
+const INITIAL_UPLOAD_PROGRESS: UploadProgressState = {
+  phase: 'IDLE',
+  uploadPct: 0,
+  uploadedBytes: 0,
+  totalBytes: 0,
+  chunkDone: 0,
+  chunkTotal: 0,
+  uploadComplete: false,
+  statusLabel: '',
+  detailLabel: '',
+};
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -87,6 +111,17 @@ function readFileAsDataUrl(file: File): Promise<string> {
     reader.onerror = () => reject(new Error('Gagal membaca file dari perangkat.'));
     reader.readAsDataURL(file);
   });
+}
+
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  const sliceLen = 0x8000;
+  const parts: string[] = [];
+  for (let i = 0; i < bytes.length; i += sliceLen) {
+    const sub = bytes.subarray(i, Math.min(i + sliceLen, bytes.length));
+    parts.push(String.fromCharCode(...sub));
+  }
+  return btoa(parts.join(''));
 }
 
 function formatBytes(bytes: number): string {
@@ -145,6 +180,8 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [parsing, setParsing] = useState(false);
   const [parsingProgress, setParsingProgress] = useState<string>('');
+  const [uploadProgress, setUploadProgress] =
+    useState<UploadProgressState>(INITIAL_UPLOAD_PROGRESS);
   const [committing, setCommitting] = useState(false);
   const [feedback, setFeedback] = useState<{
     type: 'success' | 'error' | 'info';
@@ -266,6 +303,7 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
 
   const handleFilePicked = (file: File | null) => {
     setFeedback(null);
+    setUploadProgress(INITIAL_UPLOAD_PROGRESS);
     if (!file) {
       setSelectedFile(null);
       return;
@@ -286,8 +324,11 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
       return;
     }
     setParsing(true);
-    setParsingProgress('Mempersiapkan dokumen...');
+    setParsingProgress('Memulai proses unggahan...');
     setFeedback(null);
+
+    let hasCompletedUpload = false;
+    const totalBytes = selectedFile.size;
 
     try {
       const lowerName = selectedFile.name.toLowerCase();
@@ -299,13 +340,38 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
       let spreadsheetText = '';
       let mimeType = selectedFile.type || 'application/pdf';
       let fileBase64 = '';
-      let uploadId = '';
-      let totalChunks = 0;
+      let geminiFileUri = '';
+      let geminiFileName = '';
 
       if (isExcelOrCsv) {
+        setUploadProgress({
+          phase: 'UPLOADING',
+          uploadPct: 40,
+          uploadedBytes: Math.round(totalBytes * 0.4),
+          totalBytes,
+          chunkDone: 1,
+          chunkTotal: 1,
+          uploadComplete: false,
+          statusLabel: 'Membaca file Excel / CSV...',
+          detailLabel: `Memproses ${selectedFile.name} (${formatBytes(totalBytes)})`,
+        });
         setParsingProgress('Membaca lembar kerja Excel...');
+
         const buf = await selectedFile.arrayBuffer();
         const wb = XLSX.read(buf, { type: 'array' });
+
+        hasCompletedUpload = true;
+        setUploadProgress({
+          phase: 'UPLOADED',
+          uploadPct: 100,
+          uploadedBytes: totalBytes,
+          totalBytes,
+          chunkDone: 1,
+          chunkTotal: 1,
+          uploadComplete: true,
+          statusLabel: 'File 100% Terunggah & Terbaca Sempurna',
+          detailLabel: `${formatBytes(totalBytes)} / ${formatBytes(totalBytes)}`,
+        });
 
         // 1. Check if uploaded workbook matches our exact structured PDAM Excel template
         const directTemplateParsed = tryParseStructuredPdamExcelWorkbook({
@@ -317,6 +383,17 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
         if (directTemplateParsed) {
           setParsedPayload(directTemplateParsed);
           setPreviewTab('RINGKASAN');
+          setUploadProgress({
+            phase: 'DONE',
+            uploadPct: 100,
+            uploadedBytes: totalBytes,
+            totalBytes,
+            chunkDone: 1,
+            chunkTotal: 1,
+            uploadComplete: true,
+            statusLabel: '100% Terunggah Sempurna & Template Terbaca',
+            detailLabel: `Siap direview untuk periode ${targetMonth} ${targetYear}`,
+          });
           setFeedback({
             type: 'success',
             message: `Template Excel terbaca lengkap dan dikunci ke periode ${targetMonth} ${targetYear} (${directTemplateParsed.coaAccounts.length} akun COA, ${directTemplateParsed.cashBanks.length} Kas/Bank). Silakan review & sesuaikan sebelum diterapkan.`,
@@ -337,38 +414,87 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
         }
 
         if (selectedFile.size <= DIRECT_INLINE_THRESHOLD_BYTES) {
-          setParsingProgress('Menyiapkan file untuk pembacaan otomatis...');
+          setUploadProgress({
+            phase: 'UPLOADING',
+            uploadPct: 50,
+            uploadedBytes: Math.round(totalBytes * 0.5),
+            totalBytes,
+            chunkDone: 1,
+            chunkTotal: 1,
+            uploadComplete: false,
+            statusLabel: 'Mengunggah file ke server...',
+            detailLabel: `${formatBytes(totalBytes)}`,
+          });
+          setParsingProgress('Mengunggah file...');
           fileBase64 = await readFileAsDataUrl(selectedFile);
+          hasCompletedUpload = true;
+          setUploadProgress({
+            phase: 'UPLOADED',
+            uploadPct: 100,
+            uploadedBytes: totalBytes,
+            totalBytes,
+            chunkDone: 1,
+            chunkTotal: 1,
+            uploadComplete: true,
+            statusLabel: '100% Terunggah Sempurna — Menjalankan Pembacaan Dokumen...',
+            detailLabel: `${formatBytes(totalBytes)} / ${formatBytes(totalBytes)}`,
+          });
         } else {
-          // Upload in 1 MB raw binary chunks to bypass reverse proxy payload limits (HTTP 413)
-          uploadId = `fup_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-          totalChunks = Math.ceil(selectedFile.size / UPLOAD_CHUNK_BYTES);
+          // Stateless Resumable Upload via existing /api/gemini/parse-finance-report (1 MB chunks)
+          const totalChunks = Math.ceil(selectedFile.size / UPLOAD_CHUNK_BYTES);
+          setUploadProgress({
+            phase: 'UPLOADING',
+            uploadPct: 2,
+            uploadedBytes: 0,
+            totalBytes,
+            chunkDone: 0,
+            chunkTotal: totalChunks,
+            uploadComplete: false,
+            statusLabel: 'Memulai sesi unggahan aman...',
+            detailLabel: `0 MB / ${formatBytes(totalBytes)} · 0/${totalChunks} bagian`,
+          });
+
+          const startRes = await fetch('/api/gemini/parse-finance-report', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'upload_start',
+              actorRole: actor.role,
+              fileName: selectedFile.name,
+              mimeType,
+              fileSize: selectedFile.size,
+            }),
+          });
+          const startBody = await startRes.json().catch(() => ({}));
+          if (!startRes.ok || !startBody?.sessionToken) {
+            throw new Error(
+              startBody?.error ||
+                `Gagal memulai sesi unggahan file (HTTP ${startRes.status}).`
+            );
+          }
+
+          const sessionToken = String(startBody.sessionToken);
 
           for (let idx = 0; idx < totalChunks; idx++) {
-            const start = idx * UPLOAD_CHUNK_BYTES;
-            const end = Math.min(selectedFile.size, start + UPLOAD_CHUNK_BYTES);
-            const chunkBlob = selectedFile.slice(start, end);
-            const pct = Math.round(((idx + 1) / totalChunks) * 100);
-            setParsingProgress(
-              `Mengunggah dokumen bagian ${idx + 1}/${totalChunks} (${pct}%)...`
-            );
+            const startOffset = idx * UPLOAD_CHUNK_BYTES;
+            const endOffset = Math.min(selectedFile.size, startOffset + UPLOAD_CHUNK_BYTES);
+            const chunkBuf = await selectedFile.slice(startOffset, endOffset).arrayBuffer();
+            const chunkBase64 = arrayBufferToBase64(chunkBuf);
+            const isFinalChunk = idx === totalChunks - 1;
 
-            const chunkRes = await fetch(
-              `/api/gemini/upload-finance-chunk?uploadId=${encodeURIComponent(
-                uploadId
-              )}&chunkIndex=${idx}&totalChunks=${totalChunks}`,
-              {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/octet-stream',
-                  'x-actor-role': actor.role,
-                  'x-upload-id': uploadId,
-                  'x-chunk-index': String(idx),
-                  'x-total-chunks': String(totalChunks),
-                },
-                body: chunkBlob,
-              }
-            );
+            const chunkRes = await fetch('/api/gemini/parse-finance-report', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                action: 'upload_chunk',
+                actorRole: actor.role,
+                mimeType,
+                sessionToken,
+                chunkBase64,
+                offset: startOffset,
+                isFinalChunk,
+              }),
+            });
             const chunkBody = await chunkRes.json().catch(() => ({}));
             if (!chunkRes.ok) {
               throw new Error(
@@ -376,25 +502,60 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
                   `Gagal mengunggah bagian dokumen ke-${idx + 1} (HTTP ${chunkRes.status}).`
               );
             }
+
+            const pct = Math.round((endOffset / totalBytes) * 100);
+            setParsingProgress(`Mengunggah bagian ${idx + 1}/${totalChunks} (${pct}%)...`);
+            setUploadProgress({
+              phase: isFinalChunk ? 'UPLOADED' : 'UPLOADING',
+              uploadPct: pct,
+              uploadedBytes: endOffset,
+              totalBytes,
+              chunkDone: idx + 1,
+              chunkTotal: totalChunks,
+              uploadComplete: isFinalChunk,
+              statusLabel: isFinalChunk
+                ? '100% Terunggah Sempurna — Memproses Pembacaan Otomatis...'
+                : `Mengunggah dokumen (${pct}%)...`,
+              detailLabel: `${formatBytes(endOffset)} / ${formatBytes(totalBytes)} · Bagian ${
+                idx + 1
+              }/${totalChunks}`,
+            });
+
+            if (isFinalChunk) {
+              if (!chunkBody?.geminiFileUri || !chunkBody?.geminiFileName) {
+                throw new Error('Server gagal memfinalisasi dokumen yang diunggah.');
+              }
+              geminiFileUri = String(chunkBody.geminiFileUri);
+              geminiFileName = String(chunkBody.geminiFileName);
+              hasCompletedUpload = true;
+            }
           }
         }
       }
 
+      setUploadProgress((prev) => ({
+        ...prev,
+        phase: 'PARSING',
+        uploadPct: 100,
+        uploadComplete: true,
+        statusLabel: '100% Terunggah Sempurna · Membaca & Mengekstrak Angka...',
+      }));
       setParsingProgress('Membaca & mengekstrak angka laporan dengan AI...');
 
       const res = await fetch('/api/gemini/parse-finance-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          action: 'parse',
           actorRole: actor.role,
           actorName: actor.displayName,
           targetYear,
           targetMonth,
           fileName: selectedFile.name,
           mimeType,
+          geminiFileUri: geminiFileUri || undefined,
+          geminiFileName: geminiFileName || undefined,
           fileBase64: fileBase64 || undefined,
-          uploadId: uploadId || undefined,
-          totalChunks: totalChunks || undefined,
           spreadsheetText: spreadsheetText || undefined,
         }),
       });
@@ -403,7 +564,7 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
       if (!res.ok || !body?.data) {
         if (res.status === 413 && !body?.error) {
           throw new Error(
-            'Ukuran payload melebihi batas gateway server (HTTP 413). Gunakan template Excel atau perkecil resolusi file PDF.'
+            'Ukuran payload melebihi batas gateway server (HTTP 413). Gunakan file di bawah 50 MB atau template Excel.'
           );
         }
         throw new Error(body?.error || `Gagal membaca laporan (HTTP ${res.status}).`);
@@ -412,14 +573,35 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
       const extracted = body.data as FinanceMonthlyUploadParsedPayload;
       setParsedPayload(extracted);
       setPreviewTab('RINGKASAN');
+      setUploadProgress((prev) => ({
+        phase: 'DONE',
+        uploadPct: 100,
+        uploadedBytes: totalBytes,
+        totalBytes,
+        chunkDone: prev.chunkTotal || 1,
+        chunkTotal: prev.chunkTotal || 1,
+        uploadComplete: true,
+        statusLabel: '100% Terunggah Sempurna & Laporan Berhasil Diekstrak',
+        detailLabel: `${formatBytes(totalBytes)} selesai dibaca untuk ${targetMonth} ${targetYear}`,
+      }));
       setFeedback({
         type: 'success',
-        message: `Dokumen "${selectedFile.name}" berhasil dibaca otomatis (${extracted.coaAccounts.length} akun COA, ${extracted.cashBanks.length} Kas/Bank, ${extracted.assets.length} Aset, ${extracted.receivablesPayables.length} Utang/Piutang) dan ditandai untuk periode ${targetMonth} ${targetYear}.`,
+        message: `Dokumen "${selectedFile.name}" berhasil diunggah 100% dan dibaca otomatis (${extracted.coaAccounts.length} akun COA, ${extracted.cashBanks.length} Kas/Bank, ${extracted.assets.length} Aset, ${extracted.receivablesPayables.length} Utang/Piutang) untuk periode ${targetMonth} ${targetYear}.`,
       });
     } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Gagal membaca file laporan.';
+      setUploadProgress((prev) => ({
+        ...prev,
+        phase: 'ERROR',
+        uploadComplete: hasCompletedUpload,
+        statusLabel: hasCompletedUpload
+          ? 'File 100% Terunggah Sempurna, namun Ekstraksi Gagal'
+          : `Unggahan Gagal di ${prev.uploadPct}%`,
+        detailLabel: msg,
+      }));
       setFeedback({
         type: 'error',
-        message: err instanceof Error ? err.message : 'Gagal membaca file laporan.',
+        message: msg,
       });
     } finally {
       setParsing(false);
@@ -833,6 +1015,66 @@ export const FinanceMonthlyUploadTab: React.FC<FinanceMonthlyUploadTabProps> = (
                 </div>
               )}
             </div>
+
+            {uploadProgress.phase !== 'IDLE' && (
+              <div
+                className={`rounded-xl border p-3 space-y-2 text-xs ${
+                  uploadProgress.phase === 'ERROR' && !uploadProgress.uploadComplete
+                    ? 'bg-rose-50/80 border-rose-200'
+                    : uploadProgress.phase === 'DONE'
+                    ? 'bg-emerald-50/80 border-emerald-200'
+                    : 'bg-slate-50 border-slate-200'
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 font-bold text-slate-800">
+                    {uploadProgress.uploadComplete ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0" />
+                    ) : uploadProgress.phase === 'ERROR' ? (
+                      <AlertTriangle className="w-4 h-4 text-rose-700 shrink-0" />
+                    ) : (
+                      <Loader2 className="w-4 h-4 text-emerald-700 animate-spin shrink-0" />
+                    )}
+                    <span>{uploadProgress.statusLabel}</span>
+                  </div>
+                  <span
+                    className={`px-2 py-0.5 rounded font-bold text-[11px] ${
+                      uploadProgress.uploadComplete
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : uploadProgress.phase === 'ERROR'
+                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                        : 'bg-teal-100 text-teal-800 border border-teal-200'
+                    }`}
+                  >
+                    Upload {uploadProgress.uploadPct}%
+                    {uploadProgress.uploadComplete ? ' · Sempurna' : ''}
+                  </span>
+                </div>
+
+                <div className="w-full h-2.5 bg-slate-200 rounded-full overflow-hidden">
+                  <div
+                    className={`h-full transition-all duration-200 rounded-full ${
+                      uploadProgress.phase === 'ERROR' && !uploadProgress.uploadComplete
+                        ? 'bg-rose-600'
+                        : uploadProgress.uploadComplete
+                        ? 'bg-emerald-600'
+                        : 'bg-teal-600'
+                    }`}
+                    style={{ width: `${Math.max(2, uploadProgress.uploadPct)}%` }}
+                  />
+                </div>
+
+                <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-600">
+                  <span className="truncate max-w-full">{uploadProgress.detailLabel}</span>
+                  {uploadProgress.phase === 'PARSING' && (
+                    <span className="inline-flex items-center gap-1 font-semibold text-teal-800 shrink-0">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      <span>Menganalisis isi laporan...</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
